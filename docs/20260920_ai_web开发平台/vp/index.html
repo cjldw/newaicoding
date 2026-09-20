@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
 <title>CodingConsole 演示</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1166,7 +1168,7 @@ function centerPane(t){
       </div></div></div>
       <div class="pane fill" data-p="diff">
         <div class="d-chips"><button class="dchip on">tests/cases/TC-05.assert.ts <span class="s"><span class="add">+4</span> <span class="del">−2</span></span></button><button class="dchip">docs/…/T-203/report.md <span class="s"><span class="add">+96</span> <span class="del">−0</span></span></button></div>
-        <div class="ed-scroll" style="padding:8px 0">${diffBlock([['h','@@ -8,4 +8,6 @@'],['c','  it("TC-05 超长地址", () => {'],['d','-    expect(len(addr)).toBeLessThan(200);'],['a','+    // 豁免:V1 接受截断,断言改为告警存在'],['a','+    expect(warns(addr)).toContain("ADDR_TOO_LONG");'],['c','  });'])]}</div>
+        <div class="ed-scroll" style="padding:8px 0">${diffBlock([['h','@@ -8,4 +8,6 @@'],['c','  it("TC-05 超长地址", () => {'],['d','-    expect(len(addr)).toBeLessThan(200);'],['a','+    // 豁免:V1 接受截断,断言改为告警存在'],['a','+    expect(warns(addr)).toContain("ADDR_TOO_LONG");'],['c','  });']])}</div>
       </div>`;
   }
   if(t.type === 'release'){

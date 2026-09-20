@@ -97,16 +97,15 @@
 - **前置条件**:无
 - **边界定义**:
   - 做什么:
-    - 账号+密码注册/登录、找回密码(邮件)、登出、修改本人密码/昵称/头像
+    - **手机号+密码注册/登录**、找回密码(V2 短信验证码)、登出、修改本人密码/昵称/头像
     - **GitLab 个人 token 绑定/解绑/重新绑定**:任务执行(clone/pull/push/commit)使用用户自己的 token,确保 GitLab 侧操作可追溯到人
-  - 不做什么:第三方 OAuth、SSO、手机号验证、GitLab OAuth(仅用 personal access token)
+  - 不做什么:第三方 OAuth、SSO、邮箱验证、GitLab OAuth(仅用 personal access token);**V1 不接短信服务商**(预留字段与接口,短信功能 V2 再做)
 - **字段定义**(User):
   | 字段 | 类型 | 必填 | 默认值 | 校验规则 | 说明 |
   |---|---|---|---|---|---|
-  | username | string(32) | 是 | - | 全局唯一,字母数字下划线,3-32 | 登录名 |
-  | email | string(255) | 是 | - | 合法邮箱,全局唯一 | 找回密码 |
+  | phone | string(11) | 是 | - | 合法手机号(中国:`^1[3-9]\d{9}$`),全局唯一 | 登录名/找回密码 |
   | password | string | 是 | - | ≥8 位含字母+数字,bcrypt 存储 | 不明文 |
-  | nickname | string(32) | 否 | =username | - | |
+  | nickname | string(32) | 否 | =phone | - | |
   | avatar_url | string(255) | 否 | 默认头像 | URL | |
   | status | enum | 是 | active | active/disabled | |
   | **gitlab_username** | string(64) | 否 | null | - | GitLab 上的用户名(绑定时从 GitLab 拉取) |
@@ -119,7 +118,7 @@
   |---|---|---|
   | 注册重名 | 拒绝并提示字段 | 停留注册页 |
   | 密码错 5 次 | 锁 10 分钟 | 返回倒计时 |
-  | 找回密码 | 邮件含一次性 token,30min 有效 | 重置页 |
+  | **找回密码(V2)** | **短信验证码**(6 位数字,10 分钟有效) | 重置页 |
   | 登录成功 | JWT(access 2h + refresh 7d) | 项目列表 |
   | **绑定 GitLab token** | 用户粘贴 token → 平台调 `GET /user` 验证 → 校验 scope 含 `read_repository`+`write_repository` → 保存 username 与 scopes | 绑定成功 |
   | **token scope 不足** | 提示具体缺失的 scope,拒绝绑定 | 停留绑定页 |
@@ -127,15 +126,15 @@
   | **解绑** | 清空 gitlab_* 字段;**进行中的任务不受影响**(已在容器内的 token 仍可用到任务结束) | |
 - **依赖**:无
 - **异常与边界场景**:
-  - 邮箱服务不可用 → 找回密码降级"联系管理员"
+  - **短信服务不可用(V2)** → 找回密码降级"联系管理员"
   - 多处登录允许(V1 不做单点踢出)
-  - username 不可改,email 可改
+  - phone 不可改
   - **token 加密密钥**:平台级 KMS/环境变量,V1 用单 key;若 key 泄露需全量重新绑定
   - **未绑定 token 的用户**:仅可浏览(viewer 角色不绑也能看);editor/owner 创建任务前**强制绑定**(R12)
 - **验收标准**:
   1. 注册-登录-登出闭环
   2. 5 次错误触发锁定
-  3. 找回密码邮件可达,token 一次性
+  3. **找回密码短信可达(V2),验证码一次性**
   4. 密码无明文落盘/日志
   5. GitLab token 绑定/解绑/重绑可用
   6. scope 不足时给出明确错误
@@ -369,7 +368,7 @@
   | **上传限制** | 单文件 ≤ 50MB;单次 ≤ 10 个;单任务累计 ≤ 200MB;超限拒绝 | 前端提示 |
   | **`@文件` 引用** | 用户在对话框输入 `@` → 前端自动补全当前任务已上传的文件名;选中后插入 `@filename`;发送时平台解析 `@filename` → 查 `task_uploaded_files` → **< 100KB 注入内容到 prompt** + **≥ 100KB 只注入路径**;`file_refs` 记录引用关系 | AI 收到文件内容或路径 |
   | **下载文件** | 用户点击对话框/文件列表中的文件名 → 平台从容器拉取文件流回前端 | 浏览器下载 |
-  | AI 完成一段工作 | **对每个有改动的仓库**:`cd /workspace/{path} && git add -A && git commit -m "[ai:{type}] {task_title}"`(commit author = 创建任务的用户 GitLab username/email) | 分支有新提交 |
+  | AI 完成一段工作 | **对每个有改动的仓库**:`cd /workspace/{path} && git add -A && git commit -m "[ai:{type}] {task_title}"`(commit author = 创建任务的用户 GitLab username,committer 平台 AI 标识) | 分支有新提交 |
   | AI push | **对每个有改动的仓库**:`git push origin {work_branch}`(用**用户 token**) | 同步到 GitLab,GitLab 侧显示该用户 push |
   | push 冲突(他人在先) | AI 自动 `git pull --rebase` 或 `git merge`,解决冲突后再 push;失败则通知用户人工介入(在任务终端) | 或 failed |
   | 用户手动停止 | Claude 中断 → 通知 Runner 销毁容器 | cancelled(未 push 的改动丢失) |
@@ -529,7 +528,7 @@
   - 端口冲突:平台检测 `deploy_port` 在**全平台**唯一,冲突拒绝
   - 单项目**同时部署数 ≤ 5**
   - 部署中的任务**不占用** R4 的"并发 running 任务 ≤ 3"配额
-  - 部署容器崩溃 → 告警到项目 owner 邮箱
+  - 部署容器崩溃 → 告警到项目 owner **站内信 + 钉钉 webhook**(Q12 已确认)
   - 下线 = 用户点击"下线" → 摘除路由 + 销毁容器
 - **验收标准**:
   1. 发布后 `http://{slug}.coding-console.zhanqitv.com.cn:{port}` 可公开访问
@@ -727,7 +726,7 @@
 - **触发场景**:项目设置 → 成员 Tab
 - **前置条件**:R2
 - **边界定义**:
-  - 做什么:邀请(用户名/邮箱搜索)/移除/角色变更
+  - 做什么:邀请(**手机号搜索**)/移除/角色变更
   - 不做什么:组织层级/跨项目权限继承/审批流
 - **字段定义**:
   | 字段 | 类型 | 必填 | 默认值 | 说明 |
@@ -1037,6 +1036,83 @@
   4. 同名 MCP server / Skill 项目级覆盖镜像预装
   5. MCP 配置里的敏感信息加密存储,接口返回打码
 
+### R18:站内信与通知
+
+- **描述**:平台统一通知中心,承载所有告警/事件通知;**站内信 + 钉钉 webhook** 双通道;**实时 WebSocket 推送** toast
+- **触发场景**:任务失败/部署崩溃/评审通过/被邀请加入项目等事件发生时自动触发
+- **前置条件**:R1(用户);R2(项目)
+- **边界定义**:
+  - 做什么:
+    - **站内信中心**:列表 + 详情 + 已读/未读/删除 + 分类 Tab(全部/告警/任务/项目)
+    - **钉钉 webhook**:个人级(用户绑定自己的 webhook)+ 项目级(owner 绑定项目钉钉群 webhook)
+    - **实时推送**:通知到达时,前端**实时弹 toast**(走 D5 统一 WebSocket 网关,频道 `/ws/notifications`)
+    - **通知分级**:critical(紧急)/ normal(普通)/ info(信息),不同级别走不同通道
+  - 不做什么:
+    - **不做**邮件通知(仅站内信 + 钉钉)
+    - **不做**通知模板自定义(V1 内置模板)
+    - **不做**通知订阅规则自定义(V1 内置接收人规则)
+- **字段定义**(Notification):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | notification_id | uuid | 是 | auto | |
+  | recipient_id | ref(R1) | 是 | - | 接收人 |
+  | type | enum | 是 | - | deploy_failed / runner_offline / task_failed / push_failed / review_approved / review_rejected / invited_to_project / task_done / deployed |
+  | level | enum | 是 | normal | critical / normal / info |
+  | title | string(255) | 是 | - | |
+  | content | text | 是 | - | Markdown |
+  | link | string(255) | 否 | null | 跳转链接(如任务详情页) |
+  | project_id | ref(R2) | 否 | null | 关联项目(可空) |
+  | task_id | ref(R4) | 否 | null | 关联任务(可空) |
+  | read_at | datetime | 否 | null | 已读时间(null=未读) |
+  | created_at | datetime | 是 | now | |
+
+  **字段定义**(UserNotificationSettings,个人通知设置):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | user_id | ref(R1) | 是 | - | 唯一 |
+  | dingtalk_webhook | string(255) | 否 | null | 个人钉钉 webhook URL(明文,非敏感) |
+  | dingtalk_enabled | bool | 是 | false | 是否启用钉钉通知 |
+  | realtime_toast_enabled | bool | 是 | true | 是否启用实时 toast |
+
+  **字段定义**(Project 表新增):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | dingtalk_webhook | string(255) | 否 | null | 项目钉钉群 webhook URL(owner 配置) |
+  | dingtalk_enabled | bool | 是 | false | 是否启用项目钉钉通知 |
+
+- **交互规则**(通知级别 × 通道矩阵):
+  | 级别 | 站内信 | 钉钉(个人) | 钉钉(项目) | 实时 toast |
+  |---|---|---|---|---|
+  | critical | ✅ | ✅(若启用) | ✅(若启用) | ✅(若启用) |
+  | normal | ✅ | ❌ | ❌ | ✅(若启用) |
+  | info | ✅ | ❌ | ❌ | ❌ |
+
+  **通知场景与接收人**:
+  | 场景 | type | level | 接收人 | 通道 |
+  |---|---|---|---|---|
+  | 部署容器崩溃 | deploy_failed | critical | 项目 owner + 部署操作人 | 站内信 + 钉钉(个人+项目) + toast |
+  | Runner 全部 offline | runner_offline | critical | 超管 | 站内信 + 钉钉(个人) + toast |
+  | 任务 failed(GitLab token 失效等) | task_failed | normal | 任务创建者 | 站内信 + toast |
+  | 容器销毁前 push 失败 | push_failed | critical | 任务创建者 | 站内信 + 钉钉(个人) + toast |
+  | 需求评审通过 | review_approved | normal | 需求创建者 | 站内信 + toast |
+  | 需求评审驳回 | review_rejected | normal | 需求创建者 | 站内信 + toast |
+  | 被邀请加入项目 | invited_to_project | normal | 被邀请人 | 站内信 + toast |
+  | 任务完成 | task_done | info | 任务创建者 | 站内信 |
+  | 部署成功 | deployed | info | 项目 owner + 部署操作人 | 站内信 |
+
+- **依赖**:R1、R2、R4
+- **异常与边界场景**:
+  - **钉钉 webhook 失效**(调用返回 4xx):记录失败日志,不影响站内信;连续失败 3 次标记 webhook 失效,通知用户重新配置
+  - **实时 toast 关闭时**:仅写站内信,不弹 toast
+  - **用户离线时**:站内信正常入库,用户下次上线时看到未读计数
+- **验收标准**:
+  1. 部署崩溃时,项目 owner + 部署操作人收到站内信 + 钉钉 + toast
+  2. 任务失败时,任务创建者收到站内信 + toast
+  3. 用户能在"通知中心"查看历史通知,标记已读/删除
+  4. 用户能在"个人设置 → 通知设置"绑定钉钉 webhook
+  5. 项目 owner 能在项目设置绑定项目钉钉群 webhook
+  6. 钉钉 webhook 失效时,连续失败 3 次后通知用户重新配置
+
 ## 非功能需求
 
 | 类别 | 要求 |
@@ -1089,6 +1165,6 @@
 - **Q9**:开源协议 → **闭源**(V1)
 - **Q10**:viewer 预览权限 → **可看**
 - **Q11**:强制 push 失败兜底 → **保留容器 30 分钟重试**,超时销毁 + 告警
-- **Q12**:告警通道 → **站内信 + 钉钉 webhook**
+- **Q12**:告警通道 → **站内信 + 钉钉 webhook**(R18)
 - **Q13**:bot token scope → **`api`**(bot 在目标 group 是 Owner/Maintainer 即可,不需 GitLab 管理员)
 - **Q14**:用户 token scope → **`read_repository + write_repository`**(最小权限)
