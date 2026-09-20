@@ -1,0 +1,1094 @@
+# PRD:AI Web 开发平台
+
+> 创建日期:2026-09-20
+> 状态:**已确认**
+> 参考形态:MonkeyCode(流程) × v0.dev / bolt.new(AI 工作台) × GitHub Codespaces(容器) × rd-flow(需求打磨)
+
+## 背景与目标
+
+为**内部团队/企业**提供一个 Web 平台,承载完整的 **AI 驱动研发流程**:**需求打磨 → 开发 → 测试 → 发布 → 归档**。每个阶段的执行体是**任务**,任务在**任务级容器**中由 **Claude(平台 Agent SDK 主路径 + 容器内 Claude CLI 辅助)与人协同完成**,全程在浏览器内闭环。
+
+**解决什么问题:**
+- 需求/代码/测试/发布上下文分散在 IM、文档、Git、CI 各处,无法追溯
+- 非研发角色无法直接驱动 AI 完成开发任务
+- AI 产出不可审计、不可复现,团队不敢用
+- 流程沉淀(为什么这么做、踩了什么坑)随人走
+
+**成功衡量:**
+- 一个需求从录入到发布上线,**全流程在平台内完成**
+- 每个任务的**对话、终端、文件变更、Git 提交**全程留痕可回放
+- **所有流程产物(PRD / 测试报告 / 部署说明 / 归档总结)commit 到 GitLab**,代码与文档同仓库、同分支、同评审
+- 归档后自动产出**知识条目**,后续项目可检索复用
+- 用户从"我有一个需求"到"看到预览 URL"**< 5 分钟**
+
+## 用户故事
+
+1. 作为 **项目负责人**,我希望创建一个项目并绑定 GitLab 仓库,以便代码资产集中管理
+2. 作为 **产品/需求方**,我希望录入需求后,AI 在容器里**协助打磨需求**并生成 `docs/{需求}/PRD.md`,以便需求可被开发直接消化
+3. 作为 **评审人**,我希望在平台上看到 AI 打磨后的 PRD,确认后一键标记"评审通过",PRD 自动 commit 到需求分支
+4. 作为 **开发负责人**,我希望基于已通过评审的需求创建开发任务,让 AI 在需求分支上完成编码
+5. 作为 **任何成员**,我希望在任务执行时看到 Claude 终端实时输出、文件改动、预览效果,以便了解 AI 在做什么
+6. 作为 **测试负责人**,我希望基于需求验收标准创建测试任务,AI 协助生成/执行测试用例并产出报告(commit 到需求分支)
+7. 作为 **发布负责人**,我希望测试通过后创建发布任务,把需求分支 merge 到 master 并部署到对外地址
+8. 作为 **团队**,我希望发布完成后整个流程自动归档,沉淀到知识库,以便后续检索复用
+
+## 核心概念模型
+
+```
+项目 (Project)
+ ├── GitLab 仓库绑定(每项目一个 repo)
+ ├── 模型配置(项目级 url+key)
+ ├── 成员(owner / editor / viewer)
+ │
+ └── 需求 (Requirement)           ← 流程起点
+      ├── 需求分支 `req-{reqId}`(创建需求时从 master 切出)
+      ├── 状态机:draft → polishing → reviewing → approved → in_progress → done → archived
+      │
+      └── 1:N 任务 (Task),所有任务默认在需求分支 `req-{reqId}` 上工作
+           │
+           ├── 打磨任务 (type=requirement)
+           │    ├── AI 协助打磨需求,产出 docs/req-{reqId}/PRD.md
+           │    └── 评审通过 → PRD commit 到 req-{reqId}
+           │
+           ├── 开发任务 (type=dev)
+           │    ├── AI 编码 → 文件变更 + git commit → push 到 req-{reqId}
+           │    └── 状态机:pending → running → done / failed / cancelled
+           │
+           ├── 测试任务 (type=test)
+           │    ├── AI 生成测试用例 → 人审 → AI 执行 → 产出 docs/req-{reqId}/test-reports/{taskId}/report.md
+           │    ├── 报告 commit 到 req-{reqId}
+           │    └── 状态机:pending → cases_review → running → passed / failed(可驳回回开发)
+           │
+           └── 发布任务 (type=release)
+                ├── git merge req-{reqId} → master
+                ├── 执行发布脚本
+                ├── 部署产物 commit 到 master 的 docs/releases/{taskId}/
+                └── 生成互联网可访问地址 http://{slug}.coding-console.zhanqitv.com.cn:{port}
+
+需求 done(所有发布任务 deployed)→ 触发归档 → docs/archive/{reqId}/summary.md commit 到 master + 知识库
+```
+
+**分支模型**:
+- 需求创建时,平台在 GitLab 上自动建分支 `req-{reqId}`(从 master)
+- 该需求下所有任务**默认在 `req-{reqId}` 分支上工作**(保证一个需求代码统一)
+- 任务创建时**可自定义基础分支**(特殊情况:如紧急修复直接从 master 切)
+- 多任务并行push:**Git 乐观锁**——先提交先得,后提交需 pull/rebase;冲突 AI 自动解决,失败则人工在任务终端介入
+
+**任务执行工作台**(打开任何任务即进入):
+
+```
+┌────────────────────────────────────────────────────┐
+│ 任务头:标题 / 类型 / 状态 / 操作(停止/驳回/通过) │
+├──────────┬─────────────────────────┬───────────────┤
+│ 文件树   │  Monaco 编辑器          │  Claude 终端  │
+│          │  (实时同步容器)         │  (Web TTY)    │
+│          │                         │               │
+│          ├─────────────────────────┤               │
+│          │  Diff 视图 / 预览 iframe │               │
+└──────────┴─────────────────────────┴───────────────┘
+```
+
+## 需求点清单
+
+### R1:用户与账号体系
+
+- **描述**:平台基础账号系统 + **GitLab 个人 token 绑定**(任务执行用)
+- **触发场景**:首次访问 / 会话过期 / 个人设置页绑定 GitLab
+- **前置条件**:无
+- **边界定义**:
+  - 做什么:
+    - 账号+密码注册/登录、找回密码(邮件)、登出、修改本人密码/昵称/头像
+    - **GitLab 个人 token 绑定/解绑/重新绑定**:任务执行(clone/pull/push/commit)使用用户自己的 token,确保 GitLab 侧操作可追溯到人
+  - 不做什么:第三方 OAuth、SSO、手机号验证、GitLab OAuth(仅用 personal access token)
+- **字段定义**(User):
+  | 字段 | 类型 | 必填 | 默认值 | 校验规则 | 说明 |
+  |---|---|---|---|---|---|
+  | username | string(32) | 是 | - | 全局唯一,字母数字下划线,3-32 | 登录名 |
+  | email | string(255) | 是 | - | 合法邮箱,全局唯一 | 找回密码 |
+  | password | string | 是 | - | ≥8 位含字母+数字,bcrypt 存储 | 不明文 |
+  | nickname | string(32) | 否 | =username | - | |
+  | avatar_url | string(255) | 否 | 默认头像 | URL | |
+  | status | enum | 是 | active | active/disabled | |
+  | **gitlab_username** | string(64) | 否 | null | - | GitLab 上的用户名(绑定时从 GitLab 拉取) |
+  | **gitlab_token_encrypted** | string | 否 | null | AES-GCM 加密 | personal access token,接口永不回显完整 |
+  | **gitlab_token_scopes** | json | 否 | null | - | 用户授权的 scope 列表(read_repository/write_repository/api) |
+  | **gitlab_token_bound_at** | datetime | 否 | null | - | 绑定时间 |
+  | created_at | datetime | 是 | now | - | |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 注册重名 | 拒绝并提示字段 | 停留注册页 |
+  | 密码错 5 次 | 锁 10 分钟 | 返回倒计时 |
+  | 找回密码 | 邮件含一次性 token,30min 有效 | 重置页 |
+  | 登录成功 | JWT(access 2h + refresh 7d) | 项目列表 |
+  | **绑定 GitLab token** | 用户粘贴 token → 平台调 `GET /user` 验证 → 校验 scope 含 `read_repository`+`write_repository` → 保存 username 与 scopes | 绑定成功 |
+  | **token scope 不足** | 提示具体缺失的 scope,拒绝绑定 | 停留绑定页 |
+  | **token 失效(任务执行 401)** | 任务标记 failed,引导用户到个人设置重新绑定 | 任务列表提示 |
+  | **解绑** | 清空 gitlab_* 字段;**进行中的任务不受影响**(已在容器内的 token 仍可用到任务结束) | |
+- **依赖**:无
+- **异常与边界场景**:
+  - 邮箱服务不可用 → 找回密码降级"联系管理员"
+  - 多处登录允许(V1 不做单点踢出)
+  - username 不可改,email 可改
+  - **token 加密密钥**:平台级 KMS/环境变量,V1 用单 key;若 key 泄露需全量重新绑定
+  - **未绑定 token 的用户**:仅可浏览(viewer 角色不绑也能看);editor/owner 创建任务前**强制绑定**(R12)
+- **验收标准**:
+  1. 注册-登录-登出闭环
+  2. 5 次错误触发锁定
+  3. 找回密码邮件可达,token 一次性
+  4. 密码无明文落盘/日志
+  5. GitLab token 绑定/解绑/重绑可用
+  6. scope 不足时给出明确错误
+  7. token 失效时任务 failed 并引导重绑
+  8. token 不明文出现在接口/日志/前端
+
+### R2:项目管理(绑定 GitLab,支持多仓库)
+
+- **描述**:项目是流程与资源的顶层容器;**每个项目可绑定多个 GitLab 仓库**(主代码仓库 + 测试仓库 + 其他辅助仓库)。GitLab 操作分两类:**平台管理员 bot token** 负责项目级/系统级动作(建 repo、建需求分支、merge、部署产物 commit);**用户个人 token** 负责任务执行(clone/pull/push/commit)与**评审通过时的 PRD commit**
+- **触发场景**:登录后项目列表 / 新建项目
+- **前置条件**:R1
+- **边界定义**:
+  - 做什么:
+    - 项目创建时**必须绑定一个"主代码仓库"**(role=main,唯一);创建后可在项目设置中**追加绑定其他仓库**(role=test/docs/other,可多个)
+    - 每个仓库两种绑定方式:
+      - a) **平台自动建 repo**:用管理员配置的 GitLab bot token,在指定 group 下创建 `{slug}` / `{slug}-{suffix}` 仓库
+      - b) **绑定已有 repo**:用户提供 repo URL,平台用 **bot token** 验证 repo 存在且 bot 有 read/write/merge/webhook 权限
+    - 项目列表/详情/重命名/归档/删除(软删 7 天)
+    - **项目级默认分支**配置(默认 `master`,可改 `main`/`develop` 等),所有仓库共享此默认分支名
+    - **项目创建后,平台 bot 把项目创建者加为所有绑定 repo 的 Maintainer**(后续邀请的成员加为 Developer)
+  - 不做什么:
+    - **不做**多 GitLab 实例(V1 只支持一个平台配置的 GitLab)
+    - **不做** GitHub / Gitee 等其他 Git 托管
+    - **不做**项目模板市场
+    - **不做**项目级 GitLab token(统一走平台 bot + 用户个人 token)
+    - **不做**仓库级权限细分(所有绑定 repo 的权限跟随项目成员)
+    - **不做** main repo 换绑(V1 只能删项目重建)
+- **字段定义**(Project):
+  | 字段 | 类型 | 必填 | 默认值 | 校验规则 | 说明 |
+  |---|---|---|---|---|---|
+  | project_id | uuid | 是 | auto | - | |
+  | name | string(64) | 是 | - | 同用户下唯一 | 显示名 |
+  | slug | string(64) | 是 | 自动生成 | 全局唯一,小写字母数字- | 子域/主仓库名 |
+  | description | string(255) | 否 | "" | - | |
+  | default_branch | string(64) | 是 | master | - | 项目默认分支,所有仓库的需求分支从这里切 |
+  | visibility | enum | 是 | private | private/internal | |
+  | owner_id | ref(R1) | 是 | 创建者 | - | |
+  | status | enum | 是 | active | active/archived/deleted | |
+  | created_at / updated_at | datetime | 是 | now | - | |
+
+  **字段定义**(ProjectRepo,项目与仓库的关联表,1:N):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | repo_id | uuid | 是 | auto | 平台内部 id |
+  | project_id | ref | 是 | - | |
+  | role | enum | 是 | - | main(唯一)/ test / docs / other |
+  | gitlab_repo_url | string(255) | 是 | - | |
+  | gitlab_repo_id | int | 是 | - | GitLab 内部 id |
+  | gitlab_bind_type | enum | 是 | auto | auto(平台建)/ manual(用户绑) |
+  | created_by | ref(R1) | 是 | - | 绑定时操作人 |
+  | created_at | datetime | 是 | now | |
+
+  **约束**:`role=main` 的仓库**每项目唯一**;`test`/`docs`/`other` 可有多个;单项目绑定 repo 数 ≤ 10。
+
+  **GitLab token 分工**(不存字段,仅规则):
+  | 操作 | 使用 token | 说明 |
+  |---|---|---|
+  | 创建项目(auto 建 repo) | **平台 bot token** | 在指定 group 下建 repo |
+  | 绑定已有 repo(manual) | **平台 bot token** | 验证 repo 存在且 bot 有权限 |
+  | 创建需求分支 `req-{reqId}` | **平台 bot token** | **在所有绑定 repo 上建同名分支** |
+  | 邀请项目成员 | **平台 bot token** | 把成员加为**所有绑定 repo** 的 Developer |
+  | **任务执行**(clone/pull/push/commit) | **创建任务的用户个人 token** | GitLab 侧操作可追溯到人 |
+  | **需求评审通过 commit PRD** | **评审通过操作人的个人 token** | 评审是人的动作,可追溯;commit 到 `main` repo 的 `req-{reqId}` 分支 |
+  | 发布任务 merge `req-{reqId}` → `master` | **平台 bot token** | 系统动作,不依赖用户在线;**所有绑定 repo 都执行 merge** |
+  | 部署产物 commit 到 master | **平台 bot token** | 系统动作;commit 到 `main` repo |
+  | GitLab API 只读查询 | **平台 bot token** | 只读,稳定 |
+  | GitLab webhook 接收 | webhook secret(非 token) | 每个 repo 一个 webhook |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | auto 创建项目 | 平台 bot 建 main repo + 初始化默认分支 + README + 把创建者加为 Maintainer | 进入项目详情 |
+  | manual 绑定 main repo | 平台 bot 验证 repo 存在且 bot 有权限 + 把创建者加为 Maintainer(若已是成员则跳过) | 失败拒绝 |
+  | 追加绑定 test/docs/other repo | 在项目设置 → 仓库 Tab → "添加仓库";同 manual 流程;role 必填;同一 repo 不可重复绑定到同一项目 | |
+  | 解绑仓库 | **仅 role ≠ main 可解绑**;main 不可解绑;解绑后**不动 GitLab repo**(仅断关联) | |
+  | 邀请成员到项目(R12) | 平台 bot 把该用户加到**所有绑定 repo**为 Developer | 成员可用个人 token 访问所有 repo |
+  | 移除项目成员 | 平台 bot 把该用户从**所有绑定 repo**移除 | |
+  | 删除项目 | 软删 7 天,7 天后**不动 GitLab repo**(只删平台记录/容器/部署) | 列表隐藏 |
+  | 归档项目 | 容器停止、部署下线、只读 | 列表灰显 |
+  | 平台 bot token 失效 / 未配置 | 项目创建/分支管理/merge/成员同步全部失败 → **项目创建入口禁用**,超管到"用户中心 → 平台设置"配置 | 超管告警 |
+  | 用户个人 token 失效 | 该用户创建的任务 failed,引导重新绑定(R1) | 不影响其他用户 |
+- **依赖**:R1
+- **异常与边界场景**:
+  - 平台 GitLab 实例地址 + bot token + webhook secret 在**用户中心 → 平台设置**(超管)配置;**未配置时项目创建入口禁用**
+  - slug 冲突自动加后缀 `-xxxx`
+  - 单用户项目数 ≤ 50
+  - **成员在 GitLab 上的 username 与平台 username 可能不同**:以 GitLab username 为准(用户绑定时已拉取)
+  - 成员被移除后,其 GitLab repo 权限也被移除,但**该用户已提交的 commit 历史保留**(Git 天然特性)
+  - 平台 bot token 配置变更:即时生效,无需重启
+  - 追加绑定的 repo 若已存在分支 `req-{reqId}`(历史遗留),平台**复用**该分支,不报错
+- **验收标准**:
+  1. auto 模式建项目后,GitLab 上能看到对应 repo 与默认分支,创建者是 Maintainer
+  2. 追加绑定 test repo 后,项目详情可见两个 repo
+  3. main repo 不可解绑;test/docs 可解绑
+  4. 平台 bot token 失效/未配置时项目创建失败并告警
+  5. 邀请成员后,该成员能用个人 token clone 所有绑定仓库
+  6. 移除成员后,该成员 token 无法访问仓库
+  7. 创建需求时,所有绑定 repo 上都建了 `req-{reqId}` 分支
+
+### R3:需求管理与打磨
+
+- **描述**:流程起点。需求**创建后进入"打磨"阶段**:平台启动**打磨任务**(一种特殊任务),AI 在容器内与用户对话,产出 `docs/req-{reqId}/PRD.md`;**评审通过后 PRD commit 到需求分支**
+- **触发场景**:项目内 → 需求 Tab → 新建需求
+- **前置条件**:R2;R13 模型已配置
+- **边界定义**:
+  - 做什么:
+    - 需求 CRUD + 状态机
+    - 创建需求时**自动在 GitLab 建分支 `req-{reqId}`**(从项目默认分支切出)
+    - 打磨任务:AI 与用户对话,产出 PRD 草稿(写入容器,未 commit)
+    - 评审:owner/editor 在平台上点击"评审通过/驳回";通过则 PRD commit 到 `req-{reqId}` 分支;驳回填理由,回到打磨
+    - 需求下可看到所有关联任务
+  - 不做什么:
+    - **不做**评审会议/通知(V1 仅平台内点击)
+    - **不做**需求优先级看板/排期(V2)
+    - **不做**需求变更版本对比(改内容 → 驳回重审)
+- **字段定义**:
+  | 字段 | 类型 | 必填 | 默认值 | 校验规则 | 说明 |
+  |---|---|---|---|---|---|
+  | req_id | uuid | 是 | auto | - | |
+  | project_id | ref(R2) | 是 | - | - | |
+  | title | string(128) | 是 | - | - | |
+  | background | text | 否 | - | Markdown | 为什么做 |
+  | description | text | 是 | - | Markdown | 做什么(初始草稿) |
+  | acceptance_criteria | text | 否 | - | Markdown,勾选清单 | 怎么算完成(打磨中完善) |
+  | req_branch | string(64) | 是 | `req-{reqId}` | 同 repo 唯一 | 需求分支名,可自定义 |
+  | prd_file_path | string(255) | 是 | `docs/req-{reqId}/PRD.md` | - | PRD 在 repo 内的路径 |
+  | status | enum | 是 | draft | draft/polishing/reviewing/approved/in_progress/done/archived/rejected | |
+  | priority | enum | 是 | medium | low/medium/high | V1 仅展示用 |
+  | created_by | ref(R1) | 是 | - | |
+  | reviewed_by | ref(R1) | 否 | null | | |
+  | reviewed_at | datetime | 否 | null | | |
+  | reject_reason | text | 否 | null | 驳回时必填 | |
+  | polish_task_id | ref(R4) | 否 | null | 当前打磨任务 | |
+- **交互规则**(状态机):
+  | 当前状态 | 触发 | 目标状态 | 规则 |
+  |---|---|---|---|
+  | (创建) | 用户填 title/description | draft | 后台异步建 GitLab 分支 `req-{reqId}` |
+  | draft | 点击"开始打磨" | polishing | 启动打磨任务(拉起容器 + Claude 会话) |
+  | polishing | 用户点击"提交评审" | reviewing | PRD 草稿已写入容器,未 commit |
+  | reviewing | 评审通过(owner/editor) | approved | **PRD commit + push 到 req-{reqId} 分支,使用评审通过操作人的个人 GitLab token**,容器销毁 |
+  | reviewing | 驳回(owner/editor) | polishing | 填 reject_reason,重新打磨 |
+  | approved | 第一个开发任务启动 | in_progress | 自动 |
+  | in_progress | 所有发布任务 deployed | done | 自动 |
+  | done | 归档完成 | archived | 自动(R7) |
+  | 任意非 archived/done | 取消 | rejected | owner 操作,填理由;GitLab 分支保留(只读) |
+
+- **依赖**:R2、R4(打磨任务)、R13
+- **异常与边界场景**:
+  - 打磨任务同一时间一个需求**只能有一个**
+  - 评审中需求不可编辑 title/description(避免评审过程中改需求)
+  - 驳回后可继续打磨,再次提交评审;reviewed_by/reject_reason 保留历史
+  - 需求已有任务进行中(approved 之后),不可驳回,只能"取消"
+  - 取消需求后,GitLab 分支**保留 30 天**,到期平台自动删除(避免误删代码)
+- **验收标准**:
+  1. 创建需求后 GitLab 上能看到对应分支
+  2. 打磨任务能在容器内启动 AI 会话
+  3. 评审通过后 PRD 出现在 `req-{reqId}` 分支的 `docs/req-{reqId}/PRD.md`
+  4. 评审通过前无法创建开发任务
+
+### R4:任务(统一执行单元)
+
+- **描述**:所有流程阶段(打磨/开发/测试/发布)的执行体都是**任务**。任务在**任务级容器**中运行,任务结束(成功/失败/取消)容器销毁。**任务对话框支持上传文件到容器 `/tmp/uploads/{task_id}/`,AI 可用 `@文件名` 引用文件内容**
+- **触发场景**:从需求详情点击"创建任务"(不同类型入口不同)
+- **前置条件**:R3(需求已建);R13(模型已配);**R1(创建任务的用户已绑定 GitLab 个人 token,且 token 对该 repo 有 read+write 权限)**
+- **边界定义**:
+  - 做什么:
+    - 四种任务类型:**requirement(打磨)/ dev(开发)/ test(测试)/ release(发布)**,通过 `type` 区分
+    - 任务创建时**拉起专属容器**,容器内 `git clone` + `checkout` 到指定分支
+    - AI 在容器内执行(读写文件/跑命令/git 操作)
+    - **任务对话框支持上传文件**(附件按钮 + 拖拽),文件上传到容器 `/tmp/uploads/{task_id}/`
+    - **AI 引用文件**:用户在对话框输入 `@filename.txt`,平台自动补全当前任务已上传的文件;`< 100 KB` 的文件**自动注入内容到 prompt**,`≥ 100 KB` 的文件**只给路径**,AI 用工具(read_file)自己读
+    - 任务结束(成功/失败/取消/超时)**销毁容器**(上传的文件随之丢失)
+    - 任务产物(代码/文档)**全部通过 git commit + push 持久化到 GitLab**
+  - 不做什么:
+    - **不做**任务指派到人(谁创建谁负责)
+    - **不做**任务子任务拆解(在 R3 需求打磨阶段定义)
+    - **不做**任务模板市场/编排 DAG
+    - **不做**上传文件持久化到 GitLab(临时文件;若需保留,引导用户让 AI 把内容写入正式文件并 commit)
+    - **不做**文件类型白名单(不限制,AI 自行判断;但禁止上传 > 50MB 的文件)
+- **字段定义**(Task 主表):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | task_id | uuid | 是 | auto | |
+  | req_id | ref(R3) | 是 | - | 所属需求 |
+  | project_id | ref(R2) | 是 | - | 冗余便于查询 |
+  | type | enum | 是 | - | requirement / dev / test / release |
+  | title | string(128) | 是 | - | |
+  | description | text | 是 | - | 本次要做什么(AI 的输入) |
+  | base_branch | string(64) | 是 | =req.req_branch | **基础分支**(从哪里切/直接在哪个分支工作) |
+  | work_branch | string(64) | 是 | =base_branch | **工作分支**(默认=基础分支;特殊情况可新建) |
+  | status | enum | 是 | pending | pending/running/done/failed/cancelled/timeout |
+  | container_id | string | 否 | null | 任务运行时的 docker id |
+  | runner_id | ref(R16) | 否 | null | **任务运行的 Runner**(D6 改为 Runner 架构) |
+  | conversation_id | uuid | 是 | auto | 关联 Claude 会话 |
+  | created_by | ref(R1) | 是 | - | |
+  | started_at / finished_at | datetime | 否 | - | |
+  | total_tokens_in / total_tokens_out | int | 是 | 0 | |
+  | error_message | text | 否 | null | failed/timeout 时填 |
+  | last_commit_sha | string(40) | 否 | null | 任务结束时最后 commit |
+
+  **字段定义**(TaskUploadedFile,任务上传文件表):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | file_id | uuid | 是 | auto | |
+  | task_id | ref(R4) | 是 | - | |
+  | filename | string(255) | 是 | - | 原始文件名 |
+  | stored_filename | string(255) | 是 | - | 容器内实际文件名(冲突自动重命名,如 `file-1.txt`) |
+  | size | int | 是 | - | 字节 |
+  | mime_type | string(64) | 是 | - | |
+  | container_path | string(255) | 是 | `/tmp/uploads/{task_id}/{stored_filename}` | |
+  | uploaded_by | ref(R1) | 是 | - | |
+  | uploaded_at | datetime | 是 | now | |
+
+  **字段定义**(TaskMessage,任务消息表,存对话历史):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | message_id | uuid | 是 | auto | |
+  | task_id | ref(R4) | 是 | - | |
+  | role | enum | 是 | - | user / assistant / tool |
+  | content | text | 是 | - | Markdown;`@filename` 在前端渲染为可点击链接 |
+  | file_refs | json | 否 | null | `[{file_id, filename, container_path, injected: bool}]`;`injected=true` 表示内容已注入 prompt |
+  | tool_calls | json | 否 | null | `[{name, args, result, duration_ms}]` |
+  | tokens_in / tokens_out | int | 否 | 0 | |
+  | created_at | datetime | 是 | now | |
+
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 创建任务 | 校验需求状态合法(如 dev 要求需求 approved);**校验创建者已绑定 GitLab token 且对所需 repo 有 read+write 权限**;**调度器选择 Runner**(R16);Runner 上拉起容器;**clone 主仓库到 `/workspace/main`** + **clone 所有 role=test 仓库到 `/workspace/tests/{repo_slug}`** + **clone role=docs/other 仓库到 `/workspace/{role}/{repo_slug}`**;每个仓库都 `checkout base_branch` + `git checkout -b work_branch`(若 ≠ base);启动 Claude 会话 | running |
+  | AI 执行中 | 文件变更/命令执行/工具调用 实时推送到工作台;AI 工作目录默认 `/workspace/main`(主仓库),可跨目录访问其他仓库 | 用户可见 |
+  | **上传文件** | 用户在任务对话框**点附件按钮或拖拽** → 前端上传到平台 → 平台转发到容器 `/tmp/uploads/{task_id}/`(同名自动重命名为 `{name}-1.txt`)→ 写 `task_uploaded_files` 表 → 前端显示附件列表 | 文件出现在对话框下方 |
+  | **上传限制** | 单文件 ≤ 50MB;单次 ≤ 10 个;单任务累计 ≤ 200MB;超限拒绝 | 前端提示 |
+  | **`@文件` 引用** | 用户在对话框输入 `@` → 前端自动补全当前任务已上传的文件名;选中后插入 `@filename`;发送时平台解析 `@filename` → 查 `task_uploaded_files` → **< 100KB 注入内容到 prompt** + **≥ 100KB 只注入路径**;`file_refs` 记录引用关系 | AI 收到文件内容或路径 |
+  | **下载文件** | 用户点击对话框/文件列表中的文件名 → 平台从容器拉取文件流回前端 | 浏览器下载 |
+  | AI 完成一段工作 | **对每个有改动的仓库**:`cd /workspace/{path} && git add -A && git commit -m "[ai:{type}] {task_title}"`(commit author = 创建任务的用户 GitLab username/email) | 分支有新提交 |
+  | AI push | **对每个有改动的仓库**:`git push origin {work_branch}`(用**用户 token**) | 同步到 GitLab,GitLab 侧显示该用户 push |
+  | push 冲突(他人在先) | AI 自动 `git pull --rebase` 或 `git merge`,解决冲突后再 push;失败则通知用户人工介入(在任务终端) | 或 failed |
+  | 用户手动停止 | Claude 中断 → 通知 Runner 销毁容器 | cancelled(未 push 的改动丢失) |
+  | 任务完成 | 最后一次 commit + push(**所有有改动的仓库**)→ 标记 done → 通知 Runner 销毁容器 | done |
+  | 任务失败/超时 | 标记失败原因 → 通知 Runner 销毁容器 | failed/timeout |
+  | 销毁容器前检查 | 若任一仓库的 work_branch 有未 push 的 commit → **强制 push**(用**用户 token**) | |
+  | **用户 token 失效(401)** | 任务标记 failed,error_message 提示"GitLab token 失效,请重新绑定";容器销毁 | 引导到 R1 个人设置 |
+  | **Runner 离线** | Runner 心跳超时(60s)→ 标记 Runner offline;其上的 running 任务**不动**(容器还在跑,只是平台无法通信);Runner 恢复后重新上报容器状态 | Runner 列表显示 offline |
+  | **Runner 上的任务超时** | 任务超时销毁兜底(60 分钟),即使 Runner offline,Runner 恢复后也会收到销毁指令 | |
+- **依赖**:R3、R8、R13、R16
+- **异常与边界场景**:
+  - 单任务最长执行 **60 分钟**,超时自动 cancel(销毁前强制 push)
+  - 单项目**并发 running 任务 ≤ 3**(超出排队)
+  - 同需求分支并行任务 push 冲突:AI 自动 rebase;冲突文件超过 5 个或冲突复杂 → 任务 failed,提示人工
+  - 分支命名冲突:自动追加 `-{short_uuid}`
+  - 容器异常崩溃:任务标记 failed,Runner 自动清理;未 push 的改动丢失(因为没 commit)
+  - **用户 token 无效/权限不足**:创建任务时即拒绝,提示"请到个人设置绑定有效 GitLab token";任务执行中失效则任务 failed
+  - **Runner 全部离线**:任务创建时**排队等待**,直到有 Runner 上线;前端显示"等待可用 Runner"
+  - **文件上传失败**(容器不可达/磁盘满):前端提示"上传失败,请重试";任务不失败
+  - **同名文件冲突**:自动重命名 `file.txt` → `file-1.txt` → `file-2.txt`,在前端显示实际存储名
+- **验收标准**:
+  1. 创建任务后容器 30s 内拉起(在某个 Runner 上)
+  2. AI 修改的文件能通过 git log 在 GitLab 看到
+  3. push 冲突时 AI 能自动 rebase,失败能通知人工
+  4. 任务结束后容器被销毁
+  5. 销毁前未 push 的 commit 被强制 push
+  6. **文件上传成功,AI 能通过 `@filename` 读取文件内容**
+  7. **文件上传 ≥ 100KB 时,AI 收到的是路径而非内容**
+  8. **Runner offline 时任务排队,Runner 恢复后继续执行**
+
+### R5:开发任务(type=dev)
+
+- **描述**:基于已通过评审的需求,AI 在需求分支上完成编码;**产出物仅是代码 commit**,不单独建 MR(评审走最终发布时的整体 merge)
+- **触发场景**:需求详情(status=approved)→ "创建开发任务"
+- **前置条件**:R3 status=approved;**同需求下没有 running 状态的打磨任务**
+- **边界定义**:
+  - 做什么:
+    - 一个需求可创建**多个开发任务**(按模块/功能拆分,**可并行**)
+    - AI 在容器内编码 → 自动 commit + push 到 `req-{reqId}` 分支
+    - AI 执行过程中用户可通过 Web TTY 介入(手动跑命令/改代码)
+    - 开发任务可**读取同需求下的测试报告**(R6 产出),作为修复上下文
+  - 不做什么:
+    - **不做**任务级 MR(MR 在 R7 发布任务时统一处理)
+    - **不做**代码评审 Web 界面(评审在最终 merge 时进行)
+- **字段定义**:沿用 R4 通用字段;特定字段:
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | related_test_task_id | ref | 否 | null | 若由测试驳回创建,关联原测试任务 |
+  | fix_context | text | 否 | null | 驳回时携带的失败用例上下文 |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 创建 dev 任务 | 用户填 description(要让 AI 做什么) | running |
+  | AI 编码 | 沿用 R4 通用规则 | |
+  | 从测试驳回创建 | 自动填充 fix_context(失败用例 + 报告路径),提示 AI 优先修复 | running |
+  | 需求下所有 dev 任务 done | 需求详情页"创建测试任务"按钮亮起 | - |
+- **依赖**:R3、R4
+- **异常与边界场景**:
+  - 需求下并行 dev 任务数无硬上限(受 R4 项目级并发 3 限制)
+  - AI 修改 `docs/req-{reqId}/PRD.md` → 警告(PRD 是评审产物,原则上不应在 dev 任务中改)
+- **验收标准**:
+  1. AI 编码能 commit + push 到需求分支
+  2. 测试驳回能创建携带上下文的 dev 任务
+  3. 用户可在执行中通过 TTY 介入
+
+### R6:测试任务(type=test)
+
+- **描述**:基于需求的验收标准,AI 生成测试用例 → 人审 → AI 执行。**测试任务默认拉取项目绑定的 `role=test` 仓库代码**(R2)作为测试代码,**主仓库**(`role=main`)作为被测代码;**测试报告 commit 到主仓库的需求分支** `docs/req-{reqId}/test-reports/{taskId}/`;失败可驳回回开发
+- **触发场景**:需求详情 → "创建测试任务"(前置:同需求下**至少一个 dev 任务 done**)
+- **前置条件**:R5 同需求下至少一个 dev done
+- **边界定义**:
+  - 做什么:
+    - **多仓库 clone**:
+      - 主仓库(`role=main`)→ `/workspace/main`(被测代码)
+      - 所有 `role=test` 仓库 → `/workspace/tests/{repo_slug}`(测试代码)
+      - 其他仓库按需挂载到 `/workspace/{role}/{repo_slug}`
+    - AI 基于主仓库 PRD 验收标准 + 当前需求分支代码 + **测试仓库现有用例**,生成/更新**测试用例清单**(人可增删改)
+    - 人确认后,AI 在容器内执行测试(测试命令由 AI 根据测试仓库结构决定,如 `cd /workspace/tests/xxx && pytest`,或 `npm test`)
+    - 产出**测试报告**:`docs/req-{reqId}/test-reports/{taskId}/report.md` + `cases.json`,**commit 到主仓库**需求分支;若测试脚本本身有改动,也 commit 到**对应测试仓库**的需求分支
+    - **失败驳回**:创建新的 dev 任务,携带失败上下文与报告路径
+  - 不做什么:
+    - **不做**测试用例管理库(V1 用例只存于任务内与 repo)
+    - **不做**性能测试/压测
+    - **不做**第三方测试平台集成
+    - **不做**测试框架强制配置(AI 根据测试仓库结构自动识别 pytest/jest/vitest 等)
+- **字段定义**:沿用 R4 通用字段;特定字段:
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | based_on_dev_tasks | json | 是 | - | 关联的 dev task_id 列表 |
+  | test_cases | json | 是 | - | `[{id, title, steps, expected, status, log}]` |
+  | report_file_path | string | 是 | `docs/req-{reqId}/test-reports/{taskId}/report.md` | 报告在主仓库内路径 |
+  | test_repo_ids | json | 是 | 项目所有 role=test 的 repo_id | 本次任务挂载的测试仓库 |
+  | rejected_to_dev_task_id | uuid | 否 | null | 驳回产生的新 dev 任务 |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 创建 test 任务 | 校验项目**至少绑定一个 role=test 仓库**(若无则提示先到项目设置添加);AI 读取主仓库 PRD + 当前分支代码 + 测试仓库现有用例 → 生成用例草稿 → status=cases_review | 用户编辑 |
+  | 项目无 test 仓库 | 允许创建,但 AI 会**在主仓库内新建测试代码**(如 `tests/` 目录);不推荐,UI 给出提示"建议绑定独立测试仓库" | |
+  | 用户确认用例 | 点击"开始执行" → AI 在容器跑 → status=running | |
+  | 全部用例通过 | 生成 report.md → commit 到主仓库需求分支 + push(用用户 token)→ status=passed | 需求详情页"创建发布任务"按钮亮起 |
+  | 有用例失败 | 用户选择:a) 接受失败(填豁免理由)仍 passed;b) 驳回 → 创建新 dev 任务,携带失败上下文与报告路径 | |
+  | 执行异常 | status=failed,可重试 | |
+- **依赖**:R5、R4、R2(多仓库)
+- **异常与边界场景**:
+  - AI 生成的用例人可编辑/删除/新增
+  - 用例执行**串行**(V1,避免互相干扰)
+  - 测试任务会写代码(测试脚本),commit 到对应仓库的需求分支
+  - 测试仓库未拉取成功(token 权限不足):任务 failed,提示检查 token 对该 repo 的权限
+- **验收标准**:
+  1. AI 能基于 PRD 与测试仓库产出可执行用例
+  2. 报告能 commit 到主仓库指定路径
+  3. 测试脚本改动能 commit 到对应测试仓库
+  4. 驳回能自动创建携带上下文的 dev 任务
+  5. 项目无测试仓库时给出明确提示
+
+### R7:发布任务(type=release)
+
+- **描述**:测试通过后,把需求分支 merge 到 master,执行发布脚本,**生成互联网可访问的地址**
+- **触发场景**:需求详情 → "创建发布任务"(前置:同需求下至少一个 test 任务 passed)
+- **前置条件**:R6 passed
+- **边界定义**:
+  - 做什么:
+    - 创建发布任务 → 容器内 `git checkout master && git merge req-{reqId}` → 冲突 AI 解决,失败任务 failed
+    - 执行**发布脚本**(项目级配置,如 `npm run build && pm2 reload`,或平台默认:在容器内启动服务)
+    - **生成对外地址**:`http://{slug}.coding-console.zhanqitv.com.cn:{port}`(HTTP,端口用户自定义)
+    - 部署产物(CHANGELOG / deploy-log)**commit 到 master** 的 `docs/releases/{taskId}/`
+    - 发布后**需求状态推进**,全部部署完成 → 需求 done → 触发归档
+  - 不做什么(V1):
+    - **不做** HTTPS(端口直连)
+    - **不做**多环境(staging/prod)
+    - **不做**自定义域名
+    - **不做**外部服务器部署(SSH/K8s)
+    - **不做**回滚(失败就走驳回)
+    - **不做**蓝绿/金丝雀
+- **字段定义**:沿用 R4 通用字段;特定字段:
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | target_env | enum | 是 | subdomain | V1 仅 subdomain |
+  | deploy_url | string | 是 | `http://{slug}.coding-console.zhanqitv.com.cn:{port}` | |
+  | deploy_port | int | 是 | - | 用户自定义,范围 10000-10099 |
+  | deploy_script | text | 是 | 项目默认 | 用户可改 |
+  | deploy_log_path | string | 是 | `docs/releases/{taskId}/deploy-log.txt` | |
+  | merge_commit_sha | string(40) | 否 | null | merge 到 master 的 commit |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 创建发布任务 | 用户填 deploy_port(平台检测冲突)→ 拉起容器 → checkout master → **merge req-{reqId}(容器内执行,但 merge commit 通过 GitLab API 用平台 bot token 创建,确保系统动作可追溯)** | deploying |
+  | merge 冲突 | AI 自动解决(在容器内 merge + commit + push 用 bot token)→ 仍冲突 → failed,提示人工在终端介入 | |
+  | 部署脚本执行 | 容器内运行,日志实时推送到工作台 | |
+  | 健康检查 | `GET http://localhost:{port}/` 200(可配置路径)→ deployed | URL 可公开访问 |
+  | **部署产物 commit** | CHANGELOG.md + deploy-log.txt commit 到 master 的 `docs/releases/{taskId}/`(**用平台 bot token,系统动作**) | |
+  | 部署失败 | status=failed → 可驳回回测试(新建 test 任务)或重试 | |
+  | 需求下所有发布任务 deployed | 需求 → done → 触发 R7 归档 | |
+  | **容器不销毁** | **部署中的任务容器保持运行**(对外提供服务),直到"下线"或"项目归档" | 持续运行 |
+- **依赖**:R6、R4、R15
+- **异常与边界场景**:
+  - 端口冲突:平台检测 `deploy_port` 在**全平台**唯一,冲突拒绝
+  - 单项目**同时部署数 ≤ 5**
+  - 部署中的任务**不占用** R4 的"并发 running 任务 ≤ 3"配额
+  - 部署容器崩溃 → 告警到项目 owner 邮箱
+  - 下线 = 用户点击"下线" → 摘除路由 + 销毁容器
+- **验收标准**:
+  1. 发布后 `http://{slug}.coding-console.zhanqitv.com.cn:{port}` 可公开访问
+  2. 部署产物 commit 到 master
+  3. 需求下所有发布完成后,需求自动 done 并触发归档
+  4. 下线后 URL 立即不可访问
+
+### R8:任务级容器(执行沙箱,Runner 架构)
+
+- **描述**:**每个任务一个专属容器**,任务创建时由**某个 Runner** 拉起,任务结束销毁;容器内预装开发工具链与 Claude CLI。**容器可在不同的 Runner 机器上运行**(Runner 架构,见 R16)
+- **触发场景**:任务创建时由调度器分配到某个 Runner 拉起
+- **前置条件**:R4 任务已建;至少一个 Runner 在线(R16)
+- **边界定义**:
+  - 做什么:
+    - 镜像 `platform/devbox:v1`(基于 `mcr.microsoft.com/devcontainer/universal:linux` + Claude CLI + 高频包预装,详见 ARCH D10)
+    - 启动时 `git clone {gitlab_repo_url} /workspace/{path}`(用 R1 的用户 token,通过环境变量注入)+ `git checkout {base_branch}` + `git checkout -b {work_branch}`(若 ≠ base)
+    - 端口约定:前端 dev server **5173**、后端服务 **8000**;Runner 上映射到**随机宿主机端口**(网关转发用)
+    - 任务结束(成功/失败/取消/超时)**Runner 销毁容器**
+    - **例外**:R7 发布任务 deployed 后容器**保持运行**(在**专用 deploy Runner** 上),直到用户下线
+  - 不做什么:
+    - **不做**自定义镜像(V1 统一镜像)
+    - **不做** docker-compose 多容器
+    - **不做** SSH 直连
+    - **不做**宿主机挂载(V1 数据全走 GitLab,容器是纯计算资源)
+    - **不做**内嵌 MySQL/Redis(若需要,引导用户在容器内自行 `apt install` 或 docker 多容器,V2 再议)
+- **字段定义**:
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | container_id | string | 是 | - | Runner 上的 docker id |
+  | task_id | ref(R4) | 是 | - | 唯一(部署中任务例外) |
+  | runner_id | ref(R16) | 是 | - | **运行该容器的 Runner** |
+  | status | enum | 是 | creating | creating/running/stopped/failed/destroyed |
+  | image | string | 是 | `platform/devbox:v1` | |
+  | cpu_limit / mem_limit / disk_limit | string | 是 | 2c / 4g / 10g | |
+  | exposed_ports | json | 是 | [5173, 8000] | 容器内端口 |
+  | runner_host_port_5173 | int | 否 | null | **Runner 上映射到 5173 的宿主机端口**(网关转发用) |
+  | runner_host_port_8000 | int | 否 | null | **Runner 上映射到 8000 的宿主机端口** |
+  | created_at / destroyed_at | datetime | - | - | |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 拉起 | 调度器选 Runner(最少负载)→ Runner 收到指令 → `docker run -p {随机}:5173 -p {随机}:8000 -e ...` + git clone + checkout → 上报容器 id 与端口映射到平台 | running |
+  | 任务结束 | 销毁前**强制 push 未 push 的 commit** → Runner `docker stop + rm` | destroyed |
+  | 崩溃 | Runner 自动 restart ≤ 3 次 → failed,任务标记 failed,Runner 清理 | destroyed |
+  | 项目删除/归档 | 该项目所有容器 stop + rm(跨所有 Runner) | destroyed |
+  | 部署中容器 | 任务 done 后容器**保留运行**在 **deploy Runner** 上,直到用户"下线"或"项目归档" | running |
+  | Runner offline | Runner 上的容器**继续跑**(Runner 是薄代理),平台标记容器"Runner offline";Runner 恢复后重新上报状态 | - |
+- **依赖**:R4、R16
+- **异常与边界场景**:
+  - 单用户**同时运行容器 ≤ 5**(含部署中)
+  - 平台总容器数上限(平台配置,默认 50,跨所有 Runner)
+  - git clone 失败(token 失效)→ 容器创建失败,引导重新绑定 R1
+  - 容器销毁前 push 失败(GitLab 不可用)→ Runner 保留容器 30 分钟,平台重试 push;仍失败则告警 + 销毁(代码丢失)
+  - **Runner 负载不均衡**:调度器每次选最少负载 Runner;若所有 Runner 负载相同,随机选
+  - **部署任务固定在 deploy Runner**(R16 标记 `role=deploy` 的 Runner)
+- **验收标准**:
+  1. 任务创建后容器 30s 内在某个 Runner 上拉起
+  2. 任务结束后容器被销毁
+  3. 部署中的容器不被销毁,且在 deploy Runner 上
+  4. 销毁前未 push 的 commit 被强制 push
+  5. Runner offline 时容器继续跑,Runner 恢复后状态同步正确
+
+### R9:Web 终端(实时 TTY)
+
+- **描述**:任务容器内的实时交互终端,**Claude CLI 也跑在同一容器**,用户在终端可看到/介入 Claude;同时 Claude Agent SDK 的"工具调用事件"在工作台另一侧以结构化形式呈现
+- **触发场景**:任务工作台 → 终端区(仅任务详情页可用)
+- **前置条件**:R8 running
+- **边界定义**:
+  - 做什么:
+    - xterm.js + WebSocket + docker exec pty
+    - 多 Tab(独立 shell session)
+    - **Claude CLI 模式**:用户可在终端里直接 `claude` 启动交互式会话
+    - **Claude Agent SDK 模式**(任务执行主路径):平台后端跑 SDK,工具调用事件(读/写/执行/git)**结构化推送到工作台"活动流"**;关键命令同时回显到终端(只读,前缀 `[ai]` 高亮)
+    - 滚动缓冲 5000 行
+  - 不做什么:
+    - **不做** SSH 直连
+    - **不做**终端录制回放(V1)
+    - **不做**无任务时的"项目级终端"(容器是任务级的)
+- **字段定义**:
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | session_id | uuid | 是 | auto | 每个 Tab 一个 |
+  | task_id | ref(R4) | 是 | - | |
+  | container_id | ref(R8) | 是 | - | |
+  | shell | string | 是 | /bin/bash | |
+  | created_by | ref(R1) | 是 | - | |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 打开 Tab | docker exec 新 pty,cwd=/workspace | 可交互 |
+  | 任务执行中 | SDK 工具事件流 → 活动流面板;关键命令(git commit、npm install)同时回显终端(只读) | 双通道可见 |
+  | 用户在终端启动 `claude` | 进入 Claude CLI 交互,**与 SDK 会话相互独立** | 用户主导 |
+  | 用户在终端 git 操作 | 允许,commit/push 都生效;可能造成与 AI 的冲突,平台不阻止 | |
+  | 关闭 Tab | kill pty | |
+- **依赖**:R8
+- **异常与边界场景**:
+  - 高频输出限流 > 1000 行/秒丢弃中间
+  - 破坏性命令不拦截,但写审计日志
+  - 用户在终端 `git reset --hard` 丢失 AI 未 commit 的修改 → 平台不兜底(用户负责)
+- **验收标准**:
+  1. 终端可正常交互
+  2. 任务执行时,活动流与终端同时可见 Claude 行为
+  3. 用户可在终端启动 Claude CLI 独立会话
+  4. 用户可在终端执行 git 命令介入版本控制
+
+### R10:实时预览(仅任务内)
+
+- **描述**:任务容器内 5173/8000 端口的服务通过平台网关暴露为**项目成员可访问**的预览 URL,嵌入任务工作台 iframe
+- **触发场景**:任务工作台 → 预览区(仅任务详情页可用)
+- **前置条件**:R8 running;容器内有进程监听约定端口
+- **边界定义**:
+  - 做什么:
+    - 端口探测:5173/8000 有监听 → 自动注册网关路由
+    - URL 形态:`http://{slug}--{taskId}--{port}.preview.coding-console.zhanqitv.com.cn`(HTTP,任务级唯一)
+    - iframe 内嵌 + 新窗口打开
+    - HMR WebSocket 透传
+  - 不做什么:
+    - **不做** HTTPS
+    - **不做**自定义端口
+    - **不做**预览公开访问(仅项目成员;公开访问走 R7)
+    - **不做**无任务时的"项目级预览"
+- **字段定义**:
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | port | int | 是 | - | 5173/8000 |
+  | subdomain | string | 是 | `{slug}--{taskId}--{port}` | 任务级唯一 |
+  | upstream | string | 是 | `http://{container_ip}:{port}` | |
+  | status | enum | 是 | inactive | active/inactive |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 端口监听 | 注册路由 → active | 预览亮起 |
+  | 端口关闭 | 摘除路由 → inactive | 显示"服务未启动" |
+  | 访问预览 | 鉴权:登录 + 项目成员 | 非成员 403 |
+  | 容器销毁 | 路由摘除 | URL 不可访问 |
+  | iframe 加载失败 | 提示重试 + 新窗口 + 看终端日志 | |
+- **依赖**:R8、R12(权限)
+- **异常与边界场景**:
+  - 端口被占但非 HTTP:健康检查失败 inactive
+  - 泛域名证书 `*.preview.coding-console.zhanqitv.com.cn`(虽 HTTP only,但备未来升级)
+- **验收标准**:
+  1. 容器内起 5173 服务 ≤ 3s 预览可见
+  2. 代码改动 HMR 自动刷新
+  3. 非成员访问被拒
+  4. 容器销毁后预览 URL 失效
+
+### R11:在线代码编辑器(双模式)
+
+- **描述**:基于 Monaco 的在线编辑器,**双模式**:
+  - **任务内模式**(完整):读写任务容器内 `/workspace`,AI 修改实时刷新,提供**任务级 Diff 视图**
+  - **项目模式**(只读):无任务时,从 **GitLab API** 拉文件展示,**只读不可编辑**
+- **触发场景**:任务工作台 → 编辑器区(完整模式);项目主页 → 代码 Tab(只读模式)
+- **前置条件**:任务模式 R8 running;只读模式 R2 GitLab token 有效
+- **边界定义**:
+  - 做什么:
+    - **任务内模式**:
+      - 文件树(增删改查/重命名/拖拽)
+      - Monaco(语法高亮/查找替换/多光标/minimap)
+      - 文件保存即写入容器(500ms 防抖)
+      - **AI 修改实时刷新**(文件 watcher + 编辑器平滑更新)
+      - **任务级 Diff 视图**:列出本任务 git diff 涉及文件,逐文件 diff,可"接受/拒绝"(拒绝=回滚该文件)
+    - **项目模式**:
+      - 通过 GitLab API 浏览任意分支的文件树与文件内容
+      - 只读,不可编辑;不可创建/删除/重命名
+  - 不做什么:
+    - **不做**多人实时协同(光标共享/CRDT)—— V1 假设任务**单执行者**,人审阅 AI 而非与人协同
+    - **不做** LSP/智能补全/跳转定义
+    - **不做** Git 可视化操作面板(stage/commit/push 走终端)
+    - **不做**二进制预览(图片除外)
+    - **不做**大文件编辑(> 2MB 只读)
+- **字段定义**:沿用文件树常规字段,无需持久化(任务模式读容器,项目模式读 GitLab API)
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 项目模式打开文件 | 调 GitLab API `GET /projects/:id/repository/files/:path?ref={branch}` → 显示 | 只读 |
+  | 任务模式打开文件 | 从容器读 → 显示 | 可编辑 |
+  | AI 修改了打开的文件 | watcher 触发 → 编辑器更新 + toast"AI 修改了此文件" | |
+  | 用户编辑与 AI 修改冲突 | **以容器为准**,提示"AI 已修改,已为你重新加载" | |
+  | 任务结束 → Diff 视图 | 列出本任务 git diff 文件,逐文件 accept/reject | reject = `git checkout HEAD@{task_start} -- {file}` |
+  | 文件被外部删除 | 编辑器标记,可另存 | |
+- **依赖**:R8(任务模式)/ R2(项目模式)
+- **异常与边界场景**:
+  - 多人打开同一文件:不冲突(各自编辑,后保存覆盖前者;V1 接受)
+  - GitLab API 超时 → 显示"无法加载,请稍后重试"
+  - 文件 watcher 失效 → 手动刷新按钮
+- **验收标准**:
+  1. 项目模式能从 GitLab API 浏览任意分支文件
+  2. 任务模式 AI 修改的文件实时刷新可见
+  3. Diff 视图能列出任务所有改动并可单独回滚
+  4. 项目模式只读,任何写操作被禁
+
+### R12:项目成员与协作
+
+- **描述**:项目级成员与三档角色权限
+- **触发场景**:项目设置 → 成员 Tab
+- **前置条件**:R2
+- **边界定义**:
+  - 做什么:邀请(用户名/邮箱搜索)/移除/角色变更
+  - 不做什么:组织层级/跨项目权限继承/审批流
+- **字段定义**:
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | project_id | ref(R2) | 是 | - | |
+  | user_id | ref(R1) | 是 | - | |
+  | role | enum | 是 | viewer | owner/editor/viewer |
+  | invited_by | ref(R1) | 是 | - | |
+  | joined_at | datetime | 是 | now | |
+- **交互规则**(权限矩阵):
+  | 操作 | owner | editor | viewer |
+  |---|---|---|---|
+  | 查看项目/需求/任务/代码(只读)/预览 | ✅ | ✅ | ✅ |
+  | 创建/编辑需求 | ✅ | ✅ | ❌ |
+  | 启动需求打磨任务 | ✅(需绑定 token) | ✅(需绑定 token) | ❌ |
+  | 评审需求(通过/驳回) | ✅(需绑定 token,通过时用其 token commit PRD) | ✅(同左) | ❌ |
+  | 创建/执行任务(dev/test/release) | ✅(需绑定 token) | ✅(需绑定 token) | ❌ |
+  | 用任务内终端/编辑器 | ✅ | ✅ | ❌ |
+  | 邀请/移除/改角色 | ✅ | ❌ | ❌ |
+  | 改模型配置(R13) | ✅ | ❌ | ❌ |
+  | 改项目 GitLab 绑定(R2) | ✅ | ❌ | ❌ |
+  | 归档/删除项目 | ✅ | ❌ | ❌ |
+  | 知识条目提升到平台级(R14) | ✅ | ❌ | ❌ |
+  | 转让 owner | ✅(降为 editor) | - | - |
+
+  **"需绑定 token"**:执行该操作前,平台校验用户已绑定 GitLab token 且对该 repo 有 read+write 权限;未绑定则跳转个人设置页引导绑定(R1)。
+- **依赖**:R1、R2
+- **异常与边界场景**:
+  - 项目必须 ≥1 owner
+  - 单项目成员 ≤ 50
+- **验收标准**:
+  1. 权限矩阵每条可验证
+  2. viewer 写操作前后端双重拦截
+
+### R13:模型接入(项目级 url+key)
+
+- **描述**:每个项目配置一组 OpenAI 兼容 LLM endpoint,任务执行与 AI 辅助使用;支持会话级临时切换
+- **触发场景**:项目设置 → 模型 Tab / 首次建任务未配置时引导
+- **前置条件**:R2
+- **边界定义**:
+  - 做什么:项目级 url+key+model,多组配置(主/备),连接性测试,会话级覆盖
+  - 不做什么:平台统一计费/key 池/模型路由
+- **字段定义**:
+  | 字段 | 类型 | 必填 | 默认值 | 校验规则 | 说明 |
+  |---|---|---|---|---|---|
+  | config_id | uuid | 是 | auto | - | |
+  | project_id | ref(R2) | 是 | - | - | |
+  | name | string(64) | 是 | - | 同项目唯一 | |
+  | base_url | string(255) | 是 | - | http/https | OpenAI 兼容 |
+  | api_key | string(255) | 是 | - | AES-GCM 加密存储 | 接口永不回显完整 |
+  | model | string(64) | 是 | - | - | claude-sonnet-5 / gpt-5 / deepseek-chat 等 |
+  | is_default | bool | 是 | false | 同项目最多一个 | |
+  | enabled | bool | 是 | true | - | |
+  | created_by | ref(R1) | 是 | - | | |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 保存 | `GET {base_url}/models` 连通性测试,失败拒绝 | 提示错误 |
+  | 任务执行 | 默认 default 配置;启动任务时可临时切换(会话级) | 当次生效 |
+  | key 展示 | 前 4 + 后 4,中间 *** | |
+  | 删 default | 拒绝,先指定新 default | |
+  | **SDK 模式** | 平台后端用配置调 LLM(主路径) | |
+  | **CLI 模式** | 平台把配置注入容器 env(`ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` 或对应变量) | Claude CLI 用 |
+- **依赖**:R2
+- **异常与边界场景**:
+  - 容器内 env 注入的 key **仅容器内存**,不落容器镜像/日志
+  - 未配置时,任务/AI 辅助入口禁用并引导
+- **验收标准**:
+  1. 至少能配置 Claude/OpenAI/DeepSeek 任意兼容 endpoint 跑通任务
+  2. key 不明文出现在接口/日志/前端
+  3. SDK 与 CLI 两种模式都能用同一组配置
+
+### R14:归档与知识库
+
+- **描述**:需求 done 后,自动整理全流程产物生成归档页;同时 AI 提取**可复用知识**进知识库
+- **触发场景**:需求 status=done 自动触发 / 用户手动点击"归档"
+- **前置条件**:R7 deployed
+- **边界定义**:
+  - 做什么:
+    - 归档页:时间线视图,展示从需求到发布的全过程关键节点(数据来自 GitLab commit + 任务历史 + 部署记录)
+    - AI 生成**归档总结** `docs/archive/{reqId}/summary.md`,**commit 到 master**(此时需求分支已 merge)
+    - AI 提取**知识条目**:可复用代码片段 / 通用模式 / 工具用法,入库
+    - 知识库**项目内 + 平台级**两级,支持搜索
+  - 不做什么:
+    - **不做**知识条目版本管理
+    - **不做**知识条目权限细分(V1 项目内成员可见项目库,平台库全员可见)
+    - **不做**知识推荐(仅搜索)
+- **字段定义**(KnowledgeEntry):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | entry_id | uuid | 是 | auto | |
+  | project_id | ref(R2) | 否 | null | null=平台级 |
+  | req_id | ref(R3) | 是 | - | 来源需求 |
+  | type | enum | 是 | - | code_snippet / pattern / pitfall / doc |
+  | title | string(128) | 是 | - | |
+  | content | text | 是 | - | Markdown |
+  | tags | json | 否 | [] | 字符串数组 |
+  | source_links | json | 否 | [] | 关联 commit/任务/部署 URL |
+  | created_by | enum | 是 | ai | ai / human |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 需求 done | 自动生成归档页 + AI 起草总结 commit 到 master `docs/archive/{reqId}/summary.md` | 项目成员可编辑(通过新任务) |
+  | AI 提取知识 | 默认进**项目级**知识库;owner 可"提升到平台级" | |
+  | 用户手动新增知识 | 项目内任意成员可建 | |
+  | 搜索 | 全文 + tag 过滤,项目内 / 平台级 Tab 切换 | |
+- **依赖**:R7、R13
+- **异常与边界场景**:
+  - AI 提取的知识默认 **draft 状态**,人审后才 publish
+  - 归档后需求不可再打开任务(只读)
+  - 归档总结需修改 → 创建一个新的 dev 任务专门改文档
+- **验收标准**:
+  1. 需求 done 后归档页可见,summary.md 已 commit 到 master
+  2. 知识库可搜索到归档的条目
+  3. 平台级知识需 owner 提升
+
+### R15:平台网关与域名(支持 Runner 代理)
+
+- **描述**:承载预览(R10)与部署(R7)的统一反向代理,基于泛域名 + 端口;**Runner 架构下,网关通过 Runner 上的本地代理转发到容器**
+- **触发场景**:任何预览/部署 URL 访问
+- **前置条件**:平台部署时配置
+- **边界定义**:
+  - 做什么:
+    - 泛域名 `*.preview.coding-console.zhanqitv.com.cn`(预览,任务级)
+    - 主域 `{slug}.coding-console.zhanqitv.com.cn:{port}`(部署,项目级 + 用户自定义端口)
+    - 动态路由注册/摘除(容器端口监听驱动 / 部署事件驱动)
+    - **路由 upstream 指向 Runner 的本地代理**:`http://{runner_host}:{runner_mapped_port}`(Runner 上的本地代理再转发到容器)
+    - 预览路由**鉴权**,部署路由**公开**
+    - WebSocket 透传(HMR/TTY)
+    - 流量/访问日志
+  - 不做什么(V1):
+    - **不做** HTTPS(HTTP only)
+    - **不做** CDN
+    - **不做** WAF/防火墙(V1 信任内网/基础防护即可)
+    - **不做**自定义域名
+- **字段定义**(Route):
+  | 字段 | 类型 | 必填 | 说明 |
+  |---|---|---|---|
+  | route_id | uuid | 是 | |
+  | host | string | 是 | 完整 host(含端口) |
+  | upstream | string | 是 | **`http://{runner_host}:{runner_mapped_port}`**(Runner 上的本地代理地址) |
+  | type | enum | 是 | preview / deploy |
+  | project_id | ref(R2) | 是 | |
+  | task_id | ref(R4) | 否 | preview 必填 |
+  | container_id | ref(R8) | 是 | |
+  | runner_id | ref(R16) | 是 | |
+  | auth_required | bool | 是 | preview=true, deploy=false |
+  | status | enum | 是 | active/inactive |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 注册路由 | 端口监听/部署事件触发 → 平台查询容器的 `runner_id` + `runner_host_port_*` → 拼接 upstream → 注册到网关 | active |
+  | 摘除 | 端口关闭/容器销毁/下线 | inactive |
+  | 访问 preview | 校验 JWT + 项目成员 → 转发到 Runner 上的本地代理 → 再到容器 | 非成员 403 |
+  | 访问 deploy | 公开 → 转发到 deploy Runner 上的本地代理 → 再到容器 | |
+  | 端口冲突 | deploy_port 全平台唯一,冲突拒绝 | |
+  | **Runner offline** | 路由保留,但 upstream 不可达 → 网关返回 502 + "Runner offline" 提示 | |
+- **依赖**:R8、R16
+- **异常与边界场景**:
+  - 上游 5xx → 502 页面带项目名与日志链接
+  - 单 host QPS 上限(防爬/防滥用,默认 100)
+  - 端口池 `10000-10099`(100 个端口,够 20 个项目 × 5 个部署)
+  - **Runner 本地代理端口冲突**:Runner 启动容器时分配随机宿主机端口(范围 20000-29999),冲突自动重试
+- **验收标准**:
+  1. 预览鉴权正确,部署公开
+  2. WebSocket 透传正常(HMR/TTY)
+  3. 端口冲突被拒绝
+  4. 容器销毁后路由自动摘除
+  5. Runner offline 时路由保留但返回 502 + 明确提示
+  6. 路由 upstream 正确指向 Runner 的本地代理
+
+### R16:Runner 管理(分布式容器执行)
+
+- **描述**:Runner 是**容器执行的代理节点**,部署在不同的机器上;Runner 主动连接平台(WebSocket),接收任务指令(启动/停止容器),本地通过 Docker SDK 管理容器,并把容器状态/日志/事件回传平台
+- **触发场景**:平台管理员在"平台设置 → Runner 管理"页生成 Runner token / 运维在某台机器上启动 Runner 容器
+- **前置条件**:平台已部署;Runner 机器已装 Docker
+- **边界定义**:
+  - 做什么:
+    - **Runner 注册**:运维在某台机器上 `docker run -e PLATFORM_URL=... -e RUNNER_TOKEN=... platform/runner:v1` → Runner 启动后**主动 WebSocket 连接平台** → 平台校验 token → 注册上线
+    - **任务调度**:平台后端调度器根据"最少负载"策略选择 Runner(部署任务固定在 `role=deploy` 的 Runner)
+    - **容器管理**:平台通过 WebSocket 向 Runner 发送指令(启动/停止/销毁/exec);Runner 本地调 Docker SDK 执行,并回报结果
+    - **心跳保活**:Runner 每 30s 向平台发心跳;60s 无心跳平台标记 Runner offline
+    - **状态回传**:Runner 监听本地容器事件(start/die/OOM 等),实时回传平台
+    - **端口映射回报**:Runner 启动容器时分配随机宿主机端口,回报给平台(网关转发用)
+    - **本地代理**:Runner 机器上跑一个**本地反向代理**(Nginx/Traefik),把容器端口暴露给 Runner 的某个端口,平台网关转发到 Runner(进而到容器)
+    - **Runner 角色**:`worker`(默认,跑任务容器)/ `deploy`(专用跑部署容器,需绑定公网 IP/域名)
+  - 不做什么:
+    - **不做** Runner 自动扩缩容(V1 手动增减 Runner)
+    - **不做** Runner 上的容器迁移(Runner 掉线,容器继续跑;任务不迁移到其他 Runner)
+    - **不做** Runner 标签匹配(V1 只区分 worker/deploy;V2 再加 GPU/大内存等标签)
+    - **不做** Kubernetes(Runner 就是"装了 Docker 的机器",V1 不上 K8s)
+- **字段定义**(Runner):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | runner_id | uuid | 是 | auto | |
+  | name | string(64) | 是 | - | 运维起的名字(如 "runner-beijing-01") |
+  | role | enum | 是 | worker | worker / deploy |
+  | token_hash | string | 是 | - | Runner token 的 bcrypt hash(平台不存明文) |
+  | status | enum | 是 | offline | online / offline / disabled |
+  | last_heartbeat_at | datetime | 否 | null | |
+  | machine_info | json | 否 | null | `{os, arch, cpu_count, mem_total_gb, docker_version}` |
+  | current_containers | int | 是 | 0 | 当前运行的容器数(调度用) |
+  | max_containers | int | 是 | 10 | 该 Runner 最多跑多少容器 |
+  | public_ip | string(64) | 否 | null | deploy Runner 必填(部署 URL 指向该 IP) |
+  | created_by | ref(R1) | 是 | - | 创建 token 的超管 |
+  | created_at | datetime | 是 | now | |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 超管生成 Runner token | 平台设置 → Runner 管理 → "新建 Runner" → 填 name + role → 生成一次性 token(仅显示一次) | 运维复制 token |
+  | Runner 启动 | `docker run -e PLATFORM_URL=wss://platform.example.com/ws/runner -e RUNNER_TOKEN=xxx platform/runner:v1` → 连接平台 → 平台校验 token_hash → 标记 online | Runner 列表显示 online |
+  | 心跳 | Runner 每 30s 发 `ping`;平台 60s 未收到 → 标记 offline | Runner 列表灰显 |
+  | 任务调度 | 平台选 `status=online AND current_containers < max_containers AND role 匹配` 的 Runner 中 `current_containers` 最少的 | 任务分配到该 Runner |
+  | Runner 上的容器事件 | Runner 监听 docker events → start/die/OOM → 实时回传平台 → 平台更新容器状态 | 前端可见 |
+  | Runner 下线(运维主动) | Runner 收到 SIGTERM → 通知平台 → 平台标记 offline → Runner 上的 running 容器**不动**(继续跑) | Runner 列表灰显 |
+  | Runner 恢复 | Runner 重新连接 → 上报本地实际运行的容器列表 → 平台对账(数据库 vs 实际) | 状态一致 |
+  | 部署任务调度 | 仅选 `role=deploy AND online` 的 Runner;多个 deploy Runner 时选最少负载 | 部署固定在 deploy Runner |
+  | Runner token 泄露 | 超管在 Runner 管理页"重置 token" → 旧 token 失效,Runner 需用新 token 重启 | 安全 |
+- **依赖**:R1(超管)、R8
+- **异常与边界场景**:
+  - **Runner offline 时其上的容器**:继续跑(Runner 是薄代理,容器独立于 Runner 进程);平台标记容器"Runner offline",**WebSocket 终端/预览不可用**(网关无法转发);Runner 恢复后恢复
+  - **Runner 全部 offline**:任务创建时**排队**,前端显示"等待可用 Runner";超管告警
+  - **Runner 上 Docker daemon 挂了**:Runner 上报 "docker daemon unavailable" → 平台标记 Runner failed,不再调度
+  - **Runner 时钟漂移**:心跳带时间戳,平台校验时钟差 > 5min 拒绝(避免 token 重放)
+  - **Runner 与平台时钟不同步导致的心跳误判**:平台容忍 ±30s 时钟差
+- **验收标准**:
+  1. 运维能用 token 在某台机器上启动 Runner 并注册到平台
+  2. 任务能分配到 Runner 并在其上拉起容器
+  3. Runner offline 时任务排队,Runner 恢复后继续
+  4. Runner 上的容器事件(start/die)能实时回传平台
+  5. 部署任务固定在 deploy Runner 上
+  6. Runner token 重置后旧 token 失效
+
+### R17:MCP server 与 Skills 管理
+
+- **描述**:平台预装常用 MCP server 与 Skills 到任务容器镜像;**项目级 MCP server 配置**与**Skills** 允许用户自定义;AI 在任务中可使用 MCP server 扩展工具能力,使用 Skills 扩展方法论
+- **触发场景**:任务创建时自动注入 / 项目设置 → MCP/Skills Tab 管理
+- **前置条件**:R2(项目已建)
+- **边界定义**:
+  - 做什么:
+    - **镜像预装**(platform/devbox:v1):
+      - 常用 MCP server(filesystem / git / github / sqlite / brave-search)
+      - 常用 Skills(平台官方维护,如"代码审查"、"写测试"、"重构")
+    - **项目级 MCP server 配置**:
+      - 项目设置里允许用户**编辑 JSON 配置**(沿用 Claude Code 原生格式)
+      - 提供**常用 MCP server 模板**(PostgreSQL / Redis / GitHub / Slack 等),用户填参数即可
+      - 配置里可能包含敏感信息(数据库密码/API key),**AES-256-GCM 加密存储**(与 R13 一致)
+    - **Skills 管理**:
+      - **平台级 Skills**:平台官方维护,所有项目可用;超管在"平台设置 → Skills 市场"维护
+      - **项目级 Skills**:项目成员在项目设置里**上传自己的 `.md` 文件** 或 **从平台级 Skills 市场选择安装**
+      - Skills 内容格式沿用 **Claude Code Skills 原生格式**(YAML frontmatter + Markdown 正文)
+    - **任务创建时注入**:
+      - 平台把项目级 `mcp_config` 注入到容器 `~/.claude/config.json`(与镜像预装的 MCP server **合并**,项目级覆盖同名)
+      - 平台把项目级 Skills 列表对应的 `.md` 文件写入容器 `~/.claude/skills/` 目录(与镜像预装的 Skills **合并**,项目级覆盖同名)
+  - 不做什么:
+    - **不做**用户级 Skills(跟随用户跨项目;V1 太细)
+    - **不做** Skills 社区市场(用户分享 Skills;V2 再做)
+    - **不做**远程 MCP server(有状态/资源密集/跨任务共享;V2 再做)
+    - **不做** Skills 版本管理(V1 覆盖式更新)
+- **字段定义**(Skill 表):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | skill_id | uuid | 是 | auto | |
+  | name | string(64) | 是 | - | 全局唯一(kebab-case) |
+  | description | string(255) | 是 | - | 一句话描述 |
+  | content | text | 是 | - | Markdown 正文(YAML frontmatter + 正文) |
+  | scope | enum | 是 | platform | platform(平台级)/ project(项目级) |
+  | project_id | ref(R2) | 否 | null | scope=project 时必填 |
+  | created_by | ref(R1) | 是 | - | |
+  | created_at / updated_at | datetime | 是 | now | |
+
+  **字段定义**(ProjectSkill 关联表):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | project_id | ref(R2) | 是 | - | |
+  | skill_id | ref(Skill) | 是 | - | |
+  | installed_by | ref(R1) | 是 | - | |
+  | installed_at | datetime | 是 | now | |
+
+  **字段定义**(Project 表新增):
+  | 字段 | 类型 | 必填 | 默认值 | 说明 |
+  |---|---|---|---|---|
+  | mcp_config_encrypted | text | 否 | null | 项目级 MCP server 配置(JSON),AES-256-GCM 加密 |
+
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 项目设置 → MCP Tab → 编辑配置 | 用户编辑 JSON → 平台校验 JSON 格式合法 → **AES-256-GCM 加密**存到 `mcp_config_encrypted` | 保存成功 |
+  | 项目设置 → MCP Tab → 用模板 | 用户选模板(如 PostgreSQL)→ 填参数(host/port/user/password)→ 平台生成 JSON → 加密存储 | 保存成功 |
+  | 项目设置 → Skills Tab → 从市场安装 | 列出平台级 Skills(scope=platform)→ 用户点击"安装" → 写入 `project_skills` 关联表 | 安装成功 |
+  | 项目设置 → Skills Tab → 上传自定义 Skill | 用户上传 `.md` 文件 → 平台校验格式(YAML frontmatter 必须有 name/description)→ 写入 `skills` 表(scope=project)+ `project_skills` 关联表 | 上传成功 |
+  | 项目设置 → Skills Tab → 卸载 | 删除 `project_skills` 关联记录 | 卸载成功 |
+  | 任务创建时注入 | 平台读 `mcp_config_encrypted` 解密 + 读 `project_skills` 关联的 Skills 内容 → 注入到容器 `~/.claude/config.json` 与 `~/.claude/skills/*.md` | AI 可用 |
+  | 镜像预装 vs 项目级覆盖 | 同名 MCP server / Skill,**项目级覆盖镜像预装** | |
+  | 敏感信息 | MCP 配置里的密码/key 在**接口返回时打码**(前 4 位 + 后 4 位,中间 ***);**容器内 env 注入时解密** | 前端不明文 |
+- **依赖**:R2
+- **异常与边界场景**:
+  - **MCP 配置 JSON 格式错误**:保存时拒绝,提示具体错误行
+  - **Skill `.md` 文件格式错误**(缺 YAML frontmatter / name / description):上传时拒绝,提示具体错误
+  - **Skill name 冲突**(同名 platform Skill 与 project Skill):项目级覆盖平台级
+  - **MCP server 启动失败**(如数据库连不上):Claude CLI 启动时会报错,任务失败,日志可见
+  - **Skill 内容包含恶意指令**(如"删除所有文件"):V1 **不拦截**(用户自己负责);V2 可加内容审核
+- **验收标准**:
+  1. 镜像预装的 MCP server(filesystem/git)在所有任务容器中可用
+  2. 项目级 MCP 配置(JSON)能保存并在任务中生效
+  3. 项目级 Skills 能上传/安装/卸载,并在任务中生效
+  4. 同名 MCP server / Skill 项目级覆盖镜像预装
+  5. MCP 配置里的敏感信息加密存储,接口返回打码
+
+## 非功能需求
+
+| 类别 | 要求 |
+|---|---|
+| **性能** | 项目首页 < 2s;任务容器冷启动 < 30s(含 git clone);Claude 首 token < 3s(取决于配置的模型) |
+| **并发** | 单实例 ≥ 50 并发容器;单项目 ≤ 3 并发任务(不含部署中);单用户 ≤ 5 同时运行容器;单项目 ≤ 5 部署 |
+| **安全** | 密码 bcrypt;JWT;api_key/GitLab token AES-GCM 加密;容器间网络隔离;容器出网白名单(LLM endpoint + GitLab + 包管理镜像源) |
+| **审计** | 登录/项目增删/成员变更/部署/模型配置变更/驳回操作/强制 push 全量审计日志,保留 1 年 |
+| **可用性** | ≥ 99%(V1 单实例,接受短时维护窗口) |
+| **数据备份** | MySQL 每日备份保留 7 天;**代码与文档以 GitLab 为唯一事实源**(平台不备份 GitLab,GitLab 自有备份) |
+| **浏览器** | Chrome / Edge 最近两个大版本;Safari 不保证(V1) |
+| **国际化** | V1 仅中文界面 |
+
+## 范围外(V1 明确不做)
+
+- 桌面客户端 / 移动端 / 浏览器插件
+- 第三方登录(OAuth/SSO/手机号)
+- 组织/团队层级
+- GitHub / Gitee 等其他 Git 托管(V1 仅 GitLab)
+- 自定义容器镜像 / docker-compose 多容器 / SSH 直连
+- 宿主机挂载持久化(V1 数据全走 GitLab,容器是纯计算资源)
+- 多人实时协同编辑(光标共享/CRDT)
+- LSP / 智能补全 / Git 可视化操作面板
+- 需求优先级看板 / 排期 / 甘特图
+- 任务级 MR(评审走最终 merge)
+- 性能测试 / 压测 / 第三方测试平台集成
+- 多环境部署 / 自定义域名 / 回滚 / 蓝绿 / HTTPS
+- 配额 / 限流 / 计费
+- 知识条目版本管理 / 推荐
+- 内嵌 MySQL/Redis 容器
+
+## 设计稿引用
+
+无(平台类产品,UI 参考 MonkeyCode / v0.dev / bolt.new / Codespaces 的工作台布局,设计规范在 rd-plan 阶段定)
+
+## 待确认清单
+
+**已全部清零**(Q1–Q14),PRD 状态:**已确认**,可进入下一阶段 `/rd-arch`。
+
+### 已确认决策汇总
+
+- **Q1**:`devbox:v1` 镜像依赖清单 → 留给 `rd-arch`
+- **Q2**:Claude Agent SDK 选型 → 留给 `rd-arch`(取决于后端语言)
+- **Q3**:GitLab 实例 + bot token → **管理员首次登录后,在"用户中心 → 平台设置"配置**,配置前 GitLab 相关功能禁用
+- **Q4**:平台管理员 → **角色**(可多人)
+- **Q5**:注册 → **邀请制**,超管/项目 owner 都可邀请
+- **Q6**:测试任务 → **项目可绑定多个仓库**(main/test/docs/other),测试任务默认拉取 role=test 仓库
+- **Q7**:部署单点故障 → **接受**(V1)
+- **Q8**:commit 规范 → `[ai:{type}] {task_title}`,author = 用户,committer = AI,不签名
+- **Q9**:开源协议 → **闭源**(V1)
+- **Q10**:viewer 预览权限 → **可看**
+- **Q11**:强制 push 失败兜底 → **保留容器 30 分钟重试**,超时销毁 + 告警
+- **Q12**:告警通道 → **站内信 + 钉钉 webhook**
+- **Q13**:bot token scope → **`api`**(bot 在目标 group 是 Owner/Maintainer 即可,不需 GitLab 管理员)
+- **Q14**:用户 token scope → **`read_repository + write_repository`**(最小权限)

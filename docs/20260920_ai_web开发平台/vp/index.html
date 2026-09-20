@@ -1,0 +1,1474 @@
+<title>CodingConsole 演示</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+/* ===== tokens · DESIGN.md(shadcn/ui New York,zinc)===== */
+:root{
+  --bg:#ffffff; --surface:#ffffff; --surface-2:#f4f4f5; --surface-3:#ececee;
+  --border:#e4e4e7; --border-strong:#d4d4d8;
+  --text:#09090b; --muted:#71717a; --faint:#a1a1aa;
+  --primary:#18181b; --primary-hi:#27272a; --accent:#2563eb;
+  --ring:rgba(161,161,170,.4);
+  --blue-bg:#eff6ff; --blue-tx:#1d4ed8; --blue-bd:#bfdbfe;
+  --green-bg:#f0fdf4; --green-tx:#15803d; --green-bd:#bbf7d0;
+  --amber-bg:#fffbeb; --amber-tx:#b45309; --amber-bd:#fde68a;
+  --red-bg:#fef2f2; --red-tx:#b91c1c; --red-bd:#fecaca;
+  --violet-bg:#f5f3ff; --violet-tx:#6d28d9; --violet-bd:#ddd6fe;
+  --zinc-bg:#f4f4f5; --zinc-tx:#3f3f46; --zinc-bd:#e4e4e7;
+  --term-bg:#0e1116; --term-bd:#1e2530; --term-tx:#c9d4e3; --term-dim:#7d8899;
+  --radius:10px; --radius-sm:8px;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.05);
+  --shadow-md:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
+  --sans:'Geist',-apple-system,'PingFang SC','Microsoft YaHei',system-ui,sans-serif;
+  --mono:'Geist Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{height:100%}
+body{margin:0;font:14px/1.55 var(--sans);color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+table{font:inherit;border-collapse:collapse}
+button{font:inherit;color:inherit}
+img,svg{vertical-align:middle}
+[hidden]{display:none!important}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}
+.faint{color:var(--faint)}
+.small{font-size:12px}
+.nowrap{white-space:nowrap}
+/* ===== app shell ===== */
+.shell{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
+.sidebar{border-right:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;gap:2px;padding:14px 10px;position:sticky;top:0;height:100vh;overflow:auto}
+.logo{display:flex;align-items:center;gap:9px;padding:4px 8px 14px}
+.logo-mark{width:30px;height:30px;border-radius:8px;background:var(--primary);color:#fff;display:grid;place-items:center;flex:none}
+.logo b{font-size:14px;letter-spacing:-.01em;display:block;line-height:1.2}
+.logo span{font-size:11px;color:var(--muted);display:block}
+.sgroup{font-size:11px;font-weight:600;color:var(--faint);letter-spacing:.06em;padding:14px 10px 4px;text-transform:uppercase}
+.sitem{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--radius-sm);color:var(--muted);cursor:pointer;border:none;background:none;width:100%;text-align:left;font-weight:500}
+.sitem:hover{background:var(--surface-2);color:var(--text)}
+.sitem.on{background:var(--surface-2);color:var(--text)}
+.sitem .ic{flex:none}
+.sitem .cnt{margin-left:auto;font-size:11px;color:var(--faint);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:0 6px}
+.sitem.on .cnt{background:#fff}
+.tour{margin-top:auto;border:1px solid var(--border);border-radius:var(--radius);padding:10px;background:var(--surface-2)}
+.tour b{font-size:12px;display:block;margin-bottom:6px}
+.tour a{display:flex;gap:7px;align-items:center;color:var(--muted);font-size:12px;padding:3px 2px;border-radius:4px}
+.tour a:hover{color:var(--text);text-decoration:none}
+.tour .n{width:15px;height:15px;border-radius:999px;background:#fff;border:1px solid var(--border-strong);color:var(--muted);font-size:10px;display:grid;place-items:center;flex:none;font-family:var(--mono)}
+.main{min-width:0;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(255,255,255,.92);backdrop-filter:blur(6px);z-index:20;min-height:50px}
+.crumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);min-width:0;flex-wrap:wrap}
+.crumb b{color:var(--text);font-weight:600}
+.crumb .sep{color:var(--faint)}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
+.demo-chip{font-size:11px;color:var(--muted);border:1px dashed var(--border-strong);border-radius:999px;padding:2px 9px;background:var(--surface-2);white-space:nowrap}
+.av{width:28px;height:28px;border-radius:999px;display:grid;place-items:center;font-size:12px;font-weight:600;color:#fff;flex:none}
+.av.sm{width:22px;height:22px;font-size:10px}
+.av-stack{display:flex}
+.av-stack .av{margin-left:-7px;border:2px solid #fff}
+.av-stack .av:first-child{margin-left:0}
+/* ===== page ===== */
+.page{padding:22px 24px 48px;max-width:1240px;width:100%;margin:0 auto}
+.page.wide{max-width:none}
+.page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.page-head h1{font-size:19px;letter-spacing:-.01em;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.page-head .sub{color:var(--muted);font-size:13px;margin-top:3px}
+.page-head .acts{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+/* ===== buttons ===== */
+.btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;padding:6px 13px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface);cursor:pointer;box-shadow:var(--shadow-sm);transition:background .12s;white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn:active{background:var(--surface-3)}
+.btn-pri{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn-pri:hover{background:var(--primary-hi)}
+.btn-pri:active{background:#3f3f46}
+.btn-danger{color:var(--red-tx);border-color:var(--red-bd);background:var(--red-bg)}
+.btn-danger:hover{background:#fee2e2}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn[disabled]:hover{background:var(--surface)}
+.btn-sm{padding:3px 9px;font-size:12px}
+.btn-ghost{border-color:transparent;box-shadow:none;background:transparent;color:var(--muted)}
+.btn-ghost:hover{background:var(--surface-2);color:var(--text)}
+.icon-btn{width:30px;height:30px;padding:0;justify-content:center}
+/* ===== badges / chips ===== */
+.bdg{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:1.5px 9px;border-radius:999px;border:1px solid transparent;white-space:nowrap;line-height:1.5}
+.b-blue{background:var(--blue-bg);color:var(--blue-tx);border-color:var(--blue-bd)}
+.b-green{background:var(--green-bg);color:var(--green-tx);border-color:var(--green-bd)}
+.b-amber{background:var(--amber-bg);color:var(--amber-tx);border-color:var(--amber-bd)}
+.b-red{background:var(--red-bg);color:var(--red-tx);border-color:var(--red-bd)}
+.b-violet{background:var(--violet-bg);color:var(--violet-tx);border-color:var(--violet-bd)}
+.b-zinc{background:var(--zinc-bg);color:var(--zinc-tx);border-color:var(--zinc-bd)}
+.dot{width:6px;height:6px;border-radius:999px;background:currentColor;flex:none}
+.dot.pulse{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.chip{font-family:var(--mono);font-size:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:1px 7px;color:var(--zinc-tx);white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.chip .ic{color:var(--faint)}
+.chip-row{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+/* ===== cards ===== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm)}
+.card-head{display:flex;align-items:center;gap:9px;padding:11px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.card-title{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px}
+.card-head .right{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.card-body{padding:16px}
+.card-body.tight{padding:0}
+.card-foot{border-top:1px solid var(--border);padding:9px 16px;font-size:12px;color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.kvs{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-sm);overflow:hidden}
+.kv{padding:10px 16px;border-right:1px solid var(--border);min-width:130px;flex:1}
+.kv:last-child{border-right:none}
+.kv label{display:block;font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
+.kv div{font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px}
+/* ===== tables ===== */
+.scrollx{overflow-x:auto}
+.tbl{width:100%;font-size:13px}
+.tbl th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:9px 16px;border-bottom:1px solid var(--border);background:var(--surface-2);white-space:nowrap}
+.tbl td{padding:10px 16px;border-bottom:1px solid var(--border);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tbody tr:hover td{background:var(--surface-2)}
+.tbl .rowclick{cursor:pointer}
+/* ===== tabs ===== */
+.twrap{min-width:0}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{border:none;background:none;padding:8px 13px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.tab:hover{color:var(--text)}
+.tab.on{color:var(--text);border-bottom-color:var(--primary)}
+.tab .n{font-size:11px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:0 6px;color:var(--muted)}
+.pane{display:none}
+.pane.on{display:block}
+.pane.on.fill{display:flex;flex-direction:column;min-height:0;flex:1}
+/* ===== stepper ===== */
+.stepper{display:flex;align-items:flex-start;overflow-x:auto;padding:4px 2px 10px;gap:0;scrollbar-width:none}
+.stepper::-webkit-scrollbar{display:none}
+.stp{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:86px;position:relative;flex:1}
+.stp::before{content:"";position:absolute;top:8px;right:50%;width:100%;height:2px;background:var(--border)}
+.stp:first-child::before{display:none}
+.stp .d{width:17px;height:17px;border-radius:999px;background:#fff;border:2px solid var(--border-strong);display:grid;place-items:center;position:relative;z-index:1;color:transparent}
+.stp.done .d{background:var(--primary);border-color:var(--primary);color:#fff}
+.stp.cur .d{border-color:var(--primary);color:var(--primary)}
+.stp.cur .d::after{content:"";width:7px;height:7px;border-radius:999px;background:var(--primary)}
+.stp span{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.stp.done span,.stp.cur span{color:var(--text);font-weight:500}
+/* ===== grid layouts ===== */
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+.grid-sb{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:start}
+.stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+/* ===== project cards ===== */
+.pcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.pcard{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-sm);padding:16px;display:flex;flex-direction:column;gap:10px;cursor:pointer;transition:border-color .12s, box-shadow .12s}
+.pcard:hover{border-color:var(--border-strong);box-shadow:var(--shadow-md)}
+.pcard h3{font-size:15px;display:flex;align-items:center;gap:8px}
+.pcard p{margin:0;color:var(--muted);font-size:13px}
+.pcard .meta{display:flex;gap:12px;color:var(--muted);font-size:12px;flex-wrap:wrap}
+.pcard .meta span{display:inline-flex;gap:5px;align-items:center}
+.pcard .foot{display:flex;align-items:center;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
+/* ===== file tree ===== */
+.tree{padding:10px 8px;font-size:13px}
+.tnode{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:default;color:var(--text);white-space:nowrap}
+.tnode.dir{color:var(--muted);font-weight:500}
+.tnode.sel{background:var(--surface-2)}
+.tnode .ic{color:var(--faint);flex:none}
+.tnode .nm{overflow:hidden;text-overflow:ellipsis}
+.fdot{width:6px;height:6px;border-radius:999px;margin-left:auto;flex:none}
+.fdot.a{background:var(--blue-tx)}
+.fdot.m{background:var(--amber-tx)}
+.tree-foot{border-top:1px solid var(--border);padding:9px 12px;font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.tree-foot b{color:var(--text);font-weight:500}
+/* ===== editor ===== */
+.ed{display:flex;flex-direction:column;min-height:0;flex:1;background:var(--surface)}
+.ed-tabs{display:flex;border-bottom:1px solid var(--border);background:var(--surface-2);overflow-x:auto;scrollbar-width:none}
+.edtab{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;padding:7px 12px;border-right:1px solid var(--border);color:var(--muted);cursor:pointer;white-space:nowrap;background:none;border-top:none;border-bottom:none;border-left:none}
+.edtab.on{background:var(--surface);color:var(--text);box-shadow:inset 0 2px 0 var(--primary)}
+.ed-scroll{overflow:auto;flex:1;min-height:0;background:var(--surface)}
+.ed-code{font-family:var(--mono);font-size:12.5px;line-height:1.65;padding:10px 0;min-width:max-content}
+.cl{display:flex;white-space:pre}
+.cl .ln{width:46px;flex:none;text-align:right;padding-right:14px;color:var(--faint);user-select:none;font-size:11.5px}
+.cl .lc{padding-right:24px}
+.cl.hl{background:var(--blue-bg)}
+.c-kw{color:#cf222e;font-style:normal}
+.c-st{color:#0a3069;font-style:normal}
+.c-cm{color:#6e7781;font-style:normal}
+.c-num{color:#0550ae;font-style:normal}
+.c-fn{color:#8250df;font-style:normal}
+/* ===== diff ===== */
+.d-chips{display:flex;gap:7px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--border)}
+.dchip{font-family:var(--mono);font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);padding:3px 9px;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+.dchip.on{border-color:var(--primary);background:var(--surface-2)}
+.dchip .s{font-size:11px}
+.dchip .add{color:var(--green-tx)}
+.dchip .del{color:var(--red-tx)}
+.dl{display:flex;font-family:var(--mono);font-size:12px;line-height:1.7;white-space:pre}
+.dl .no{width:38px;flex:none;text-align:right;padding-right:10px;color:var(--faint);user-select:none;font-size:11px}
+.dl .tx{padding-right:20px}
+.dl-add{background:#e6ffec}
+.dl-add .tx{color:#116329}
+.dl-del{background:#ffebe9}
+.dl-del .tx{color:#82071d}
+.dl-hunk{background:var(--surface-2);color:var(--muted)}
+.dl-hunk .tx{color:var(--muted)}
+/* ===== preview ===== */
+.pv{display:flex;flex-direction:column;min-height:0;flex:1;background:var(--surface-2)}
+.pv-chrome{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--surface)}
+.pv-dots{display:flex;gap:5px}
+.pv-dots i{width:9px;height:9px;border-radius:999px;background:var(--border-strong)}
+.pv-url{flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:3px 11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv-body{flex:1;overflow:auto;padding:18px;display:flex;justify-content:center;align-items:flex-start}
+.pv-app{width:100%;max-width:460px;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-md);overflow:hidden}
+.shop-h{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px}
+.cart-item{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--border)}
+.cart-thumb{width:38px;height:38px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:grid;place-items:center;color:var(--faint);flex:none}
+.cart-item .nm{font-size:13px;font-weight:500}
+.cart-item .pr{margin-left:auto;font-family:var(--mono);font-size:13px}
+.coupon{display:flex;align-items:center;gap:9px;padding:9px 16px;font-size:12.5px;border-bottom:1px dashed var(--border)}
+.coupon .ck{width:16px;height:16px;border-radius:999px;background:var(--green-bg);border:1px solid var(--green-bd);color:var(--green-tx);display:grid;place-items:center;flex:none}
+.coupon .who{margin-left:auto;font-size:11px;color:var(--faint)}
+.sumrow{display:flex;justify-content:space-between;padding:6px 16px;font-size:12.5px;color:var(--muted)}
+.sumrow b{color:var(--text);font-family:var(--mono);font-weight:500}
+.sumrow.save b{color:var(--green-tx)}
+.sumrow.pay{border-top:1px solid var(--border);margin-top:4px;padding-top:10px;padding-bottom:14px;font-size:14px}
+.sumrow.pay b{font-size:17px;font-weight:600}
+.pv-note{margin-top:10px;font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px;justify-content:center}
+/* ===== terminal ===== */
+.term{background:var(--term-bg);border:1px solid var(--term-bd);border-radius:var(--radius-sm);display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
+.term-head{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--term-bd);color:var(--term-dim);font-size:11.5px;font-family:var(--mono)}
+.term-head .right{margin-left:auto}
+.term-body{padding:12px 14px;font-family:var(--mono);font-size:12px;line-height:1.65;overflow:auto;flex:1;min-height:0;color:var(--term-tx)}
+.tl{white-space:pre-wrap;word-break:break-all;min-height:1.2em}
+.t-dim{color:var(--term-dim)}
+.t-tool{color:#79c0ff}
+.t-ok{color:#4ade80}
+.t-ai{color:#c4b5fd}
+.t-cmd{color:#e6edf3}
+.t-prompt{color:#7d8899}
+.ai-chip{display:inline-block;background:rgba(124,58,237,.22);border:1px solid rgba(167,139,250,.4);color:#d6c7ff;border-radius:4px;padding:0 5px;font-size:11px}
+.cursor{display:inline-block;width:7px;height:14px;background:#e6edf3;vertical-align:-2px;animation:pulse 1s steps(2) infinite}
+/* ===== chat ===== */
+.chat{display:flex;flex-direction:column;min-height:0;flex:1}
+.chat-list{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:14px;min-height:0}
+.msg{display:flex;gap:10px;min-width:0}
+.msg .role-ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex:none;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+.msg.ai .role-ic{background:var(--violet-bg);border-color:var(--violet-bd);color:var(--violet-tx)}
+.msg .m-body{min-width:0;flex:1}
+.msg .m-meta{font-size:11.5px;color:var(--faint);margin-bottom:3px;display:flex;gap:7px;align-items:center}
+.msg .m-meta b{color:var(--text);font-weight:600;font-size:12px}
+.bubble{font-size:13px;white-space:pre-wrap;word-break:break-word}
+.msg.user .bubble{background:var(--surface-2);border:1px solid var(--border);border-radius:0 10px 10px 10px;padding:8px 12px}
+.fref{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11.5px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:1px 7px;color:var(--blue-tx);margin:2px 2px 0 0}
+.fref .inj{font-size:10px;color:var(--faint)}
+.att-row{display:flex;gap:7px;flex-wrap:wrap;padding:8px 14px;border-top:1px solid var(--border);background:var(--surface-2)}
+.att{display:inline-flex;align-items:center;gap:6px;font-size:12px;border:1px solid var(--border);background:#fff;border-radius:6px;padding:3px 8px}
+.chat-input{display:flex;gap:8px;align-items:center;border-top:1px solid var(--border);padding:10px 12px}
+.chat-input input{flex:1;min-width:0}
+.chat-hint{padding:0 14px 8px;font-size:11px;color:var(--faint)}
+/* ===== inputs ===== */
+.input{width:100%;font:inherit;font-size:13px;padding:6px 11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)}
+.input::placeholder{color:var(--faint)}
+.input:focus{outline:none;border-color:var(--faint);box-shadow:0 0 0 3px var(--ring)}
+.search{position:relative;flex:1;max-width:340px}
+.search .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--faint)}
+.search .input{padding-left:32px}
+/* ===== activity stream ===== */
+.act{padding:6px 0;overflow:auto;flex:1;min-height:0}
+.act-item{display:flex;gap:10px;padding:7px 14px;font-size:12.5px;align-items:flex-start}
+.act-ic{width:24px;height:24px;border-radius:6px;background:var(--surface-2);border:1px solid var(--border);display:grid;place-items:center;color:var(--muted);flex:none;margin-top:1px}
+.act-ic.git{background:var(--blue-bg);border-color:var(--blue-bd);color:var(--blue-tx)}
+.act-ic.wr{background:var(--violet-bg);border-color:var(--violet-bd);color:var(--violet-tx)}
+.act-ic.ok{background:var(--green-bg);border-color:var(--green-bd);color:var(--green-tx)}
+.act-t{min-width:0;flex:1}
+.act-t b{font-family:var(--mono);font-size:11.5px;font-weight:600}
+.act-t .p{font-family:var(--mono);font-size:11.5px;color:var(--muted);word-break:break-all}
+.act-t .sub{color:var(--faint);font-size:11.5px}
+.act-meta{margin-left:auto;color:var(--faint);font-size:11px;font-family:var(--mono);white-space:nowrap;flex:none}
+.act-foot{border-top:1px solid var(--border);padding:8px 14px;font-size:11.5px;color:var(--muted);display:flex;gap:14px;font-family:var(--mono)}
+/* ===== checklist (PRD) ===== */
+.cklist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+.cklist li{display:flex;gap:9px;align-items:flex-start;font-size:13px}
+.ckbox{width:16px;height:16px;border-radius:5px;border:1px solid var(--border-strong);display:grid;place-items:center;flex:none;margin-top:2px;color:#fff}
+.ckbox.on{background:var(--green-tx);border-color:var(--green-tx)}
+.ckbox.off{background:#fff}
+.cklist li.off-t{color:var(--muted)}
+/* ===== timeline ===== */
+.timeline{position:relative;padding:4px 0}
+.tl-item{display:flex;gap:12px;position:relative;padding:0 0 18px 0}
+.tl-item::before{content:"";position:absolute;left:8px;top:20px;bottom:0;width:2px;background:var(--border)}
+.tl-item:last-child::before{display:none}
+.tl-dot{width:18px;height:18px;border-radius:999px;background:#fff;border:2px solid var(--border-strong);display:grid;place-items:center;color:var(--muted);flex:none;position:relative;z-index:1}
+.tl-item.done .tl-dot{background:var(--primary);border-color:var(--primary);color:#fff}
+.tl-item .tl-c{min-width:0;flex:1}
+.tl-item .tl-t{font-size:13px;font-weight:500}
+.tl-item .tl-m{font-size:12px;color:var(--muted)}
+.tl-item .when{font-size:11.5px;color:var(--faint);font-family:var(--mono);white-space:nowrap}
+/* ===== knowledge ===== */
+.kb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+.kb-card{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-sm);padding:14px 16px;display:flex;flex-direction:column;gap:9px}
+.kb-card h4{font-size:13.5px}
+.kb-card p{margin:0;font-size:12.5px;color:var(--muted)}
+.tag{font-size:11px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted)}
+/* ===== modal ===== */
+.modal-mask{position:fixed;inset:0;background:rgba(9,9,11,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.modal{width:100%;max-width:520px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-md);max-height:88vh;overflow:auto}
+.m-head{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);font-weight:600}
+.m-head .x{margin-left:auto}
+.m-body{padding:18px;display:flex;flex-direction:column;gap:13px}
+.m-foot{display:flex;justify-content:flex-end;gap:8px;padding:13px 18px;border-top:1px solid var(--border)}
+.field label{display:block;font-size:12.5px;font-weight:500;margin-bottom:5px}
+.field .hint{font-size:11.5px;color:var(--faint);margin-top:5px}
+/* ===== toast ===== */
+.toast-wrap{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:80;align-items:center;pointer-events:none;padding:0 16px}
+.toast{background:var(--primary);color:#fff;font-size:13px;border-radius:999px;padding:8px 18px;box-shadow:var(--shadow-md);animation:tin .18s ease-out;max-width:90vw;text-align:center}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+/* ===== workbench ===== */
+.wb-head{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:var(--surface)}
+.wb-head .ttl{font-weight:600;font-size:14.5px;display:flex;align-items:center;gap:8px;min-width:0}
+.wb-head .acts{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.wb{display:grid;grid-template-columns:236px minmax(0,1fr) 384px;flex:1;min-height:0}
+@media (min-width:1181px){ .wb{height:calc(100vh - 108px);min-height:600px} }
+.wb .col-tree .tree{flex:1;min-height:0;overflow:auto}
+.wb>section{min-width:0;min-height:0;display:flex;flex-direction:column}
+.wb .col-tree{border-right:1px solid var(--border)}
+.wb .col-right{border-left:1px solid var(--border)}
+.wb-center{display:flex;flex-direction:column;min-height:0}
+.wb .pane{flex:1;min-height:0}
+.wb-mid{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.empty{padding:40px 20px;text-align:center;color:var(--faint);font-size:13px}
+/* ===== login ===== */
+.login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px;background:
+ radial-gradient(900px 480px at 80% -10%, var(--blue-bg), transparent 60%),
+ radial-gradient(700px 420px at 0% 100%, var(--surface-2), transparent 55%), var(--bg)}
+.login-card{width:100%;max-width:400px}
+.login-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-md);padding:26px;display:flex;flex-direction:column;gap:14px}
+.login-logo{display:flex;align-items:center;gap:10px}
+/* ===== responsive ===== */
+@media (max-width:1180px){
+  .wb{grid-template-columns:minmax(0,1fr)}
+  .wb .col-tree{border-right:none;border-bottom:1px solid var(--border);max-height:230px}
+  .wb .col-right{border-left:none;border-top:1px solid var(--border)}
+  .wb .tree{max-height:170px;overflow:auto}
+  .wb .col-center{min-height:560px}
+  .grid2,.grid-sb{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:900px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .sidebar{position:static;height:auto;flex-direction:row;align-items:center;overflow-x:auto;padding:8px 10px;gap:4px;border-right:none;border-bottom:1px solid var(--border)}
+  .logo{padding:0 8px 0 2px}
+  .logo span{display:none}
+  .sgroup{display:none}
+  .sitem{width:auto;white-space:nowrap}
+  .sitem .lbl{font-size:13px}
+  .tour{display:none}
+  .page{padding:16px 16px 40px}
+  .kv{min-width:45%}
+}
+@media (prefers-reduced-motion: reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+<div id="app"></div>
+<div id="modal-root"></div>
+<div class="toast-wrap" id="toasts"></div>
+<script>
+/* ================= utils ================= */
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const ICONS = {
+  'folder':'<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  'folder-open':'<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+  'file':'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/>',
+  'file-text':'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
+  'file-code':'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><path d="m10 12-2 2 2 2"/><path d="m14 16 2-2-2-2"/>',
+  'git-branch':'<path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  'git-commit':'<circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/>',
+  'git-merge':'<circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 15V3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  'terminal':'<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+  'play':'<path d="M6 4.5v15l13-7.5Z"/>',
+  'stop':'<rect x="6" y="6" width="12" height="12" rx="1.5"/>',
+  'check':'<path d="M20 6 9 17l-5-5"/>',
+  'check-circle':'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  'x':'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  'x-circle':'<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  'bot':'<rect x="5" y="9" width="14" height="10" rx="2"/><path d="M12 5v4"/><path d="M9 5h6"/><circle cx="9.5" cy="14" r=".8" fill="currentColor" stroke="none"/><circle cx="14.5" cy="14" r=".8" fill="currentColor" stroke="none"/>',
+  'cpu':'<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>',
+  'box':'<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/>',
+  'rocket':'<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+  'archive':'<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  'book':'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+  'users':'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  'sliders':'<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  'key':'<path d="m21 2-2 2"/><path d="m15.5 6.5 3 3"/><path d="M12.6 11.4a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78Z"/><path d="m12.6 11.4 5.4-5.4"/><path d="m16.1 7.9 2.9 2.9"/>',
+  'plug':'<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+  'chevR':'<path d="m9 18 6-6-6-6"/>',
+  'chevD':'<path d="m6 9 6 6 6-6"/>',
+  'plus':'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  'clip':'<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  'at':'<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
+  'search':'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  'bell':'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  'back':'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  'ext':'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  'clock':'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  'alert':'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  'refresh':'<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
+  'copy':'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  'layers':'<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+  'msg':'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  'activity':'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  'globe':'<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  'upload':'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  'shield':'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  'eye':'<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  'send':'<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+  'flask':'<path d="M10 2v7.53a2 2 0 0 1-.24.95l-5.53 9.54a1.5 1.5 0 0 0 1.3 2.25h12.94a1.5 1.5 0 0 0 1.3-2.25l-5.53-9.54a2 2 0 0 1-.24-.95V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/>',
+  'logout':'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+  'dotc':'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
+  'server':'<rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/>',
+  'sparkle':'<path d="M9.94 15.5a2 2 0 0 0-1.44-1.44l-6.13-1.58a.5.5 0 0 1 0-.96l6.13-1.58A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0l1.58 6.13a2 2 0 0 0 1.44 1.44l6.13 1.58a.5.5 0 0 1 0 .96l-6.13 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/>',
+  'pencil':'<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  'zap':'<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+};
+const ic = (n,s=15) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;
+function toast(m){const w=document.getElementById('toasts');const t=document.createElement('div');t.className='toast';t.textContent=m;w.appendChild(t);setTimeout(()=>t.remove(),2800);}
+function openModal(html){document.getElementById('modal-root').innerHTML=`<div class="modal-mask" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`;}
+function closeModal(){document.getElementById('modal-root').innerHTML='';}
+const go = h => { location.hash = h; };
+/* ================= 模拟数据(静态演示) ================= */
+const USERS = {
+  luowen:{name:'罗文',  init:'罗', color:'#18181b', role:'owner',  gitlab:true},
+  wangq:{name:'王倩',  init:'王', color:'#1d4ed8', role:'editor', gitlab:true},
+  liming:{name:'李明',  init:'李', color:'#6d28d9', role:'editor', gitlab:true},
+  zhangy:{name:'张野',  init:'张', color:'#b45309', role:'viewer', gitlab:false},
+};
+const ROLE_CN = {owner:'负责人', editor:'编辑者', viewer:'观察者'};
+const PROJECTS = [
+  {id:'order-center', name:'订单中心', slug:'order-center', desc:'电商订单核心域:购物车、优惠券、履约与售后', branch:'master', repos:[
+    {role:'main', url:'gitlab.internal/order-center/order-center', bind:'auto'},
+    {role:'test', url:'gitlab.internal/order-center/order-center-tests', bind:'manual'},
+  ]},
+  {id:'crm', name:'客户管理平台', slug:'crm-web', desc:'内部 CRM:客户档案、跟进记录与商机看板', branch:'master', repos:[
+    {role:'main', url:'gitlab.internal/ops/crm-web', bind:'auto'},
+  ]},
+  {id:'infra', name:'接入网关', slug:'infra-gateway', desc:'统一接入层:鉴权、限流与路由', branch:'develop', repos:[
+    {role:'main', url:'gitlab.internal/infra/gateway', bind:'manual'},
+  ]},
+];
+const MODEL = {name:'Claude Sonnet 5 · 内部网关', base:'https://llm-gateway.internal/v1', model:'claude-sonnet-5', key:'sk-05••••••••f3ab', isDefault:true};
+/* 需求状态机:draft→polishing→reviewing→approved→in_progress→done→archived */
+let REQS = [
+  {id:'REQ-040', pid:'order-center', title:'地址簿智能识别', branch:'req-040', status:'archived', pri:'high', by:'luowen', upd:'09-15 10:05', review:{by:'罗文', at:'09-13 09:40', commit:'a1b2c3d'}},
+  {id:'REQ-041', pid:'order-center', title:'订单导出 Excel', branch:'req-041', status:'done', pri:'medium', by:'wangq', upd:'09-19 18:22', review:{by:'罗文', at:'09-16 11:05', commit:'e4f5a6b'}},
+  {id:'REQ-042', pid:'order-center', title:'购物车优惠券叠加使用', branch:'req-042', status:'in_progress', pri:'high', by:'wangq', upd:'09-21 15:47', review:{by:'罗文', at:'09-20 14:10', commit:'b8c9d0e'}},
+  {id:'REQ-043', pid:'order-center', title:'会员积分兑换', branch:'req-043', status:'reviewing', pri:'medium', by:'wangq', upd:'09-21 10:31', review:null},
+  {id:'REQ-044', pid:'order-center', title:'物流轨迹订阅推送', branch:'req-044', status:'draft', pri:'low', by:'luowen', upd:'09-21 09:12', review:null},
+];
+let REQSEQ = 45;
+const TASKS = {
+  'T-301':{id:'T-301', req:'REQ-042', type:'requirement', title:'需求打磨:购物车优惠券叠加', status:'done', branch:'req-042', runner:'runner-beijing-01', container:'c-7f2a91', tokens:'↑8.2k ↓26.5k', by:'wangq',
+    commits:['d41e5f9 docs(req-042): PRD 打磨草稿']},
+  'T-310':{id:'T-310', req:'REQ-042', type:'dev', title:'实现优惠券叠加计算引擎', status:'running', branch:'req-042', runner:'runner-beijing-01', container:'c-a3f9e2', tokens:'↑12.4k ↓38.1k', by:'luowen', lastCommit:'a3f9e21',
+    commits:['a3f9e21 feat(cart): 优惠券叠加计算引擎 + 单测','77b01cc refactor(cart): CartService.quote 接入叠加结果']},
+  'T-311':{id:'T-311', req:'REQ-042', type:'dev', title:'优惠券叠加前端交互', status:'pending', branch:'req-042', runner:'—', container:'—', tokens:'—', by:'wangq', commits:[]},
+  'T-201':{id:'T-201', req:'REQ-040', type:'dev', title:'地址解析引擎 + OCR 预处理', status:'done', branch:'req-040', runner:'runner-beijing-01', container:'已销毁', tokens:'↑31.0k ↓92.7k', by:'luowen',
+    commits:['f00c1d2 feat(addr): 地址解析引擎','91aa7b3 feat(addr): OCR 预处理管道','5d6e7f8 test(addr): 解析用例 28 例']},
+  'T-203':{id:'T-203', req:'REQ-040', type:'test', title:'地址簿识别回归测试', status:'passed', branch:'req-040', runner:'runner-beijing-01', container:'已销毁', tokens:'↑18.9k ↓54.2k', by:'liming', report:'docs/req-040/test-reports/T-203/report.md',
+    commits:['c3d4e5f test(req-040): 测试报告 T-203 (11 通过 / 1 豁免)','6a7b8c9 test(tests): 修复用例 TC-05 断言']},
+  'T-204':{id:'T-204', req:'REQ-040', type:'release', title:'发布地址簿识别 v1.2', status:'deployed', branch:'master', runner:'runner-deploy-01', container:'c-dep1040', tokens:'↑2.1k ↓6.8k', by:'luowen', port:10040, merge:'9f8e7d6',
+    commits:['9f8e7d6 merge: req-040 → master','1a2b3c4 docs(release): T-204 部署产物']},
+  'T-205':{id:'T-205', req:'REQ-041', type:'release', title:'发布订单导出 v1.0', status:'deployed', branch:'master', runner:'runner-deploy-01', container:'c-dep1041', tokens:'↑1.8k ↓5.5k', by:'wangq', port:10041, merge:'2b3c4d5',
+    commits:['2b3c4d5 merge: req-041 → master']},
+};
+/* --- T-310 开发工作台内容 --- */
+const CODE_COUPON = `import type { Cart, Coupon, CouponKind, ApplyResult } from "./types";
+
+/** 叠加顺序:满减 → 折扣 → 运费券(活动规则.md §3.2) */
+const STACK_ORDER: CouponKind[] = ["full_reduction", "discount", "shipping"];
+
+/** 互斥组:同组内仅可选一张,组内贪心取优惠最大 */
+const MUTEX_GROUPS: Record<string, CouponKind[]> = {
+  full_reduction: ["full_reduction"],
+  discount: ["discount"],
+};
+
+export function applyCoupons(cart: Cart, coupons: Coupon[]): ApplyResult {
+  const picked = pickBestPerGroup(cart, coupons, MUTEX_GROUPS);
+  const ordered = sortCoupons(picked, STACK_ORDER);
+
+  let payable = cart.subtotal;
+  const applied: Coupon[] = [];
+  for (const c of ordered) {
+    const amount = amountFor(c, payable);
+    if (amount <= 0) continue;
+    payable = Math.max(0, payable - amount); // 边界:叠加后不为负
+    applied.push(c);
+  }
+  return { payable: round2(payable), applied, saved: round2(cart.subtotal - payable) };
+}
+
+function amountFor(c: Coupon, payable: number): number {
+  return c.kind === "discount" ? payable * (1 - c.value) : Math.min(c.value, payable);
+}`;
+const CODE_SPEC = `import { applyCoupons, makeCart } from "./helpers";
+import { FULL_120, DISCOUNT_90, FREESHIP } from "./fixtures";
+
+it("满减 + 折扣 + 运费券按固定顺序叠加", () => {
+  const r = applyCoupons(makeCart(169700), [FULL_120, DISCOUNT_90, FREESHIP]);
+  expect(r.payable).toBe(140730); // 1697 → 1527.3 → 1407.3
+});
+
+it("叠加后应付金额不为负", () => {
+  const r = applyCoupons(makeCart(8000), [FULL_120, FULL_200]);
+  expect(r.payable).toBe(0);
+});
+
+it("互斥组内仅保留优惠最大的一张", () => {
+  const r = applyCoupons(makeCart(169700), [FULL_120, FULL_80, DISCOUNT_90]);
+  expect(r.applied.map(c => c.id)).toEqual(["full-120", "disc-90"]);
+});`;
+const CODE_SERVICE = `export class CartService {
+  async quote(cartId: string) {
+    const cart = await this.repo.get(cartId);
+-   return calcTotal(cart, cart.coupons[0] ?? null);
++   // REQ-042: 多券叠加(互斥组 + 固定叠加顺序)
++   const applied = applyCoupons(cart, cart.coupons);
++   return { ...calcTotal(cart), ...applied };
+  }
+}`;
+const DIFF_FILES = [
+  {name:'src/cart/coupon-engine.ts', add:86, del:0, lines:[
+    ['h','@@ -0,0 +1,36 @@'],
+    ['a','+ import type { Cart, Coupon, CouponKind, ApplyResult } from "./types";'],
+    ['a','+'],
+    ['a','+ /** 叠加顺序:满减 → 折扣 → 运费券(活动规则.md §3.2) */'],
+    ['a','+ const STACK_ORDER: CouponKind[] = ["full_reduction", "discount", "shipping"];'],
+    ['a','+'],
+    ['a','+ /** 互斥组:同组内仅可选一张,组内贪心取优惠最大 */'],
+    ['a','+ const MUTEX_GROUPS: Record<string, CouponKind[]> = {'],
+    ['a','+   full_reduction: ["full_reduction"],'],
+    ['a','+   discount: ["discount"],'],
+    ['a','+ };'],
+    ['a','+'],
+    ['a','+ export function applyCoupons(cart: Cart, coupons: Coupon[]): ApplyResult {'],
+    ['a','+   const picked = pickBestPerGroup(cart, coupons, MUTEX_GROUPS);'],
+    ['a','+   const ordered = sortCoupons(picked, STACK_ORDER);'],
+    ['a','+   let payable = cart.subtotal;'],
+    ['a','+   for (const c of ordered) {'],
+    ['a','+     const amount = amountFor(c, payable);'],
+    ['a','+     if (amount <= 0) continue;'],
+    ['a','+     payable = Math.max(0, payable - amount); // 边界:叠加后不为负'],
+    ['a','+   }'],
+    ['a','+   return { payable: round2(payable), applied, saved: round2(cart.subtotal - payable) };'],
+    ['a','+ }'],
+  ]},
+  {name:'src/cart/cart.service.ts', add:24, del:6, lines:[
+    ['h','@@ -12,7 +12,18 @@ export class CartService {'],
+    ['c','  async quote(cartId: string) {'],
+    ['c','    const cart = await this.repo.get(cartId);'],
+    ['d','-    return calcTotal(cart, cart.coupons[0] ?? null);'],
+    ['a','+    // REQ-042: 多券叠加(互斥组 + 固定叠加顺序)'],
+    ['a','+    const applied = applyCoupons(cart, cart.coupons);'],
+    ['a','+    return { ...calcTotal(cart), ...applied };'],
+    ['c','  }'],
+    ['d','-  /* 单券逻辑已移除,见 coupon-engine.ts */'],
+    ['a','+  /* 单券逻辑移入 coupon-engine.ts(2026-09-21) */'],
+  ]},
+  {name:'tests/coupon-stack.spec.ts', add:58, del:0, lines:[
+    ['h','@@ -0,0 +1,14 @@'],
+    ['a','+ import { applyCoupons, makeCart } from "./helpers";'],
+    ['a','+ import { FULL_120, DISCOUNT_90, FREESHIP } from "./fixtures";'],
+    ['a','+'],
+    ['a','+ it("满减 + 折扣 + 运费券按固定顺序叠加", () => {'],
+    ['a','+   const r = applyCoupons(makeCart(169700), [FULL_120, DISCOUNT_90, FREESHIP]);'],
+    ['a','+   expect(r.payable).toBe(140730); // 1697 → 1527.3 → 1407.3'],
+    ['a','+ });'],
+    ['a','+'],
+    ['a','+ it("叠加后应付金额不为负", () => {'],
+    ['a','+   const r = applyCoupons(makeCart(8000), [FULL_120, FULL_200]);'],
+    ['a','+   expect(r.payable).toBe(0);'],
+    ['a','+ });'],
+  ]},
+];
+const CHAT_310 = [
+  {role:'user', by:'luowen', time:'15:02', text:'大促要支持多券叠加,互斥规则和叠加顺序看这个附件,按 PRD 实现。', file:'活动规则-v3.md', inj:'2.3KB 已注入'},
+  {role:'ai', time:'15:02', text:'已读取 @活动规则-v3.md(2.3 KB,< 100KB,内容已注入)。结合 docs/req-042/PRD.md,我的实现计划:\n1. 抽象 CouponStackEngine:互斥组内贪心选最优\n2. 固定叠加顺序:满减 → 折扣 → 运费券\n3. 边界:叠加后金额不为负\n开始编码,先写单测。'},
+  {role:'ai', time:'15:21', text:'计算引擎与 12 个单测已完成,pytest/jest 全绿。已 commit + push 到 req-042(a3f9e21),可在 Diff 页查看改动。'},
+  {role:'user', by:'luowen', time:'15:33', text:'注意性能:结算页计算要求 <10ms,用例里补一个基准。'},
+  {role:'ai', time:'15:35', text:'已补充基准用例 tests/coupon-stack.spec.ts:24(500 券 × 1000 次 ≈ 0.4ms),满足 <10ms。准备 push,是否继续?'},
+];
+const TERM_310 = [
+  {t:'prompt', c:'claude'},
+  {t:'ai', c:'✻ Claude Code · model claude-sonnet-5 · cwd /workspace/main'},
+  {t:'dim', c:'  已加载 docs/req-042/PRD.md(评审通过版本)+ 3 个 Skills'},
+  {t:'tool', c:'⏺ Read(src/cart/cart.service.ts)'},
+  {t:'tool', c:'⏺ Write(src/cart/coupon-engine.ts)  +86 行'},
+  {t:'tool', c:'⏺ Bash(npm test -- coupon-stack)'},
+  {t:'ok', c:'  ✓ 12 passed (4.2s)'},
+  {t:'tool', c:'⏺ Bash(git add -A && git commit -m "[ai:dev] 购物车优惠券叠加使用")'},
+  {t:'ai', c:'  <CHIP>[ai:dev]</CHIP> commit a3f9e21 · author luowen'},
+  {t:'tool', c:'⏺ Bash(git push origin req-042)'},
+  {t:'ok', c:'  → GitLab req-042 ✓(个人 token · luowen)'},
+  {t:'dim', c:'  任务保持运行中,输入可介入 · 容器 60min 超时兜底'},
+];
+const ACT_310 = [
+  {icn:'file-text', t:'read_file', p:'docs/req-042/PRD.md', sub:'验收标准 4 条已解析', d:'0.3s'},
+  {icn:'file-text', t:'read_file', p:'src/cart/cart.service.ts', sub:'定位单券计算点', d:'0.2s'},
+  {icn:'pencil', cls:'wr', t:'write_file', p:'src/cart/coupon-engine.ts', sub:'+86 行(新文件)', d:'0.8s'},
+  {icn:'pencil', cls:'wr', t:'edit_file', p:'src/cart/cart.service.ts', sub:'+24 −6', d:'0.4s'},
+  {icn:'terminal', t:'bash', p:'npm test -- coupon-stack', sub:'✓ 12 passed', d:'4.2s'},
+  {icn:'git-commit', cls:'git', t:'git commit', p:'[ai:dev] 购物车优惠券叠加使用', sub:'a3f9e21 · author luowen', d:'0.4s'},
+  {icn:'git-branch', cls:'git', t:'git push', p:'origin req-042', sub:'个人 token · 乐观锁通过', d:'1.1s'},
+  {icn:'check-circle', cls:'ok', t:'阶段完成', p:'等待用户下一步指令', sub:'会话保持', d:'—'},
+];
+/* --- T-203 测试任务 --- */
+const CASES_203 = [
+  {id:'TC-01', t:'标准地址解析(省/市/区 + 街道门牌)', st:'pass', ms:126},
+  {id:'TC-02', t:'缺失省份自动补全(“杭州市西湖区…”)', st:'pass', ms:98},
+  {id:'TC-03', t:'手写体照片 OCR 识别(倾斜 15°)', st:'pass', ms:842},
+  {id:'TC-04', t:'简称映射(“内蒙”→内蒙古自治区)', st:'pass', ms:87},
+  {id:'TC-05', t:'超长地址(>200 字)截断并告警', st:'waived', ms:64, note:'豁免:极端场景,延后至 V2(评审人 罗文)'},
+  {id:'TC-06', t:'POI 名称消歧(同名校验)', st:'pass', ms:231},
+  {id:'TC-07', t:'批量导入 1000 条地址', st:'pass', ms:1420},
+];
+const REPORT_203 = {pass:11, waived:1, fail:0, concl:'通过(含 1 项豁免)', commit:'c3d4e5f'};
+/* --- T-204 发布任务 --- */
+const DEPLOY_LOG = [
+  {t:'dim', c:'$ git checkout master && git merge req-040'},
+  {t:'ok', c:'  Merge commit 9f8e7d6(平台 bot token · 系统动作)'},
+  {t:'dim', c:'$ npm run build'},
+  {t:'ok', c:'  ✓ vite build · 14.2s · dist/ 2.1MB'},
+  {t:'dim', c:'$ node server.js --port 10040'},
+  {t:'ok', c:'  ✓ listening :10040'},
+  {t:'dim', c:'$ curl -s -o /dev/null -w "%{http_code}" http://localhost:10040/'},
+  {t:'ok', c:'  200 · 健康检查通过 → deployed'},
+  {t:'ai', c:'  <CHIP>[ai:release]</CHIP> CHANGELOG.md + deploy-log.txt → master docs/releases/T-204/'},
+];
+const KNOWLEDGE = [
+  {scope:'proj', pid:'order-center', type:'pattern', title:'优惠券互斥组 + 固定叠加顺序模式', req:'REQ-042', tags:['促销','定价'], by:'ai', draft:false,
+   txt:'同互斥组内贪心取最优,跨组按 满减→折扣→运费券 固定顺序叠加;金额下限 Math.max(0, …) 兜底。已沉淀为 coupon-engine.ts。'},
+  {scope:'proj', pid:'order-center', type:'snippet', title:'OCR 预处理管道(灰度→二值→倾斜校正)', req:'REQ-040', tags:['OCR','图像'], by:'ai', draft:false,
+   txt:'tesseract 前置预处理三步,识别率 +18%;倾斜角用 Hough 变换估计。'},
+  {scope:'proj', pid:'order-center', type:'pitfall', title:'POI 同名消歧先精确后模糊', req:'REQ-040', tags:['地址','坑'], by:'ai', draft:true,
+   txt:'直接模糊匹配会误判到外地同名 POI;先 (省,市,区) 精确过滤再做编辑距离。'},
+  {scope:'platform', type:'pattern', title:'Runner 心跳与容器对账机制', req:'—', tags:['Runner','架构'], by:'ai', draft:false,
+   txt:'Runner 每 30s 心跳,60s 判离线;恢复后上报本地容器列表与 DB 对账,避免状态漂移。'},
+  {scope:'platform', type:'snippet', title:'Git 乐观锁:push 失败自动 rebase 一次', req:'—', tags:['Git','并发'], by:'human', draft:false,
+   txt:'push 被拒时自动 git pull --rebase 重试一次;冲突文件 >5 个转人工(任务终端介入)。'},
+  {scope:'platform', type:'doc', title:'测试报告路径规范', req:'—', tags:['规范'], by:'human', draft:false,
+   txt:'docs/req-{reqId}/test-reports/{taskId}/report.md + cases.json,commit 到主仓库需求分支。'},
+];
+const RUNNERS = [
+  {name:'runner-beijing-01', role:'worker', status:'online', load:[3,10], machine:'Ubuntu 22.04 · 8C / 32G · Docker 26.1', hb:'3s 前', ip:'—'},
+  {name:'runner-shanghai-02', role:'worker', status:'offline', load:[5,10], machine:'Ubuntu 22.04 · 16C / 64G · Docker 26.1', hb:'12 分钟前', ip:'—'},
+  {name:'runner-deploy-01', role:'deploy', status:'online', load:[2,5], machine:'Ubuntu 22.04 · 4C / 16G · Docker 26.1', hb:'5s 前', ip:'47.98.x.x'},
+];
+const KB_TYPE = {pattern:['模式','b-violet'], snippet:['片段','b-blue'], pitfall:['踩坑','b-amber'], doc:['文档','b-zinc']};
+const ST = {
+  draft:['草稿','b-zinc'], polishing:['打磨中','b-blue'], reviewing:['评审中','b-amber'],
+  approved:['已评审','b-green'], in_progress:['开发中','b-blue'], done:['已完成','b-green'],
+  archived:['已归档','b-zinc'], rejected:['已驳回','b-red'], cancelled:['已取消','b-zinc'],
+  pending:['排队中','b-zinc'], running:['运行中','b-blue'], cases_review:['用例评审','b-amber'],
+  passed:['测试通过','b-green'], failed:['失败','b-red'], deploying:['部署中','b-amber'], deployed:['已上线','b-green'],
+};
+const TYPE = {
+  requirement:{cn:'打磨', icn:'sparkle', cls:'b-violet'},
+  dev:{cn:'开发', icn:'file-code', cls:'b-blue'},
+  test:{cn:'测试', icn:'flask', cls:'b-violet'},
+  release:{cn:'发布', icn:'rocket', cls:'b-amber'},
+};
+const stB = (s, pulse) => { const [t, c] = ST[s] || [s, 'b-zinc']; return `<span class="bdg ${c}"><span class="dot${pulse?' pulse':''}"></span>${t}</span>`; };
+const tpB = t => { const m = TYPE[t]; return `<span class="bdg ${m.cls}">${ic(m.icn,12)}${m.cn}</span>`; };
+const av = (u, sm) => { const o = USERS[u]; return `<span class="av${sm?' sm':''}" title="${o.name}" style="background:${o.color}">${o.init}</span>`; };
+const brChip = b => `<span class="chip">${ic('git-branch',12)}${b}</span>`;
+/* ================= 代码高亮 ================= */
+function hl(line){
+  let s = esc(line);
+  s = s.replace(/(\/\/[^\n]*)|(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;)|\b(export|import|from|function|const|let|return|for|of|if|else|new|type|interface|as|await|async|class|this|expect|it)\b|\b(\d+(?:\.\d+)?)\b/g,
+    (m,cm,st,kw,num)=> cm!==undefined?`<i class="c-cm">${cm}</i>` : st!==undefined?`<i class="c-st">${st}</i>` : kw!==undefined?`<i class="c-kw">${kw}</i>` : `<i class="c-num">${num}</i>`);
+  return s;
+}
+const codeBlock = c => c.split('\n').map((l,i)=>`<div class="cl"><span class="ln">${i+1}</span><span class="lc">${l===''?'':hl(l)}</span></div>`).join('');
+const diffBlock = lines => lines.map((l,i)=>{
+  const no = l[0]==='h'?'…':l[0]==='c'?String(i+1):l[0]==='a'?String(i+1):String(i+1);
+  return `<div class="dl dl-${l[0]==='a'?'add':l[0]==='d'?'del':l[0]==='h'?'hunk':'ctx'}"><span class="no">${no}</span><span class="tx">${esc(l[1].replace(/^[+-] /,''))}</span></div>`;
+}).join('');
+
+/* ================= 骨架 ================= */
+function shell(inner, crumb, active){
+  const nav = [
+    ['projects','folder','项目', PROJECTS.length],
+    ['knowledge','book','知识库',''],
+    ['runners','server','Runner 管理', RUNNERS.filter(r=>r.status==='online').length+'/'+RUNNERS.length],
+  ];
+  return `<div class="shell">
+    <aside class="sidebar">
+      <div class="logo"><span class="logo-mark">${ic('terminal',16)}</span><span><b>CodingConsole</b><span>AI 研发流程平台</span></span></div>
+      <div class="sgroup">工作区</div>
+      ${nav.map(n=>`<button class="sitem${active===n[0]?' on':''}" onclick="go('#/${n[0]}')">${ic(n[1])}<span class="lbl">${n[2]}</span>${n[3]!==''?`<span class="cnt">${n[3]}</span>`:''}</button>`).join('')}
+      <div class="sgroup">平台</div>
+      <button class="sitem" onclick="toast('演示环境:平台设置为静态展示')">${ic('sliders')}<span class="lbl">平台设置</span></button>
+      <div class="tour">
+        <b>${ic('play',12)} 演示导览(一条需求的一生)</b>
+        <a href="#/p/order-center"><span class="n">1</span>项目 · 订单中心</a>
+        <a href="#/r/REQ-042"><span class="n">2</span>需求 REQ-042(开发中)</a>
+        <a href="#/t/T-310"><span class="n">3</span>开发工作台 · Claude 运行中</a>
+        <a href="#/t/T-203"><span class="n">4</span>测试任务 · 用例与报告</a>
+        <a href="#/t/T-204"><span class="n">5</span>发布任务 · 已上线</a>
+        <a href="#/archive/REQ-040"><span class="n">6</span>归档时间线</a>
+        <a href="#/knowledge"><span class="n">7</span>知识库</a>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <div class="crumb">${crumb}</div>
+        <div class="top-actions">
+          <span class="demo-chip">静态演示 · 数据为模拟</span>
+          <button class="btn btn-ghost icon-btn" title="通知" onclick="toast('暂无新通知')">${ic('bell')}</button>
+          <button class="btn btn-ghost" style="gap:8px;padding:3px 8px" title="个人信息 / 退出登录" onclick="go('#/login')">${av('luowen')}<span class="small nowrap"><b>罗文</b> · ${ROLE_CN.owner}</span></button>
+        </div>
+      </header>
+      ${inner}
+    </div>
+  </div>`;
+}
+const sep = '<span class="sep">/</span>';
+const crumbLink = (h, t) => h ? `<a href="${h}">${t}</a>` : `<b>${t}</b>`;
+
+/* ================= 登录页 ================= */
+function pageLogin(){
+  return `<div class="login-wrap"><div class="login-card">
+    <div class="login-logo"><span class="logo-mark" style="width:38px;height:38px;border-radius:10px">${ic('terminal',20)}</span>
+      <span><b style="font-size:18px">CodingConsole</b><span class="muted small" style="display:block">AI 研发流程平台 · 需求 → 开发 → 测试 → 发布 → 归档</span></span></div>
+    <div class="login-box">
+      <div><h2 style="font-size:17px">登录</h2><div class="muted small">账号密码登录(JWT · access 2h)</div></div>
+      <div class="field"><label>用户名</label><input class="input" value="luowen" id="lg-u"></div>
+      <div class="field"><label>密码</label><input class="input" type="password" value="demo-password" id="lg-p">
+        <div class="hint">5 次错误将锁定 10 分钟 · 演示环境任意密码可进</div></div>
+      <button class="btn btn-pri" style="justify-content:center" onclick="go('#/projects')">${ic('logout')}进入平台</button>
+      <div class="chip-row small" style="justify-content:center">
+        <span class="bdg b-green">${ic('key',12)}GitLab token 已绑定(luowen@gitlab.internal)</span>
+      </div>
+    </div>
+    <div class="small muted" style="text-align:center">演示账号:luowen / wangq(产品)/ liming(测试)/ zhangy(只读)</div>
+  </div></div>`;
+}
+
+/* ================= 项目列表 ================= */
+function pageProjects(){
+  const cards = PROJECTS.map(p=>{
+    const reqs = REQS.filter(r=>r.pid===p.id).length;
+    return `<div class="pcard" onclick="go('#/p/${p.id}')" role="link" tabindex="0">
+      <h3>${ic('folder',17)}${p.name} <span class="chip">${p.slug}</span></h3>
+      <p>${p.desc}</p>
+      <div class="meta">
+        <span>${ic('git-branch',13)}${p.repos.length} 个仓库</span>
+        <span>${ic('file-text',13)}${reqs} 个需求</span>
+        <span>${ic('git-branch',13)}默认分支 ${p.branch}</span>
+      </div>
+      <div class="foot">
+        <div class="av-stack">${Object.keys(USERS).slice(0,4).map(u=>av(u,1)).join('')}</div>
+        <span class="bdg b-green small" style="margin-left:auto">${ic('key',12)}已连 GitLab</span>
+      </div>
+    </div>`;
+  }).join('');
+  return shell(`<div class="page">
+    <div class="page-head">
+      <div><h1>项目</h1><div class="sub">项目 = 流程与资源的顶层容器,绑定 GitLab 仓库(1 主仓 + N 辅仓)</div></div>
+      <div class="acts"><button class="btn btn-pri" onclick="toast('演示环境:新建项目为静态展示')">${ic('plus')}新建项目</button></div>
+    </div>
+    <div class="pcards">${cards}</div>
+  </div>`, crumbLink('','项目'), 'projects');
+}
+
+/* ================= 项目详情 ================= */
+function pageProject(pid, tab){
+  const p = PROJECTS.find(x=>x.id===pid) || PROJECTS[0];
+  const reqs = REQS.filter(r=>r.pid===p.id);
+  const tabs = [
+    ['requirements','需求', ic('file-text')],
+    ['tasks','任务', ic('activity')],
+    ['repos','仓库', ic('git-branch')],
+    ['members','成员', ic('users')],
+    ['models','模型', ic('cpu')],
+    ['mcp','MCP · Skills', ic('plug')],
+  ];
+  const head = `<div class="page wide"><div class="page-head">
+      <div><h1>${p.name} <span class="chip">${p.slug}</span> <span class="bdg b-green">${ic('key',12)}GitLab 已连接</span></h1>
+      <div class="sub">${p.desc}</div></div>
+      <div class="acts">
+        <button class="btn" onclick="toast('演示环境:项目设置为静态展示')">${ic('sliders')}项目设置</button>
+        <button class="btn btn-pri" onclick="openNewReq('${p.id}')">${ic('plus')}新建需求</button>
+      </div>
+    </div>
+    <div class="kvs" style="margin-bottom:16px">
+      <div class="kv"><label>主仓库</label><div class="mono small">${p.repos[0].url}</div></div>
+      <div class="kv"><label>默认分支</label><div>${brChip(p.branch)}</div></div>
+      <div class="kv"><label>默认模型</label><div>${ic('cpu',13)}${MODEL.model}</div></div>
+      <div class="kv"><label>成员</label><div class="av-stack">${Object.keys(USERS).map(u=>av(u,1)).join('')}</div></div>
+    </div>
+    <div class="twrap card">
+      <div class="tabs" style="padding:0 10px">
+        ${tabs.map(t=>`<button class="tab${tab===t[0]?' on':''}" data-t="${t[0]}" onclick="wtab(this)">${t[2]}${t[1]}${t[0]==='requirements'?`<span class="n">${reqs.length}</span>`:''}</button>`).join('')}
+      </div>
+      ${tabs.map(t=>`<div class="pane${tab===t[0]?' on':''}" data-p="${t[0]}">${projTab(t[0], p, reqs)}</div>`).join('')}
+    </div>
+  </div>`;
+  const c = `${crumbLink('#/projects','项目')} ${sep} ${crumbLink('', p.name)}`;
+  return shell(head, c, 'projects');
+}
+function projTab(tab, p, reqs){
+  if(tab==='requirements') return `
+    <div class="scrollx"><table class="tbl"><thead><tr><th>需求</th><th>状态</th><th>优先级</th><th>分支</th><th>创建人</th><th>更新时间</th><th></th></tr></thead><tbody>
+    ${reqs.map(r=>`<tr class="rowclick" onclick="go('#/r/${r.id}')">
+      <td><b>${r.id}</b> · ${r.title}</td>
+      <td>${stB(r.status)}</td>
+      <td>${r.pri==='high'?'<span class="bdg b-red">高</span>':r.pri==='medium'?'<span class="bdg b-amber">中</span>':'<span class="bdg b-zinc">低</span>'}</td>
+      <td>${brChip(r.branch)}</td>
+      <td style="display:flex;align-items:center;gap:7px">${av(r.by,1)}<span class="small">${USERS[r.by].name}</span></td>
+      <td class="mono small muted">${r.upd}</td>
+      <td>${ic('chevR',14)}</td>
+    </tr>`).join('')}
+    </tbody></table></div>`;
+  if(tab==='tasks'){
+    const list = Object.values(TASKS).filter(t=>reqs.some(r=>r.id===t.req));
+    return `<div class="scrollx"><table class="tbl"><thead><tr><th>任务</th><th>类型</th><th>状态</th><th>需求</th><th>分支</th><th>Runner</th><th>Tokens</th><th>创建人</th><th></th></tr></thead><tbody>
+    ${list.map(t=>`<tr class="rowclick" onclick="go('#/t/${t.id}')">
+      <td><b>${t.id}</b> · ${t.title}</td><td>${tpB(t.type)}</td><td>${stB(t.status, t.status==='running')}</td>
+      <td><a href="#/r/${t.req}" onclick="event.stopPropagation()">${t.req}</a></td><td>${brChip(t.branch)}</td>
+      <td class="mono small">${t.runner}</td><td class="mono small muted">${t.tokens}</td>
+      <td style="display:flex;align-items:center;gap:7px">${av(t.by,1)}<span class="small">${USERS[t.by].name}</span></td>
+      <td>${ic('chevR',14)}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  }
+  if(tab==='repos') return `<div class="scrollx"><table class="tbl"><thead><tr><th>角色</th><th>仓库地址</th><th>绑定方式</th><th>容器挂载</th><th></th></tr></thead><tbody>
+    ${p.repos.map(r=>`<tr>
+      <td>${r.role==='main'?'<span class="bdg b-blue">main · 主仓库</span>':'<span class="bdg b-zinc">'+r.role+'</span>'}</td>
+      <td class="mono small">${r.url}</td>
+      <td class="small muted">${r.bind==='auto'?'平台自动创建(bot token)':'绑定已有仓库'}</td>
+      <td class="mono small">${r.role==='main'?'/workspace/main':'/workspace/tests/'+r.url.split('/').pop()}</td>
+      <td>${r.role==='main'?'<span class="small faint nowrap">主仓库不可解绑</span>':`<button class="btn btn-sm" onclick="toast('演示环境:已模拟解绑(不动 GitLab)')">解绑</button>`}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="card-foot">${ic('alert',13)} 需求分支 <span class="chip">req-{reqId}</span> 会同时在所有绑定仓库上创建 · Git 操作用个人 token,可追溯到人</div>`;
+  if(tab==='members') return `<div class="scrollx"><table class="tbl"><thead><tr><th>成员</th><th>项目角色</th><th>GitLab token</th><th>仓库权限</th><th></th></tr></thead><tbody>
+    ${Object.entries(USERS).map(([u,o])=>`<tr>
+      <td style="display:flex;align-items:center;gap:8px">${av(u)}<span><b>${o.name}</b><span class="small muted" style="display:block">${u}</span></span></td>
+      <td><span class="bdg ${o.role==='owner'?'b-blue':o.role==='editor'?'b-green':'b-zinc'}">${ROLE_CN[o.role]}</span></td>
+      <td>${o.gitlab?'<span class="bdg b-green">'+ic('check',12)+'已绑定</span>':'<span class="bdg b-amber">未绑定</span>'}</td>
+      <td class="small muted">${o.role==='viewer'?'—':'所有绑定仓库 Developer'}</td>
+      <td>${o.role==='owner'?'':`<button class="btn btn-sm btn-ghost" onclick="toast('演示环境:成员操作为静态展示')">${ic('sliders',13)}</button>`}</td>
+    </tr>`).join('')}
+    </tbody></table></div>
+    <div class="card-foot"><button class="btn btn-sm btn-pri" onclick="toast('演示环境:邀请后 bot 会将其加入所有绑定仓库')">${ic('plus',13)}邀请成员</button> <span>平台 bot 自动同步 GitLab 仓库成员权限</span></div>`;
+  if(tab==='models') return `<div class="stack" style="padding:16px">
+    <div class="card"><div class="card-head"><span class="card-title">${ic('cpu')}默认模型配置</span><span class="right">${MODEL.isDefault?'<span class="bdg b-green">默认</span>':''}
+      <button class="btn btn-sm" onclick="toast('连接成功 · GET /models 200 · 12 models')">${ic('zap',13)}测试连接</button></span></div>
+      <div class="card-body" style="display:grid;gap:9px">
+        <div class="kvs" style="box-shadow:none">
+          <div class="kv"><label>名称</label><div>${MODEL.name}</div></div>
+          <div class="kv"><label>Base URL</label><div class="mono small">${MODEL.base}</div></div>
+          <div class="kv"><label>Model</label><div class="mono small">${MODEL.model}</div></div>
+          <div class="kv"><label>API Key</label><div class="mono small">${MODEL.key}</div></div>
+        </div>
+        <div class="small muted">Agent SDK(平台后端)与容器内 Claude CLI 使用同一组配置:CLI 通过 <span class="chip">ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY</span> 注入,仅容器内存,不落盘。</div>
+      </div></div></div>`;
+  if(tab==='mcp') return `<div class="grid2" style="padding:16px">
+    <div class="card"><div class="card-head"><span class="card-title">${ic('plug')}项目级 MCP 配置</span><span class="right"><button class="btn btn-sm" onclick="toast('演示环境:JSON 校验通过 · AES-256-GCM 加密保存')">保存</button></span></div>
+      <div class="card-body"><pre class="ed-code" style="padding:0">${hl(`{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": { "PASSWORD": "••••••••" }
+    },
+    "filesystem": { "command": "builtin" },
+    "git": { "command": "builtin" }
+  }
+}`)}</pre>
+      <div class="small muted" style="margin-top:10px">与镜像预装 MCP(filesystem / git / sqlite…)合并,项目级覆盖同名;敏感字段加密存储、接口打码。</div></div></div>
+    <div class="card"><div class="card-head"><span class="card-title">${ic('layers')}已安装 Skills</span><span class="right"><button class="btn btn-sm" onclick="toast('演示环境:从平台市场安装为静态展示')">${ic('plus',13)}从市场安装</button> <button class="btn btn-sm" onclick="toast('演示环境:上传 .md(YAML frontmatter 校验)')">上传</button></span></div>
+      <div class="card-body tight"><table class="tbl"><tbody>
+        <tr><td><b>代码审查</b><span class="bdg b-zinc" style="margin-left:8px">平台级</span></td><td class="small muted">按团队规范审查变更</td><td><span class="bdg b-green">已注入</span></td></tr>
+        <tr><td><b>写测试</b><span class="bdg b-zinc" style="margin-left:8px">平台级</span></td><td class="small muted">按 PRD 验收标准生成用例</td><td><span class="bdg b-green">已注入</span></td></tr>
+        <tr><td><b>重构</b><span class="bdg b-zinc" style="margin-left:8px">平台级</span></td><td class="small muted">小步重构 · 保持行为</td><td><span class="bdg b-green">已注入</span></td></tr>
+        <tr><td><b>订单中心部署流程</b><span class="bdg b-blue" style="margin-left:8px">项目级</span></td><td class="small muted">pm2 reload + 健康检查</td><td><span class="bdg b-green">已注入</span></td></tr>
+      </tbody></table></div>
+      <div class="card-foot">任务创建时写入容器 <span class="chip">~/.claude/skills/</span></div></div>
+  </div>`;
+  return '';
+}
+/* ================= 需求详情 ================= */
+const PRD_042 = `
+<div class="stack">
+  <div><h3 style="font-size:14px;margin-bottom:5px">背景</h3><p class="small muted" style="margin:0">大促期间运营需要"满减 + 折扣 + 运费券"叠加使用;当前购物车仅支持单券,运营被迫拆活动,客诉集中。</p></div>
+  <div><h3 style="font-size:14px;margin-bottom:5px">方案(AI 打磨生成)</h3><p class="small muted" style="margin:0">抽象叠加计算引擎:<b>互斥组</b>内贪心选最优,跨组按 <span class="chip">满减 → 折扣 → 运费券</span> 固定顺序叠加;叠加后金额不为负。</p></div>
+  <div><h3 style="font-size:14px;margin-bottom:7px">验收标准</h3>
+    <ul class="cklist">
+      <li><span class="ckbox on">${ic('check',11)}</span>满减 + 折扣 + 运费券可同时应用于同一购物车</li>
+      <li><span class="ckbox on">${ic('check',11)}</span>同互斥组内仅生效优惠金额最大的一张</li>
+      <li><span class="ckbox on">${ic('check',11)}</span>叠加后应付金额不为负(兜底为 0)</li>
+      <li><span class="ckbox off"></span><span class="off-t">结算页计算耗时 &lt; 10ms(基准用例)</span></li>
+    </ul></div>
+</div>`;
+const POLISH_CHAT = [
+  {role:'user', by:'wangq', time:'09-19 15:02', text:'大促要支持多券叠加,规则见 @活动规则-v3.md,帮我打磨成 PRD。'},
+  {role:'ai', time:'09-19 15:03', text:'已读取规则文档。有两个关键问题需要确认:\n1. 满减与折扣是否可叠加?(规则 §3.2:可,顺序为满减→折扣)\n2. 运费券是否占用互斥组名额?(§4.1:不占用)'},
+  {role:'user', by:'wangq', time:'09-19 15:10', text:'按文档执行,另外补一条:叠加后金额不能为负。'},
+  {role:'ai', time:'09-19 15:12', text:'已更新 PRD 草稿到容器 docs/req-042/PRD.md(未 commit,评审通过后入库)。验收标准已含金额兜底,建议再补性能指标(结算 &lt;10ms)?'},
+];
+function pageReq(rid){
+  const r = REQS.find(x=>x.id===rid); if(!r) return shell('<div class="page">未找到</div>','', '');
+  const tasks = Object.values(TASKS).filter(t=>t.req===rid);
+  const p = PROJECTS.find(x=>x.id===r.pid);
+  const steps = ['draft','polishing','reviewing','approved','in_progress','done','archived'];
+  const stepCn = {draft:'创建',polishing:'打磨',reviewing:'评审',approved:'已评审',in_progress:'开发',done:'完成',archived:'归档'};
+  const cur = steps.indexOf(r.status);
+  const allDevDone = tasks.filter(t=>t.type==='dev').length>0 && tasks.filter(t=>t.type==='dev').every(t=>t.status==='done');
+  const acts = {
+    draft:`<button class="btn btn-pri" onclick="startPolish('${r.id}')">${ic('sparkle')}开始打磨</button>`,
+    polishing:`<button class="btn btn-pri" onclick="submitReview('${r.id}')">${ic('eye')}提交评审</button>`,
+    reviewing:`<button class="btn btn-pri" onclick="approve('${r.id}')">${ic('check')}评审通过</button><button class="btn btn-danger" onclick="openReject('${r.id}')">${ic('x')}驳回</button>`,
+    approved:`<button class="btn btn-pri" onclick="toast('演示环境:开发任务从工作台创建')">${ic('plus')}创建开发任务</button>`,
+    in_progress:`<button class="btn btn-pri" ${allDevDone?'':'disabled'} title="${allDevDone?'':'需所有开发任务完成'}" onclick="toast('演示环境:测试任务从工作台创建')">${ic('flask')}创建测试任务</button>`,
+    done:`<button class="btn btn-pri" onclick="toast('演示环境:发布任务从工作台创建')">${ic('rocket')}创建发布任务</button>`,
+    archived:`<a class="btn" href="#/archive/${r.id}">${ic('archive')}查看归档</a>`,
+  }[r.status] || '';
+  return shell(`<div class="page wide">
+    <div class="page-head">
+      <div><h1><span class="chip">${r.id}</span>${r.title} ${stB(r.status, r.status==='polishing'||r.status==='in_progress')}</h1>
+        <div class="sub chip-row">${brChip(r.branch)} <span class="chip">${ic('folder',12)}${p.name}</span> <span class="chip">${ic('file-text',12)}docs/${r.branch}/PRD.md</span>
+        <span class="chip">${ic('users',12)}创建 ${USERS[r.by].name}</span></div></div>
+      <div class="acts">${acts}
+        ${r.status!=='archived'?`<button class="btn btn-ghost" onclick="toast('演示环境:取消后分支保留 30 天')">取消需求</button>`:''}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px"><div class="card-body" style="padding:14px 18px 8px">
+      <div class="stepper">${steps.map((s,i)=>`<div class="stp ${i<cur?'done':i===cur&&r.status!=='archived'?'cur':i<=cur?'done':''}"><span class="d">${i<cur?ic('check',10):''}</span><span>${stepCn[s]}</span></div>`).join('')}</div>
+    </div></div>
+    <div class="grid-sb">
+      <div class="stack">
+        <div class="twrap card">
+          <div class="tabs" style="padding:0 10px">
+            <button class="tab on" data-t="prd" onclick="wtab(this)">${ic('file-text')}PRD.md${r.status==='reviewing'?'<span class="bdg b-amber">待评审</span>':''}</button>
+            <button class="tab" data-t="polish" onclick="wtab(this)">${ic('msg')}打磨对话</button>
+          </div>
+          <div class="pane on" data-p="prd"><div class="card-body">${r.id==='REQ-042'?PRD_042:`<p class="muted small" style="margin:0">PRD 已随需求归档,见 <a href="#/archive/${r.id}">归档时间线</a>。</p>`}</div>
+            <div class="card-foot">${ic('git-commit',13)} <span class="mono small">${r.review?'commit '+r.review.commit+' · '+r.review.by+' 于 '+r.review.at+' 评审通过后入库(其个人 token)':'草稿在容器内,评审通过后 commit 到 '+r.branch}</span></div></div>
+          <div class="pane" data-p="polish"><div class="card-body stack" style="gap:12px">
+            ${POLISH_CHAT.map(m=>chatMsg(m)).join('')}
+            <div class="small faint">${ic('alert',12)} 同一需求同时只有一个打磨任务;评审中需求不可编辑标题/描述。</div>
+          </div></div>
+        </div>
+        <div class="card"><div class="card-head"><span class="card-title">${ic('git-commit')}需求分支动态</span><span class="right"><button class="btn btn-sm btn-ghost" onclick="toast('演示环境:已跳转 GitLab(静态展示)')">在 GitLab 查看 ${ic('ext',12)}</button></span></div>
+          <div class="card-body tight"><table class="tbl"><tbody>
+            <tr><td class="mono small">${ic('git-branch',13)} req-042</td><td class="small">从 master 切出 · 创建需求时由平台 bot 自动创建(所有绑定仓库)</td><td class="mono small faint nowrap">09-19</td></tr>
+            <tr><td class="mono small">${ic('git-commit',13)} d41e5f9</td><td class="small">docs(req-042): PRD 评审稿(评审通过 · 王倩 token)</td><td class="mono small faint nowrap">09-20 14:10</td></tr>
+            <tr><td class="mono small">${ic('git-commit',13)} a3f9e21</td><td class="small">feat(cart): 优惠券叠加计算引擎 + 单测(T-310 · 罗文 token)</td><td class="mono small faint nowrap">09-21 15:21</td></tr>
+          </tbody></table></div></div>
+      </div>
+      <div class="stack">
+        <div class="card"><div class="card-head"><span class="card-title">${ic('activity')}关联任务</span><span class="right muted" style="font-size:12px">所有任务默认在 ${r.branch} 上工作</span></div>
+          <div class="card-body tight"><table class="tbl"><tbody>
+            ${tasks.map(t=>`<tr class="rowclick" onclick="go('#/t/${t.id}')">
+              <td>${tpB(t.type)}</td><td><b class="mono small">${t.id}</b><div class="small">${t.title}</div></td>
+              <td>${stB(t.status, t.status==='running')}</td><td>${ic('chevR',14)}</td></tr>`).join('') || '<tr><td class="empty">暂无任务</td></tr>'}
+          </tbody></table></div></div>
+        <div class="card"><div class="card-head"><span class="card-title">${ic('shield')}评审记录</span></div>
+          <div class="card-body stack" style="gap:10px">
+            ${r.review?`<div style="display:flex;gap:9px;align-items:center">${av('luowen')}<div class="small"><b>罗文</b> 评审通过<div class="muted">${r.review.at} · PRD commit ${r.review.commit}</div></div></div>`
+              :'<div class="small muted">尚未评审</div>'}
+            ${r.status==='in_progress'?'<div class="small faint">需求进入开发后不可驳回,只能取消。</div>':''}
+            <div class="small faint">评审通过即以评审人个人 GitLab token 将 PRD commit 到 ${r.branch}。</div>
+          </div></div>
+      </div>
+    </div>
+  </div>`, `${crumbLink('#/projects','项目')} ${sep} ${crumbLink('#/p/'+r.pid, p.name)} ${sep} ${crumbLink('','需求 '+r.id)}`, 'projects');
+}
+function chatMsg(m){
+  return `<div class="msg ${m.role==='ai'?'ai':'user'}">
+    <span class="role-ic">${m.role==='ai'?ic('bot',15):av(m.by||'luowen',1)}</span>
+    <div class="m-body"><div class="m-meta"><b>${m.role==='ai'?'Claude':(USERS[m.by]||{}).name||'用户'}</b><span>${m.time||''}</span>${m.role==='ai'?'<span class="bdg b-violet" style="font-size:10px;padding:0 6px">SDK 会话</span>':''}</div>
+    <div class="bubble">${m.file?`<span class="fref">${ic('clip',11)}${m.file}<span class="inj">${m.inj}</span></span><br>`:''}${esc(m.text).replace(/@([\w\-\.]+\.(md|txt|json))/g,'<span class="fref">'+ic('file',10).replace('<svg','<svg style="margin-right:3px"')+'@$1</span>')}</div></div></div>`;
+}
+/* --- 需求操作(演示状态机) --- */
+function startPolish(rid){ const r=REQS.find(x=>x.id===rid); r.status='polishing'; toast('打磨任务 T-312 已启动 · 容器拉起中(req-'+rid.split('-')[1]+')'); render(); }
+function submitReview(rid){ const r=REQS.find(x=>x.id===rid); r.status='reviewing'; toast('已提交评审 · PRD 草稿在容器内,待评审入库'); render(); }
+function approve(rid){ const r=REQS.find(x=>x.id===rid); r.status='approved'; r.review={by:'罗文', at:'刚刚', commit:'demo'+Math.random().toString(16).slice(2,7)}; toast('评审通过 · PRD 已用你的 GitLab token commit 到 '+r.branch); render(); }
+function openReject(rid){ openModal(`<div class="m-head">${ic('x-circle')}驳回需求<div class="x"><button class="btn btn-ghost icon-btn" onclick="closeModal()">${ic('x')}</button></div></div>
+  <div class="m-body"><div class="field"><label>驳回理由(必填)</label><textarea class="input" rows="3" id="rj-r">叠加顺序与运营最新口径不一致,重新对齐后再提交</textarea></div>
+  <div class="small faint">驳回后回到打磨状态,可继续与 AI 对话修改 PRD。</div></div>
+  <div class="m-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-danger" onclick="doReject('${rid}')">确认驳回</button></div>`); }
+function doReject(rid){ const r=REQS.find(x=>x.id===rid); r.status='polishing'; closeModal(); toast('已驳回,需求回到打磨中'); render(); }
+function openNewReq(pid){
+  openModal(`<div class="m-head">${ic('plus')}新建需求<div class="x"><button class="btn btn-ghost icon-btn" onclick="closeModal()">${ic('x')}</button></div></div>
+  <div class="m-body">
+    <div class="field"><label>标题</label><input class="input" id="nr-t" value="下单页地址联想补全"></div>
+    <div class="field"><label>描述(初始草稿,后续 AI 打磨)</label><textarea class="input" rows="4" id="nr-d">用户输入地址时实时联想补全,减少填写成本;数据来源与隐私口径待与 AI 打磨确认。</textarea></div>
+    <div class="small faint">${ic('git-branch',12)} 创建后平台 bot 自动从 master 切出分支 <span class="chip">req-0${REQSEQ}</span>(所有绑定仓库)</div>
+  </div>
+  <div class="m-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-pri" onclick="submitNewReq('${pid}')">创建需求</button></div>`);
+}
+function submitNewReq(pid){
+  const t = document.getElementById('nr-t').value || '未命名需求';
+  const id = 'REQ-0'+(REQSEQ++);
+  REQS.unshift({id, pid, title:t, branch:'req-'+id.split('-')[1], status:'draft', pri:'medium', by:'luowen', upd:'刚刚', review:null});
+  closeModal(); toast('需求 '+id+' 已创建 · 分支 req-'+id.split('-')[1]+' 已在 GitLab 创建'); go('#/r/'+id);
+}
+/* ================= 任务工作台 ================= */
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+let TERM_GEN = 0;
+const TERM_HTML = ln => (ln.c||'').replace('&lt;CHIP&gt;','<span class="ai-chip">').replace('&lt;/CHIP&gt;','</span>').replace('<CHIP>','<span class="ai-chip">').replace('</CHIP>','</span>');
+function termShell(inner, head){
+  return `<div class="term"><div class="term-head">${ic('terminal',12)} ${head}<span class="right">${inner.id==='t310term'?`<button class="btn btn-sm btn-ghost" style="color:#7d8899" onclick="replayTerm()">${ic('refresh',12)} 重放</button>`:''}</span></div><div class="term-body" id="${inner.id||''}">${inner.html}</div></div>`;
+}
+function staticTerm(script, head, id){
+  const html = script.map(ln=>`<div class="tl ${ln.t==='prompt'?'t-cmd':ln.t==='dim'?'t-dim':ln.t==='tool'?'t-tool':ln.t==='ok'?'t-ok':'t-ai'}">${ln.t==='prompt'?'<span class="t-prompt">codespace@'+(ln.dir||'workspace')+'$ </span>':''}${TERM_HTML(ln)}</div>`).join('') + '<div class="tl t-dim">▍</div>';
+  return termShell({html, id}, head);
+}
+async function playTerm(){
+  const host = document.getElementById('t310term'); if(!host) return;
+  const gen = ++TERM_GEN; host.dataset.played = '1'; host.innerHTML = '';
+  for(const ln of TERM_310){
+    if(gen !== TERM_GEN || !document.getElementById('t310term')) return;
+    const div = document.createElement('div');
+    if(ln.t === 'prompt'){
+      div.className = 'tl';
+      div.innerHTML = `<span class="t-prompt">codespace@req-042:/workspace/main$ </span><span class="t-cmd"></span><span class="cursor"></span>`;
+      host.appendChild(div);
+      const span = div.querySelector('.t-cmd');
+      for(const ch of ln.c){ if(gen !== TERM_GEN) return; span.textContent += ch; await sleep(46); }
+      const cur = div.querySelector('.cursor'); if(cur) cur.remove();
+      await sleep(300);
+    }else{
+      div.className = 'tl ' + (ln.t==='dim'?'t-dim':ln.t==='tool'?'t-tool':ln.t==='ok'?'t-ok':'t-ai');
+      div.innerHTML = TERM_HTML(ln);
+      host.appendChild(div);
+      await sleep(ln.t==='dim' ? 380 : 240);
+    }
+    host.scrollTop = host.scrollHeight;
+  }
+}
+function replayTerm(){ const h = document.getElementById('t310term'); if(h){ delete h.dataset.played; playTerm(); } }
+function maybePlayTerm(){ const h = document.getElementById('t310term'); if(h && !h.dataset.played) playTerm(); }
+function wtab(btn){
+  const wrap = btn.closest('.twrap'); const k = btn.dataset.t;
+  wrap.querySelectorAll(':scope .tab').forEach(b=>b.classList.toggle('on', b===btn));
+  wrap.querySelectorAll(':scope > .pane').forEach(p=>p.classList.toggle('on', p.dataset.p===k));
+  if(k === 'term') maybePlayTerm();
+}
+let DIFF_SEL = 0;
+function selDiff(i, btn){
+  DIFF_SEL = i;
+  document.querySelectorAll('.dchip').forEach((b,j)=>b.classList.toggle('on', j===i));
+  document.getElementById('diffbody').innerHTML = diffBlock(DIFF_FILES[i].lines);
+}
+/* --- 文件树 --- */
+const TREE_310 = [
+  {d:0, i:'folder-open', n:'docs'},{d:1, i:'folder-open', n:'req-042'},{d:2, i:'file-text', n:'PRD.md', st:'m', act:'prd'},
+  {d:0, i:'folder-open', n:'src'},{d:1, i:'folder-open', n:'cart'},
+  {d:2, i:'file-code', n:'cart.service.ts', st:'m', act:'diff', di:1},
+  {d:2, i:'file-code', n:'coupon-engine.ts', st:'a', act:'edit', ei:0},
+  {d:2, i:'file', n:'types.ts'},
+  {d:1, i:'folder-open', n:'order'},{d:2, i:'file-code', n:'order.service.ts'},
+  {d:0, i:'folder-open', n:'tests'},
+  {d:1, i:'file-code', n:'coupon-stack.spec.ts', st:'a', act:'edit', ei:1},
+  {d:1, i:'file', n:'helpers.ts'},
+  {d:0, i:'file', n:'package.json'},
+];
+function treePane(){
+  return `<div class="tree">
+    <div class="tnode dir" style="padding-left:8px">${ic('folder-open',14)}<span class="nm mono">/workspace/main</span></div>
+    ${TREE_310.map((f,idx)=>`<div class="tnode${f.act?' sel':''}" style="padding-left:${22 + f.d*16}px" ${f.act?`onclick="treeOpen('${f.act}',${f.ei??f.di??0})"`:''}>
+      ${ic(f.i,14)}<span class="nm mono">${f.n}</span>${f.st?`<span class="fdot ${f.st}"></span>`:''}</div>`).join('')}
+  </div>
+  <div class="tree-foot">
+    <span><b>容器</b> c-a3f9e2 · devbox:v1</span>
+    <span><b>Runner</b> runner-beijing-01 · 2c/4g/10g</span>
+    <span><b>分支</b> req-042(基础 = 工作分支)</span>
+  </div>`;
+}
+function treeOpen(act, i){
+  if(act === 'edit'){ const btns = document.querySelectorAll('#wbcenter .tab'); btns[0].click();
+    document.querySelectorAll('.edtab').forEach((b,j)=>b.classList.toggle('on', j===i));
+    document.querySelectorAll('.edfile').forEach((p,j)=>p.classList.toggle('on', j===i));
+  } else if(act === 'diff'){ document.querySelectorAll('#wbcenter .tab')[1].click(); selDiff(i); }
+  else if(act === 'prd'){ toast('演示环境:PRD 在需求页查看'); }
+}
+/* --- 各类型任务中央区 --- */
+function centerPane(t){
+  if(t.type === 'dev' && t.status === 'running'){
+    return `<div class="twrap card" style="flex:1;min-height:0;display:flex;flex-direction:column;border-radius:0;border:none;box-shadow:none" id="wbcenter">
+      <div class="tabs" style="padding:0 10px;background:var(--surface)">
+        <button class="tab on" data-t="edit" onclick="wtab(this)">${ic('file-code')}编辑器</button>
+        <button class="tab" data-t="diff" onclick="wtab(this)">${ic('git-commit')}Diff<span class="n">3</span></button>
+        <button class="tab" data-t="prev" onclick="wtab(this)">${ic('eye')}预览<span class="bdg b-green" style="font-size:10px;padding:0 6px">5173 · HMR</span></button>
+      </div>
+      <div class="pane on fill" data-p="edit">
+        <div class="ed-tabs">
+          <button class="edtab on" onclick="edfile(this,0)">${ic('file-code',12)}coupon-engine.ts <span class="bdg b-green" style="font-size:10px;padding:0 5px">A</span></button>
+          <button class="edtab" onclick="edfile(this,1)">${ic('file-code',12)}coupon-stack.spec.ts <span class="bdg b-green" style="font-size:10px;padding:0 5px">A</span></button>
+        </div>
+        <div class="ed-scroll">
+          <div class="edfile pane on fill" data-f="0"><div class="ed-code">${codeBlock(CODE_COUPON)}</div></div>
+          <div class="edfile pane fill" data-f="1"><div class="ed-code">${codeBlock(CODE_SPEC)}</div></div>
+        </div>
+        <div class="card-foot">${ic('eye',13)} AI 修改实时同步(watcher)· 保存即写入容器 · <span class="bdg b-blue" style="font-size:10px;padding:0 6px">任务模式 · 可编辑</span></div>
+      </div>
+      <div class="pane fill" data-p="diff">
+        <div class="d-chips">${DIFF_FILES.map((f,i)=>`<button class="dchip${i===DIFF_SEL?' on':''}" onclick="selDiff(${i},this)">${f.name}<span class="s"><span class="add">+${f.add}</span> <span class="del">−${f.del}</span></span></button>`).join('')}</div>
+        <div class="ed-scroll" style="padding:8px 0" id="diffbody">${diffBlock(DIFF_FILES[DIFF_SEL].lines)}</div>
+        <div class="card-foot">${ic('check',13)} 逐文件可接受 / 拒绝(拒绝 = 回滚该文件)· 任务结束生成最终 Diff</div>
+      </div>
+      <div class="pane fill" data-p="prev"><div class="pv">
+        <div class="pv-chrome"><span class="pv-dots"><i></i><i></i><i></i></span><span class="pv-url">order-center--t310--5173.preview.coding-console.zhanqitv.com.cn</span><span class="bdg b-green" style="font-size:10px;padding:0 7px">${ic('check',10)}仅项目成员</span></div>
+        <div class="pv-body"><div>
+          <div class="pv-app">
+            <div class="shop-h">${ic('box',15)}订单中心 · 购物车 <span class="bdg b-blue" style="margin-left:auto;font-size:10px;padding:0 7px">预览 · HMR 已连接</span></div>
+            <div class="cart-item"><span class="cart-thumb">${ic('file',16)}</span><span><span class="nm">无线降噪耳机</span><div class="small muted">× 1</div></span><span class="pr">¥899.00</span></div>
+            <div class="cart-item"><span class="cart-thumb">${ic('file',16)}</span><span><span class="nm">机械键盘 K870</span><div class="small muted">× 2</div></span><span class="pr">¥798.00</span></div>
+            <div class="coupon"><span class="ck">${ic('check',10)}</span>满 1000 减 120<span class="who">互斥组:满减</span></div>
+            <div class="coupon"><span class="ck">${ic('check',10)}</span>9.0 折券<span class="who">互斥组:折扣</span></div>
+            <div class="coupon"><span class="ck">${ic('check',10)}</span>免邮券<span class="who">叠加顺序:最后</span></div>
+            <div class="sumrow"><span>商品合计</span><b>¥1,697.00</b></div>
+            <div class="sumrow"><span>叠加顺序</span><b class="small">9折 → 1,527.30 → 满减 −120 → 1,407.30</b></div>
+            <div class="sumrow save"><span>共省</span><b>− ¥289.70</b></div>
+            <div class="sumrow pay"><span>应付</span><b>¥1,407.30</b><button class="btn btn-pri btn-sm" onclick="toast('演示预览:静态页面')">去结算</button></div>
+          </div>
+          <div class="pv-note">${ic('zap',12)} 改动 coupon-engine.ts 保存后 HMR 自动刷新(演示为静态截图)</div>
+        </div></div>
+      </div></div>`;
+  }
+  if(t.type === 'dev'){ // T-311 pending 简化
+    return `<div class="card" style="flex:1"><div class="card-body empty">${ic('clock',20)}<div style="margin-top:8px">任务排队中 · 等待可用 Runner / 项目并发配额(单项目并发 running ≤ 3)</div></div></div>`;
+  }
+  if(t.type === 'test'){
+    return `<div class="twrap card" style="flex:1;min-height:0;display:flex;flex-direction:column;border-radius:0;border:none;box-shadow:none" id="wbcenter">
+      <div class="tabs" style="padding:0 10px;background:var(--surface)">
+        <button class="tab on" data-t="cases" onclick="wtab(this)">${ic('flask')}用例<span class="n">12</span></button>
+        <button class="tab" data-t="report" onclick="wtab(this)">${ic('file-text')}测试报告</button>
+        <button class="tab" data-t="diff" onclick="wtab(this)">${ic('git-commit')}Diff<span class="n">2</span></button>
+      </div>
+      <div class="pane on fill" data-p="cases"><div class="ed-scroll">
+        <div class="scrollx"><table class="tbl"><thead><tr><th>用例</th><th>标题</th><th>结果</th><th>耗时</th></tr></thead><tbody>
+        ${CASES_203.map(c=>`<tr><td class="mono small">${c.id}</td><td>${c.t}${c.note?`<div class="small muted">${c.note}</div>`:''}</td>
+          <td>${c.st==='pass'?'<span class="bdg b-green">'+ic('check',12)+'通过</span>':c.st==='waived'?'<span class="bdg b-amber">豁免</span>':'<span class="bdg b-red">失败</span>'}</td>
+          <td class="mono small muted">${c.ms}ms</td></tr>`).join('')}
+        <tr><td colspan="4" class="small muted">… 其余 5 例全部通过(共 12 例,串行执行)</td></tr>
+        </tbody></table></div>
+        <div class="card-foot">${ic('pencil',13)} AI 基于 PRD 验收标准 + 测试仓库现有用例生成 · 人可增删改 · 确认后执行</div>
+      </div></div>
+      <div class="pane fill" data-p="report"><div class="ed-scroll"><div class="card-body stack" style="gap:12px">
+        <div class="kvs" style="box-shadow:none">
+          <div class="kv"><label>结果</label><div><span class="bdg b-green">${ic('check',12)}${REPORT_203.concl}</span></div></div>
+          <div class="kv"><label>通过 / 豁免 / 失败</label><div class="mono small">${REPORT_203.pass} / ${REPORT_203.waived} / ${REPORT_203.fail}</div></div>
+          <div class="kv"><label>报告 commit</label><div class="mono small">${REPORT_203.commit} → req-040</div></div>
+        </div>
+        <div><h3 style="font-size:13.5px;margin-bottom:6px">报告文件</h3>
+          <span class="chip">${ic('file-text',12)}docs/req-040/test-reports/T-203/report.md</span>
+          <span class="chip" style="margin-left:6px">${ic('file',12)}cases.json</span></div>
+        <div class="small muted">失败处理:可豁免(填理由仍 passed)或驳回回开发 —— 自动创建 dev 任务并携带失败上下文与报告路径。</div>
+      </div></div></div>
+      <div class="pane fill" data-p="diff">
+        <div class="d-chips"><button class="dchip on">tests/cases/TC-05.assert.ts <span class="s"><span class="add">+4</span> <span class="del">−2</span></span></button><button class="dchip">docs/…/T-203/report.md <span class="s"><span class="add">+96</span> <span class="del">−0</span></span></button></div>
+        <div class="ed-scroll" style="padding:8px 0">${diffBlock([['h','@@ -8,4 +8,6 @@'],['c','  it("TC-05 超长地址", () => {'],['d','-    expect(len(addr)).toBeLessThan(200);'],['a','+    // 豁免:V1 接受截断,断言改为告警存在'],['a','+    expect(warns(addr)).toContain("ADDR_TOO_LONG");'],['c','  });'])]}</div>
+      </div>`;
+  }
+  if(t.type === 'release'){
+    return `<div class="twrap card" style="flex:1;min-height:0;display:flex;flex-direction:column;border-radius:0;border:none;box-shadow:none" id="wbcenter">
+      <div class="tabs" style="padding:0 10px;background:var(--surface)">
+        <button class="tab on" data-t="log" onclick="wtab(this)">${ic('terminal')}部署日志</button>
+        <button class="tab" data-t="conf" onclick="wtab(this)">${ic('sliders')}配置</button>
+        <button class="tab" data-t="merge" onclick="wtab(this)">${ic('git-merge')}变更<span class="n">merge</span></button>
+      </div>
+      <div class="pane on fill" data-p="log" style="padding:12px">${staticTerm(DEPLOY_LOG, 'deploy · T-204 · runner-deploy-01', 'tdeplog')}</div>
+      <div class="pane fill" data-p="conf"><div class="ed-scroll"><div class="card-body stack" style="gap:12px">
+        <div class="kvs" style="box-shadow:none">
+          <div class="kv"><label>对外地址</label><div class="mono small" style="color:var(--blue-tx)"><span class="nowrap">${ic('globe',13)} http://order-center.coding-console.zhanqitv.com.cn:10040</span></div></div>
+          <div class="kv"><label>端口</label><div class="mono small">10040(全平台唯一)</div></div>
+          <div class="kv"><label>健康检查</label><div class="mono small">GET / → 200</div></div>
+          <div class="kv"><label>容器</label><div class="mono small">c-dep1040 · 保持运行(不销毁)</div></div>
+        </div>
+        <div><h3 style="font-size:13.5px;margin-bottom:6px">发布脚本(项目默认,可改)</h3>
+          <div class="ed-scroll" style="border:1px solid var(--border);border-radius:8px"><div class="ed-code">${hl(`npm run build
+node server.js --port $DEPLOY_PORT
+curl -f http://localhost:$DEPLOY_PORT/ || exit 1`)}</div></div></div>
+        <div class="small muted">部署产物(CHANGELOG.md + deploy-log.txt)已用平台 bot token commit 到 master 的 <span class="chip">docs/releases/T-204/</span>。</div>
+      </div></div></div>
+      <div class="pane fill" data-p="merge"><div class="card-body stack" style="gap:10px">
+        <div class="kvs" style="box-shadow:none">
+          <div class="kv"><label>Merge</label><div class="mono small">req-040 → master · 9f8e7d6</div></div>
+          <div class="kv"><label>执行者</label><div class="small">平台 bot token(系统动作,不依赖用户在线)</div></div>
+        </div>
+        <table class="tbl"><tbody>
+          <tr><td class="mono small">src/addr/engine.ts</td><td><span class="bdg b-green">+312</span> <span class="bdg b-zinc">−0</span></td></tr>
+          <tr><td class="mono small">src/addr/ocr.ts</td><td><span class="bdg b-green">+187</span> <span class="bdg b-zinc">−0</span></td></tr>
+          <tr><td class="mono small">docs/req-040/**</td><td><span class="bdg b-green">+4</span> <span class="bdg b-zinc">−0</span> 个文件</td></tr>
+        </tbody></table>
+      </div></div>`;
+  }
+  // requirement 打磨任务
+  return `<div class="twrap card" style="flex:1;min-height:0;display:flex;flex-direction:column;border-radius:0;border:none;box-shadow:none" id="wbcenter">
+    <div class="tabs" style="padding:0 10px;background:var(--surface)">
+      <button class="tab on" data-t="prd" onclick="wtab(this)">${ic('file-text')}PRD 草稿(容器内)</button>
+      <button class="tab" data-t="files" onclick="wtab(this)">${ic('folder')}工作区</button>
+    </div>
+    <div class="pane on fill" data-p="prd"><div class="ed-scroll"><div class="card-body">${PRD_042}</div></div>
+      <div class="card-foot">${ic('alert',13)} 草稿仅存在于任务容器 · 评审通过后才 commit 到 req-042(评审人个人 token)</div></div>
+    <div class="pane fill" data-p="files"><div class="ed-scroll"><div class="tree">
+      <div class="tnode dir">${ic('folder-open',14)}<span class="nm mono">/workspace/main</span></div>
+      <div class="tnode" style="padding-left:38px">${ic('file-text',14)}<span class="nm mono">docs/req-042/PRD.md</span><span class="fdot m"></span></div>
+      <div class="tnode" style="padding-left:22px">${ic('folder-open',14)}<span class="nm mono">src</span></div>
+    </div></div></div>`;
+}
+function edfile(btn, i){
+  document.querySelectorAll('.edtab').forEach(b=>b.classList.toggle('on', b===btn));
+  document.querySelectorAll('.edfile').forEach(p=>p.classList.toggle('on', Array.from(document.querySelectorAll('.edfile')).indexOf(p)===i));
+}
+/* --- 右栏:对话 / 终端 / 活动 --- */
+const CHAT_203 = [
+  {role:'user', by:'liming', time:'09-14 16:02', text:'基于 PRD 验收标准生成用例,重点覆盖 OCR 与简称映射。'},
+  {role:'ai', time:'09-14 16:04', text:'已生成 12 条用例草稿(复用 tests 仓库 7 条存量)。TC-05 超长地址当前断言与 PRD 不一致,建议确认豁免口径。'},
+];
+const CHAT_204 = [];
+const ACT_203 = [
+  {icn:'file-text', t:'read_file', p:'docs/req-040/PRD.md', sub:'验收标准 6 条', d:'0.3s'},
+  {icn:'flask', cls:'wr', t:'gen_cases', p:'12 条用例草稿', sub:'人审后执行', d:'2.1s'},
+  {icn:'terminal', t:'bash', p:'cd /workspace/tests/order-center-tests && pytest -q', sub:'11 passed · 1 waived', d:'38s'},
+  {icn:'git-commit', cls:'git', t:'git commit', p:'test(req-040): 测试报告 T-203', sub:'报告 → 主仓库 req-040;脚本修复 → tests 仓库', d:'0.6s'},
+];
+const ACT_204 = [
+  {icn:'git-merge', cls:'git', t:'git merge', p:'req-040 → master', sub:'9f8e7d6 · 平台 bot token', d:'1.8s'},
+  {icn:'terminal', t:'bash', p:'npm run build && node server.js --port 10040', sub:'build 14.2s', d:'16s'},
+  {icn:'zap', cls:'ok', t:'健康检查', p:'GET / → 200', sub:'路由已注册 · 公网可访问', d:'0.2s'},
+  {icn:'box', cls:'git', t:'部署产物', p:'docs/releases/T-204/ → master', sub:'CHANGELOG + deploy-log(bot token)', d:'0.5s'},
+];
+const ACT_301 = [
+  {icn:'msg', t:'对话打磨', p:'2 轮澄清(互斥口径 / 运费券)', sub:'用户 王倩 参与', d:'—'},
+  {icn:'pencil', cls:'wr', t:'write_file', p:'docs/req-042/PRD.md', sub:'草稿写入容器(未 commit)', d:'1.2s'},
+  {icn:'check-circle', cls:'ok', t:'提交评审', p:'PRD 就绪', sub:'容器在评审通过后销毁', d:'—'},
+];
+function uploadsRow(files){
+  return `<div class="att-row"><span class="small faint" style="align-self:center">${ic('upload',13)}</span>${files.map(f=>`<span class="att">${ic(f[1]||'file',12)}${f[0]}<span class="faint small">${f[2]||''}</span></span>`).join('')}</div>`;
+}
+function chatPane(list, uploads){
+  return `<div class="chat"><div class="chat-list" id="chatlist">
+    ${list.map(m=>chatMsg(m)).join('')}
+  </div>
+  ${uploads?uploadsRow(uploads):''}
+  <div class="chat-input"><input class="input" placeholder="输入消息,@ 引用已上传文件…" id="chatin" onkeydown="if(event.key==='Enter')sendChat()">
+    <button class="btn btn-ghost icon-btn" title="上传文件" onclick="toast('演示环境:上传到 /tmp/uploads/T-310/(≤50MB)')">${ic('clip')}</button>
+    <button class="btn btn-pri icon-btn" title="发送" onclick="sendChat()">${ic('send')}</button></div>
+  <div class="chat-hint">${ic('at',11)} 输入 @ 自动补全附件;<100KB 注入内容,≥100KB 只注入路径</div></div>`;
+}
+function sendChat(){
+  const inp = document.getElementById('chatin'); const v = (inp.value||'').trim(); if(!v) return;
+  const list = document.getElementById('chatlist');
+  list.insertAdjacentHTML('beforeend', chatMsg({role:'user', by:'luowen', time:'刚刚', text:v}));
+  inp.value = ''; list.scrollTop = list.scrollHeight;
+  setTimeout(()=>{ if(!document.getElementById('chatlist')) return;
+    list.insertAdjacentHTML('beforeend', chatMsg({role:'ai', time:'刚刚', text:'收到(演示环境为静态数据)。我会按 PRD 与活动规则继续处理,完成后自动 commit + push 到 req-042。'}));
+    list.scrollTop = list.scrollHeight; }, 700);
+}
+function actPane(items, foot){
+  return `<div class="act">${items.map(a=>`<div class="act-item"><span class="act-ic ${a.cls||''}">${ic(a.icn,13)}</span>
+    <div class="act-t"><b>${a.t}</b> <span class="p">${esc(a.p)}</span>${a.sub?`<div class="sub">${a.sub}</div>`:''}</div>
+    <span class="act-meta">${a.d}</span></div>`).join('')}</div>
+  <div class="act-foot"><span>Tokens ${foot||'—'}</span><span style="margin-left:auto">上下文 128k</span></div>`;
+}
+function rightPane(t){
+  const chats = {'T-310':[CHAT_310, [['活动规则-v3.md','file-text','2.3KB'],['竞品截图.png','file','412KB']]], 'T-301':[POLISH_CHAT, null], 'T-203':[CHAT_203, null]};
+  const acts = {'T-310':ACT_310, 'T-301':ACT_301, 'T-203':ACT_203, 'T-204':ACT_204};
+  const chat = chats[t.id];
+  const isRun = t.status === 'running';
+  const termTab = `<button class="tab" data-t="term" onclick="wtab(this)">${ic('terminal')}终端${isRun?'<span class="dot pulse" style="color:var(--green-tx)"></span>':''}</button>`;
+  const panes = [];
+  if(chat) panes.push(`<div class="pane fill" data-p="chat">${chatPane(chat[0], chat[1])}</div>`);
+  panes.push(`<div class="pane fill${chat?'':' on'}" data-p="term" style="padding:12px">${isRun
+    ? termShell({html:'<div class="tl t-dim">正在连接 pty(docker exec · tty)…</div>', id:'t310term'}, 'bash · /workspace/main · 会话 s-1')
+    : staticTerm(t.type==='release'?DEPLOY_LOG:t.type==='test'?[
+        {t:'dim', c:'$ pytest -q (测试仓库 order-center-tests)'},
+        {t:'ok', c:'  11 passed, 1 waived, 0 failed (38s)'},
+        {t:'ai', c:'  <CHIP>[ai:test]</CHIP> report.md + cases.json 已 commit → req-040'},
+      ]:[
+        {t:'dim', c:'$ claude(打磨会话 · 模型 claude-sonnet-5)'},
+        {t:'tool', c:'⏺ Write(docs/req-042/PRD.md)  草稿 v3'},
+        {t:'ok', c:'  ✓ 已提交评审,等待评审人操作'},
+      ], 'bash · 只读回显(关键命令)', t.id+'term')}</div>`);
+  panes.push(`<div class="pane fill" data-p="act">${actPane(acts[t.id]||ACT_310, t.tokens)}</div>`);
+  const tabs = `${chat?`<button class="tab on" data-t="chat" onclick="wtab(this)">${ic('msg')}对话</button>`:''}${termTab}<button class="tab${chat?'':' on'}" data-t="act" onclick="wtab(this)">${ic('activity')}活动</button>`;
+  return `<div class="twrap card" style="flex:1;min-height:0;display:flex;flex-direction:column;border-radius:0;border:none;box-shadow:none" id="wbright">
+    <div class="tabs" style="padding:0 10px;background:var(--surface)">${tabs}</div>${panes.join('')}</div>`;
+}
+/* --- 任务页组装 --- */
+function pageTask(tid){
+  const t = TASKS[tid]; if(!t) return shell('<div class="page">未找到</div>','','');
+  const isRun = t.status === 'running';
+  let acts = '';
+  if(isRun) acts = `<button class="btn btn-danger" onclick="toast('演示环境:已模拟中断(未 push 的改动会丢弃)')">${ic('stop')}停止任务</button>`;
+  if(t.type==='test') acts = `<button class="btn" onclick="toast('已创建 dev 任务 T-313,携带失败上下文与报告路径')">${ic('back')}驳回回开发</button><button class="btn btn-pri" onclick="toast('演示环境:发布任务在需求页创建')">${ic('rocket')}创建发布任务</button>`;
+  if(t.type==='release') acts = `<a class="btn" onclick="toast('演示环境:公网地址不可达(静态演示)')">${ic('ext')}打开 :${t.port}</a><button class="btn btn-danger" onclick="toast('演示环境:已模拟下线(摘除路由 + 销毁容器)')">${ic('stop')}下线</button>`;
+  const tree = (t.type==='dev' && t.status!=='pending') ? `<section class="col-tree">${treePane()}</section>` : '';
+  const wbHead = `<div class="wb-head">
+    <button class="btn btn-ghost icon-btn" onclick="go('#/r/${t.req}')" title="返回需求">${ic('back')}</button>
+    <span class="ttl">${tpB(t.type)} ${t.id} · ${t.title} ${stB(t.status, isRun)}</span>
+    <span class="chip-row">
+      ${brChip(t.branch)}
+      <span class="chip">${ic('box',12)}${t.container}</span>
+      <span class="chip">${ic('server',12)}${t.runner}</span>
+      ${t.lastCommit?`<span class="chip">${ic('git-commit',12)}${t.lastCommit}</span>`:''}
+    </span>
+    <span class="acts">${acts}</span>
+  </div>`;
+  const inner = `<div class="page wide" style="display:flex;flex-direction:column;flex:1;min-height:0;padding-bottom:0;max-width:none">${wbHead}
+    <div class="wb">${tree}
+      <section class="col-center wb-mid">${centerPane(t)}</section>
+      <section class="col-right">${rightPane(t)}</section>
+    </div></div>`;
+  return shell(inner, `${crumbLink('#/projects','项目')} ${sep} ${crumbLink('#/p/order-center','订单中心')} ${sep} ${crumbLink('#/r/'+t.req, t.req)} ${sep} ${crumbLink('','任务 '+t.id)}`, 'projects');
+}
+/* ================= 归档 ================= */
+const TL_040 = [
+  {t:'需求创建', m:'标题录入 → 平台 bot 在所有绑定仓库切出分支 req-040', w:'09-12 10:24', icn:'git-branch', done:1},
+  {t:'打磨任务 T-200', m:'AI 与产品对话 2 轮澄清,产出 PRD 草稿(容器内)', w:'09-12 10:31', icn:'sparkle', done:1},
+  {t:'评审通过', m:'罗文 评审通过 → PRD 用其个人 token commit 到 req-040(a1b2c3d),打磨容器销毁', w:'09-13 09:40', icn:'check', done:1},
+  {t:'开发任务 T-201', m:'3 commits:地址解析引擎 / OCR 预处理 / 28 例单测,全部 push 到 req-040', w:'09-13 11:02', icn:'file-code', done:1},
+  {t:'测试任务 T-203', m:'12 用例:11 通过 / 1 豁免;报告 commit 到 req-040,脚本修复 commit 到 tests 仓库', w:'09-14 16:20', icn:'flask', done:1},
+  {t:'发布任务 T-204', m:'req-040 → master(bot token merge)· 部署 :10040 · 健康检查 200 · 需求 → done', w:'09-15 10:00', icn:'rocket', done:1},
+  {t:'归档完成', m:'AI 生成 summary.md commit 到 master docs/archive/req-040/;提取 3 条知识(2 发布 / 1 草稿)', w:'09-15 10:05', icn:'archive', done:1},
+];
+function pageArchive(rid){
+  const r = REQS.find(x=>x.id===rid) || REQS[0];
+  const kb = KNOWLEDGE.filter(k=>k.req===r.id);
+  return shell(`<div class="page">
+    <div class="page-head">
+      <div><h1>${ic('archive',18)} 归档 · <span class="chip">${r.id}</span>${r.title}</h1>
+        <div class="sub">全流程关键节点来自 GitLab commit + 任务历史 + 部署记录 · summary.md 已 commit 到 master</div></div>
+      <div class="acts"><a class="btn" onclick="toast('演示环境:GitLab 跳转为静态展示')">${ic('ext')}docs/archive/${r.id}/summary.md</a>
+        <a class="btn" href="#/knowledge">${ic('book')}知识库</a></div>
+    </div>
+    <div class="grid-sb">
+      <div class="card"><div class="card-head"><span class="card-title">${ic('clock')}时间线</span><span class="right muted small">2026-09-12 → 09-15 · 全程平台内留痕</span></div>
+        <div class="card-body"><div class="timeline">
+          ${TL_040.map(x=>`<div class="tl-item ${x.done?'done':''}"><span class="tl-dot">${ic(x.icn,10)}</span>
+            <div class="tl-c"><div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><span class="tl-t">${x.t}</span><span class="when">${x.w}</span></div>
+            <div class="tl-m">${x.m}</div></div></div>`).join('')}
+        </div></div></div>
+      <div class="stack">
+        <div class="card"><div class="card-head"><span class="card-title">${ic('sparkle')}AI 提取的知识条目</span><span class="right muted small">默认项目级 · owner 可提升平台级</span></div>
+          <div class="card-body stack" style="gap:10px">
+          ${kb.length?kb.map(k=>`<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+            <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap"><span class="bdg ${KB_TYPE[k.type][1]}">${KB_TYPE[k.type][0]}</span><b class="small">${k.title}</b>${k.draft?'<span class="bdg b-amber">草稿待审</span>':''}</div>
+            <div class="small muted" style="margin-top:4px">${k.txt}</div></div>`).join(''):'<div class="small muted">本需求无提取条目</div>'}
+          </div></div>
+        <div class="card"><div class="card-head"><span class="card-title">${ic('shield')}审计</span></div>
+          <div class="card-body small muted" style="display:flex;flex-direction:column;gap:6px">
+            <span>${ic('check',12)} 归档后需求只读,不可再开任务</span>
+            <span>${ic('check',12)} 部署容器保持运行,直到下线或项目归档</span>
+            <span>${ic('check',12)} 对话 / 终端 / 文件变更 / commit 全程可回放</span>
+          </div></div>
+      </div>
+    </div>
+  </div>`, `${crumbLink('#/projects','项目')} ${sep} ${crumbLink('#/p/order-center','订单中心')} ${sep} ${crumbLink('#/r/'+r.id, r.id)} ${sep} ${crumbLink('','归档')}`, 'projects');
+}
+/* ================= 知识库 ================= */
+function pageKnowledge(){
+  const item = k => `<div class="kb-card" data-kw="${esc((k.title+k.txt+k.tags.join())).toLowerCase()}">
+    <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+      <span class="bdg ${KB_TYPE[k.type][1]}">${KB_TYPE[k.type][0]}</span>
+      ${k.scope==='platform'?'<span class="bdg b-zinc">平台级</span>':`<span class="bdg b-blue">项目级 · ${k.pid}</span>`}
+      ${k.req!=='—'?`<span class="chip">${k.req}</span>`:''}
+      ${k.draft?'<span class="bdg b-amber">草稿待审</span>':''}
+    </div>
+    <h4>${k.title}</h4><p>${k.txt}</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:auto">
+      ${k.tags.map(t=>`<span class="tag">${t}</span>`).join('')}
+      <span class="small faint" style="margin-left:auto">${k.by==='ai'?'AI 提取':'人工'}</span>
+    </div></div>`;
+  return shell(`<div class="page">
+    <div class="page-head">
+      <div><h1>${ic('book',18)} 知识库</h1><div class="sub">需求归档时 AI 自动提取可复用知识;项目内成员可见项目库,平台库全员可见</div></div>
+      <div class="acts">
+        <div class="search">${ic('search',14)}<input class="input" placeholder="搜索标题 / 内容 / 标签…" oninput="filterKb(this.value)"></div>
+        <button class="btn" onclick="toast('演示环境:手动新增知识为静态展示')">${ic('plus')}新增条目</button>
+      </div>
+    </div>
+    <div class="twrap card" style="margin-bottom:14px">
+      <div class="tabs" style="padding:0 10px">
+        <button class="tab on" data-t="proj" onclick="wtab(this)">${ic('folder')}项目内<span class="n">3</span></button>
+        <button class="tab" data-t="plat" onclick="wtab(this)">${ic('globe')}平台级<span class="n">3</span></button>
+      </div>
+      <div class="pane on" data-p="proj"><div class="card-body"><div class="kb-grid">${KNOWLEDGE.filter(k=>k.scope==='proj').map(item).join('')}</div></div></div>
+      <div class="pane" data-p="plat"><div class="card-body"><div class="kb-grid">${KNOWLEDGE.filter(k=>k.scope==='platform').map(item).join('')}</div></div>
+        <div class="card-foot">${ic('shield',13)} 平台级条目需项目 owner「提升」后全员可见</div></div>
+    </div>
+  </div>`, crumbLink('','知识库'), 'knowledge');
+}
+function filterKb(v){
+  v = v.trim().toLowerCase();
+  document.querySelectorAll('.kb-card').forEach(c=>{ c.hidden = v && !c.dataset.kw.includes(v); });
+}
+/* ================= Runner 管理 ================= */
+function pageRunners(){
+  return shell(`<div class="page">
+    <div class="page-head">
+      <div><h1>${ic('server',18)} Runner 管理</h1><div class="sub">Runner 是容器执行的代理节点,主动 WebSocket 连接平台;调度策略:最少负载 · 部署任务固定 role=deploy</div></div>
+      <div class="acts"><button class="btn btn-pri" onclick="openNewRunner()">${ic('plus')}新建 Runner</button></div>
+    </div>
+    <div class="card"><div class="scrollx"><table class="tbl">
+      <thead><tr><th>名称</th><th>角色</th><th>状态</th><th>容器负载</th><th>机器</th><th>公网 IP</th><th>心跳</th><th></th></tr></thead>
+      <tbody>${RUNNERS.map(r=>`<tr>
+        <td><b class="mono small">${r.name}</b></td>
+        <td>${r.role==='deploy'?'<span class="bdg b-amber">deploy</span>':'<span class="bdg b-zinc">worker</span>'}</td>
+        <td>${r.status==='online'?'<span class="bdg b-green"><span class="dot pulse"></span>online</span>':'<span class="bdg b-zinc">offline</span>'}</td>
+        <td class="mono small">${r.load[0]} / ${r.load[1]} 容器${r.status==='offline'?' <span class="faint">· offline 不调度,容器继续运行</span>':''}</td>
+        <td class="small muted">${r.machine}</td>
+        <td class="mono small">${r.ip}</td>
+        <td class="mono small muted">${r.hb}</td>
+        <td><button class="btn btn-sm btn-ghost" onclick="toast('演示环境:重置后旧 token 立即失效')">重置 token</button></td>
+      </tr>`).join('')}</tbody></table></div></div>
+    <div class="card" style="margin-top:16px"><div class="card-head"><span class="card-title">${ic('plug')}平台设置(GitLab)</span></div>
+      <div class="card-body"><div class="kvs" style="box-shadow:none">
+        <div class="kv"><label>GitLab 实例</label><div class="mono small">https://gitlab.internal</div></div>
+        <div class="kv"><label>Bot token</label><div class="mono small">glpat-••••••••9x2f(scope: api)</div></div>
+        <div class="kv"><label>Webhook secret</label><div class="mono small">whsec-••••(每 repo 一个)</div></div>
+        <div class="kv"><label>出网白名单</label><div class="mono small">LLM endpoint · GitLab · 镜像源</div></div>
+      </div></div>
+      <div class="card-foot">${ic('alert',13)} Bot 未配置时项目创建入口禁用;配置变更即时生效</div></div>
+  </div>`, crumbLink('','Runner 管理'), 'runners');
+}
+function openNewRunner(){
+  const token = 'gldr_9f2Kx7Qm4Np8Vs1T';
+  openModal(`<div class="m-head">${ic('plus')}新建 Runner · Token 仅显示一次<div class="x"><button class="btn btn-ghost icon-btn" onclick="closeModal()">${ic('x')}</button></div></div>
+  <div class="m-body">
+    <div class="field"><label>名称</label><input class="input" value="runner-hangzhou-01"></div>
+    <div class="field"><label>角色</label><div class="chip-row"><span class="bdg b-zinc">worker · 跑任务容器</span><span class="bdg b-amber">deploy · 跑部署容器(需公网 IP)</span></div></div>
+    <div class="field"><label>Runner Token</label><div class="chip-row"><span class="chip" style="font-size:13px">${token}</span><button class="btn btn-sm" onclick="toast('已复制(演示)')">${ic('copy',13)}复制</button></div></div>
+    <div class="field"><label>在 Runner 机器上执行</label>
+      <div class="ed-scroll" style="border:1px solid var(--border);border-radius:8px"><div class="ed-code">${hl(`docker run -d \\
+  -e PLATFORM_URL=wss://console.zhanqitv.com.cn/ws/runner \\
+  -e RUNNER_TOKEN=${token} \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  platform/runner:v1`)}</div></div>
+      <div class="hint">Runner 启动后主动连接平台注册,每 30s 心跳;60s 未收到标记 offline(其上容器继续运行)。</div></div>
+  </div>
+  <div class="m-foot"><button class="btn" onclick="closeModal()">关闭</button><button class="btn btn-pri" onclick="closeModal();toast('已生成 token,等待 Runner 上线注册')">完成</button></div>`);
+}
+/* ================= 路由 ================= */
+function render(){
+  TERM_GEN++;
+  const h = location.hash.replace(/^#\/?/, '');
+  const seg = h.split('/').filter(Boolean);
+  const [p0, p1] = seg;
+  let html;
+  if(!p0 || p0==='projects') html = pageProjects();
+  else if(p0==='login') html = pageLogin();
+  else if(p0==='p' && p1) html = pageProject(p1, 'requirements');
+  else if(p0==='r' && p1) html = pageReq(p1);
+  else if(p0==='t' && p1) html = pageTask(p1);
+  else if(p0==='archive' && p1) html = pageArchive(p1);
+  else if(p0==='knowledge') html = pageKnowledge();
+  else if(p0==='runners') html = pageRunners();
+  else html = pageProjects();
+  document.getElementById('app').innerHTML = html;
+  window.scrollTo(0,0);
+}
+window.addEventListener('hashchange', render);
+render();
+</script>
+
