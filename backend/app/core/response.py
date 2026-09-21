@@ -72,6 +72,10 @@ class ErrCode:
     PLATFORM_CONTAINER_LIMIT = 8002 # 平台总容器数超限
     NO_RUNNER_AVAILABLE = 8003      # 无可用 Runner(离线/角色不匹配)
 
+    # R9 终端
+    TERMINAL_UNAVAILABLE = 9001    # 终端不可用(Runner 离线/容器非 running)
+    TERMINAL_NOT_FOUND = 9002      # 会话不存在或无权访问
+
     # R16 Runner
     RUNNER_HAS_CONTAINERS = 16001  # Runner 上有运行中容器,不可删除
 

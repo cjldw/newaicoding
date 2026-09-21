@@ -114,6 +114,24 @@ async def runner_ws(websocket: WebSocket):
                     )
                     await db.commit()
 
+            elif mtype == "terminal_output":
+                # Runner pty 输出 → 前端终端(R9)
+                from app.services.terminal_service import forward_output_to_frontend
+
+                await forward_output_to_frontend(msg.get("session_id", ""), msg.get("data", ""))
+
+            elif mtype == "exec_started":
+                # pty 创建确认(R9;前端建连即 attach,无需额外动作)
+                logger.info("Runner pty 已创建 session=%s", msg.get("session_id"))
+
+            elif mtype == "exec_closed":
+                # pty 关闭:通知前端会话结束
+                from app.services.terminal_service import forward_output_to_frontend
+
+                await forward_output_to_frontend(
+                    msg.get("session_id", ""), "\r\n[进程已退出]\r\n", kind="output"
+                )
+
             else:
                 logger.warning("Runner 未知消息类型 runner=%s type=%s", runner.runner_id, mtype)
 

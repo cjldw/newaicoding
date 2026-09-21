@@ -26,6 +26,7 @@ from typing import Any
 import websockets
 
 from container_manager import ContainerManager
+from terminal_manager import TerminalManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("runner")
@@ -38,9 +39,26 @@ RUNNER_HOST = os.environ.get("RUNNER_HOST", "")
 HEARTBEAT_INTERVAL = 30  # 秒(D13:30s 心跳;平台 60s 未收到判 offline)
 
 manager = ContainerManager()
+terminals = TerminalManager()
 
 # 运行中的 repo 清单(停止容器时强制 push 需要;容器 id → repos)
 running_repos: dict[str, list[dict]] = {}
+
+
+def _pty_output_callback(ws: Any):
+    """pty 输出回调(读线程上下文)→ 线程安全投递主事件循环 → 转发平台"""
+
+    async def _send(session_id: str, data: str):
+        await send(ws, {"type": "terminal_output", "session_id": session_id, "data": data})
+
+    def callback(session_id: str, data: str):
+        if _MAIN_LOOP is not None:
+            asyncio.run_coroutine_threadsafe(_send(session_id, data), _MAIN_LOOP)
+
+    return callback
+
+
+_MAIN_LOOP: Any = None  # main() 里赋值(主事件循环,供 pty 线程投递)
 
 
 def collect_machine_info() -> dict:
@@ -121,6 +139,28 @@ async def handle_message(ws: Any, msg: dict) -> None:
         else:
             # push 失败:容器保留 30 分钟,平台重试(分片异常场景)
             await send(ws, {"type": "container_event", "event": "push_failed_keepalive", "container_id": container_id})
+
+    elif mtype == "exec":
+        # R9 终端:docker exec 新 pty(session 复用 = attach)
+        session_id = msg.get("session_id", "")
+        created = terminals.create_pty(
+            container_id=msg.get("container_id", ""),
+            cmd=msg.get("cmd") or ["/bin/bash"],
+            session_id=session_id,
+            on_output=_pty_output_callback(ws),
+        )
+        await send(ws, {"type": "exec_started", "session_id": session_id, "created": created})
+
+    elif mtype == "terminal_input":
+        terminals.write_input(msg.get("session_id", ""), msg.get("data", ""))
+
+    elif mtype == "terminal_resize":
+        terminals.resize(msg.get("session_id", ""), int(msg.get("cols", 80)), int(msg.get("rows", 24)))
+
+    elif mtype == "terminal_close":
+        session_id = msg.get("session_id", "")
+        terminals.kill(session_id)
+        await send(ws, {"type": "exec_closed", "session_id": session_id})
 
     else:
         logger.warning("未知指令 type=%s", mtype)
@@ -207,6 +247,8 @@ async def session() -> None:
 
 
 async def main() -> None:
+    global _MAIN_LOOP
+    _MAIN_LOOP = asyncio.get_running_loop()
     backoff = 1
     while True:
         try:

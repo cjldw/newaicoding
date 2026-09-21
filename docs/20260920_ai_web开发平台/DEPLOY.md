@@ -288,3 +288,31 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **镜像**:`docker/runner/Dockerfile` 构建 `platform/runner:v1`
 - **影响范围**:R8 调度切换为 DB 注册表(pick_runner_db);WS /ws/runner 注册协议升级(token+machine_info 注册/心跳时间戳/恢复对账 sync);main.py 增加每 60s 心跳超时巡检任务
 - **回滚方案**:`DROP TABLE runners;` + 回退 R8 版 WS 鉴权代码
+
+## 2026-09-22 R9 Web 终端(实时 TTY)
+
+- **类型**:数据库(alembic revision `b3d7f9a1c5e2`,down_revision `a9c1e5f7b2d4`)+ 前端依赖
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `terminal_sessions` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `session_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `task_id` CHAR(36) NOT NULL COMMENT '任务 id',
+    `container_id` VARCHAR(64) NOT NULL COMMENT '容器 id',
+    `runner_id` CHAR(36) NOT NULL COMMENT 'Runner id',
+    `shell` VARCHAR(64) NOT NULL DEFAULT '/bin/bash' COMMENT 'shell',
+    `created_by` CHAR(36) NOT NULL COMMENT '创建者 user_id',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `closed_at` DATETIME NULL COMMENT '关闭时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_terminal_sessions_session_id` (`session_id`),
+    KEY `ix_terminal_sessions_task_id` (`task_id`),
+    KEY `ix_terminal_sessions_container_id` (`container_id`),
+    KEY `ix_terminal_sessions_runner_id` (`runner_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='终端会话表';
+  ```
+
+- **前端依赖**:xterm@5.3.0 / xterm-addon-fit@0.8.0 / xterm-addon-web-links@0.6.0(package-lock 已更新)
+- **影响范围**:R9 终端全链路(REST 会话 + WS /ws/terminal/{session_id} + Runner pty);R4/R5 消费 terminal_service.push_ai_output 推送 SDK 事件回显
+- **回滚方案**:`DROP TABLE terminal_sessions;`(内存会话态自然消失)
