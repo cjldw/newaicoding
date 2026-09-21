@@ -199,15 +199,19 @@ class ContainerManager:
 
     def read_file(self, container_id: str, path: str) -> str:
         """读文件(base64 传输,规避二进制/转义问题);>2MB 或失败抛错"""
+        raw = self.read_file_bytes(container_id, path)
+        if len(raw) > 2 * 1024 * 1024:
+            raise RuntimeError("文件超过 2MB")
+        return raw.decode("utf-8", errors="replace")
+
+    def read_file_bytes(self, container_id: str, path: str) -> bytes:
+        """读文件原始字节(base64 通道;附件下载用)"""
         code, out = self.exec_capture(container_id, f"base64 -w0 {path}")
         if code != 0:
             raise RuntimeError(f"读取失败({code}): {path}")
         import base64
 
-        raw = base64.b64decode(out)
-        if len(raw) > 2 * 1024 * 1024:
-            raise RuntimeError("文件超过 2MB")
-        return raw.decode("utf-8", errors="replace")
+        return base64.b64decode(out)
 
     def write_file(self, container_id: str, path: str, content: str) -> None:
         """写文件(base64 解码落盘;自动建父目录)"""
@@ -328,6 +332,32 @@ class ContainerManager:
         if code != 0:
             raise RuntimeError(f"PRD push 失败({code}): {out.decode(errors='ignore')[:300]}")
         logger.info("PRD 已 commit+push repo=%s branch=%s", repo_path, branch)
+
+    def claude_prompt(self, container_id: str, prompt: str, workdir: str = "/workspace/main") -> dict:
+        """
+        R4 AI 执行(CLI 兜底):容器内 claude -p <prompt> --output-format json
+        返回 {"result", "tokens_in", "tokens_out"};输出非 JSON 时按纯文本兜底。
+        """
+        import json as _json
+        import shlex as _shlex
+
+        cmd = (
+            f"cd {workdir} 2>/dev/null; "
+            f"claude -p {_shlex.quote(prompt)} --output-format json 2>/dev/null"
+        )
+        code, out = self.exec_capture(container_id, cmd)
+        text = out.decode(errors="ignore").strip()
+        if code != 0 and not text:
+            raise RuntimeError(f"claude CLI 执行失败({code})")
+        try:
+            data = _json.loads(text)
+            return {
+                "result": data.get("result", text),
+                "tokens_in": data.get("total_tokens_in") or data.get("usage", {}).get("input_tokens", 0) or 0,
+                "tokens_out": data.get("total_tokens_out") or data.get("usage", {}).get("output_tokens", 0) or 0,
+            }
+        except _json.JSONDecodeError:
+            return {"result": text, "tokens_in": 0, "tokens_out": 0}
 
     def iter_events(self) -> Any:
         """阻塞迭代 Docker events(只关注容器 start/die/oom)"""

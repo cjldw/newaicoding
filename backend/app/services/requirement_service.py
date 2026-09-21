@@ -1,7 +1,6 @@
 """需求服务 - R3(需求 CRUD + 状态机 + 打磨/评审/取消)"""
 
 import logging
-import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -18,24 +17,6 @@ from app.services import container_service, runner_service
 from app.services.runner_service import runner_registry
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# 工具(Q26:PRD 路径生成)
-# ---------------------------------------------------------------------------
-def _desc_slug(title: str) -> str:
-    """标题 slug:保留中文,空格/特殊字符转 -,截断 32 字符(Q26)"""
-    slug = re.sub(r"[^\w一-鿿-]+", "-", title.strip(), flags=re.UNICODE)
-    slug = re.sub(r"-{2,}", "-", slug).strip("-")
-    return (slug or "需求")[:32]
-
-
-def build_prd_path(title: str, task_id: str, date: Optional[datetime] = None) -> str:
-    """
-    Q26:docs/{YYYYMMDD}_{descSlug}_{taskShortId}/PRD.md
-    YYYYMMDD=任务创建日期;descSlug=标题 slug(保留中文,≤32);taskShortId=任务 uuid 前 8 位。
-    """
-    date = date or datetime.now()
-    return f"docs/{date.strftime('%Y%m%d')}_{_desc_slug(title)}_{task_id[:8]}/PRD.md"
 
 
 async def _creator_brief(db: AsyncSession, user_id: str) -> dict:
@@ -57,20 +38,22 @@ async def get_requirement_or_404(db: AsyncSession, req_id: str) -> Requirement:
 
 
 async def build_detail(db: AsyncSession, req: Requirement) -> dict:
-    """需求详情(含关联任务;R4 任务表落地前列表来自 containers 台账)"""
-    # 关联任务(R4 落地前:containers.task_id 关联;标题/类型以容器台账近似)
+    """需求详情(含关联任务列表,tasks 表)"""
+    from app.models.task import Task
+
     result = await db.execute(
-        select(Container).where(Container.task_id == req.polish_task_id)
-        if req.polish_task_id else select(Container).where(Container.id < 0)
+        select(Task).where(Task.req_id == req.req_id)
+        .order_by(Task.created_at.asc(), Task.id.asc())
     )
-    tasks = []
-    for c in result.scalars().all():
-        tasks.append({
-            "task_id": c.task_id,
-            "type": "requirement",
-            "title": "打磨任务",
-            "status": c.status,
-        })
+    tasks = [
+        {
+            "task_id": t.task_id,
+            "type": t.type,
+            "title": t.title,
+            "status": t.status,
+        }
+        for t in result.scalars().all()
+    ]
 
     reviewer = None
     if req.reviewed_by:
@@ -162,63 +145,22 @@ async def create_requirement(db: AsyncSession, project: Project, operator: User,
 async def start_polish(db: AsyncSession, project: Project, operator: User, req: Requirement) -> str:
     """
     开始打磨(draft → polishing):
-    1. 模型配置检查(R13;未配置 → 13005 引导)
-    2. 生成 prd_file_path(Q26)与打磨 task_id
-    3. 经 container_service 拉起打磨容器(clone req_branch;R4 任务表落地前的最小形态)
-    4. status=polishing,polish_task_id
+    1. 重复校验(3001)
+    2. 经 task_service 创建并启动打磨任务(type=requirement;R13 配置校验 + R8 容器)
+    3. 生成 prd_file_path(Q26);status=polishing,polish_task_id
     """
     if req.status != "draft":
         raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
     if req.polish_task_id:
         raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
 
-    from app.services import llm_service
+    from app.services import task_service
 
-    # 模型配置(未配置 → 13005,前端引导)
-    llm_config = await llm_service.resolve_config(db, project.project_id)
-
-    task_id = str(uuid.uuid4())
-    req.prd_file_path = build_prd_path(req.title, task_id)
-
-    # 平台 GitLab token 作为容器 clone 凭据(R4 切换为创建者个人 token)
-    from app.services.platform_settings_service import get_setting
-
-    gitlab_url = await get_setting(db, "gitlab_url") or ""
-    bot_token = (await get_setting(db, "gitlab_bot_token")) or ""
-
-    repos = []
-    repos_result = await db.execute(
-        select(ProjectRepo).where(ProjectRepo.project_id == project.project_id)
-    )
-    for idx, repo in enumerate(repos_result.scalars().all()):
-        mount = "/workspace/main" if repo.role == "main" else f"/workspace/{repo.role}"
-        repos.append({"url": repo.gitlab_repo_url, "path": mount, "branch": req.req_branch})
-
-    env = {
-        "GITLAB_TOKEN": bot_token,
-        "GITLAB_INSTANCE_URL": gitlab_url,
-        "LLM_BASE_URL": llm_config["base_url"],
-        "LLM_API_KEY": llm_config["api_key"],
-        "LLM_MODEL": llm_config["model"],
-        "ANTHROPIC_BASE_URL": llm_config["base_url"],
-        "ANTHROPIC_API_KEY": llm_config["api_key"],
-        "TASK_ID": task_id,
-        "PROJECT_ID": project.project_id,
-        "REQ_ID": req.req_id,
-        "PRD_FILE_PATH": req.prd_file_path,
-    }
-
-    await container_service.schedule_and_start(
-        db,
-        project_id=project.project_id,
-        task_id=task_id,
-        owner_user_id=req.created_by,
-        env=env,
-        repos=repos,
-    )
+    task_id = await task_service.create_polish_task(db, project, req, operator)
 
     req.status = "polishing"
     req.polish_task_id = task_id
+    req.prd_file_path = task_service.build_prd_path(req.title, task_id)
     await db.flush()
     logger.info("打磨任务已启动 req=%s task=%s", req.req_id, task_id)
     return task_id

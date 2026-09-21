@@ -178,6 +178,32 @@ async def task_write_file(db: AsyncSession, task_id: str, path: str, content: st
     logger.info("文件保存 task=%s path=%s", task_id, path)
 
 
+# ---------------------------------------------------------------------------
+# 字节流变体(R4 任务附件上传/下载;base64 通道,不受 2MB 编辑限制)
+# ---------------------------------------------------------------------------
+async def task_write_file_bytes(db: AsyncSession, task_id: str, path: str, content: bytes) -> None:
+    """容器写任意字节文件(base64 通道)"""
+    import base64
+
+    container = await _get_running_container(db, task_id)
+    b64 = base64.b64encode(content).decode("ascii")
+    await _request_container(db, container, {
+        "type": "write_file_b64", "container_id": container.container_id,
+        "path": path, "content_b64": b64,
+    })
+
+
+async def task_read_file_bytes(db: AsyncSession, task_id: str, path: str) -> bytes:
+    """容器读任意字节文件(base64 通道)"""
+    import base64
+
+    container = await _get_running_container(db, task_id)
+    data = await _request_container(db, container, {
+        "type": "read_file_b64", "container_id": container.container_id, "path": path,
+    })
+    return base64.b64decode(data.get("content_b64", ""))
+
+
 async def task_file_operation(db: AsyncSession, task_id: str, operation: str,
                               path: str, new_path: Optional[str] = None) -> None:
     """create/delete/rename/revert(revert = git checkout base_branch -- path,R4 精确化)"""

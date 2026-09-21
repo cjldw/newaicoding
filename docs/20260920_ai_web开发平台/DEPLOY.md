@@ -405,3 +405,88 @@ CREATE TABLE IF NOT EXISTS `users` (
 
 - **影响范围**:R3 需求全链路(状态机 draft→polishing→reviewing→approved;打磨容器经 R8 拉起;PRD 路径 Q26 规则)
 - **回滚方案**:`DROP TABLE requirements;`
+
+## 2026-09-22 R4 任务(统一执行单元)
+
+- **类型**:数据库(alembic revision `e1f6b3a8d5c2`,down_revision `d9b4f8e2a6c1`)+ 前端依赖
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `tasks` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `task_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `req_id` CHAR(36) NOT NULL COMMENT '需求 id',
+    `project_id` CHAR(36) NOT NULL COMMENT '项目 id',
+    `type` ENUM('requirement','dev','test','release') NOT NULL COMMENT '任务类型',
+    `title` VARCHAR(128) NOT NULL COMMENT '标题',
+    `description` TEXT NOT NULL COMMENT '描述(AI 输入)',
+    `base_branch` VARCHAR(64) NOT NULL COMMENT '基础分支',
+    `work_branch` VARCHAR(64) NOT NULL COMMENT '工作分支',
+    `status` ENUM('pending','running','done','failed','cancelled','timeout') NOT NULL DEFAULT 'pending' COMMENT '状态',
+    `container_id` VARCHAR(64) NULL COMMENT '任务运行时 docker id',
+    `runner_id` CHAR(36) NULL COMMENT 'Runner id',
+    `conversation_id` CHAR(36) NOT NULL COMMENT 'Claude 会话 id',
+    `created_by` CHAR(36) NOT NULL COMMENT '创建者 user_id',
+    `started_at` DATETIME NULL COMMENT '开始时间',
+    `finished_at` DATETIME NULL COMMENT '完成时间',
+    `total_tokens_in` INT NOT NULL DEFAULT 0 COMMENT '输入 token',
+    `total_tokens_out` INT NOT NULL DEFAULT 0 COMMENT '输出 token',
+    `error_message` TEXT NULL COMMENT '错误信息',
+    `last_commit_sha` VARCHAR(40) NULL COMMENT '最后 commit sha',
+    `extended_attributes` JSON NULL COMMENT '扩展属性',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_tasks_task_id` (`task_id`),
+    KEY `ix_tasks_req_id` (`req_id`),
+    KEY `ix_tasks_project_id` (`project_id`),
+    KEY `ix_tasks_type` (`type`),
+    KEY `ix_tasks_status` (`status`),
+    KEY `ix_tasks_container_id` (`container_id`),
+    KEY `ix_tasks_runner_id` (`runner_id`),
+    KEY `ix_tasks_created_by` (`created_by`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='任务表';
+
+  CREATE TABLE IF NOT EXISTS `task_uploaded_files` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `file_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `task_id` CHAR(36) NOT NULL COMMENT '任务 id',
+    `filename` VARCHAR(255) NOT NULL COMMENT '原始文件名',
+    `stored_filename` VARCHAR(255) NOT NULL COMMENT '容器内实际文件名',
+    `size` BIGINT UNSIGNED NOT NULL COMMENT '字节',
+    `mime_type` VARCHAR(64) NOT NULL DEFAULT 'application/octet-stream' COMMENT 'MIME',
+    `container_path` VARCHAR(255) NOT NULL COMMENT '容器内路径',
+    `uploaded_by` CHAR(36) NOT NULL COMMENT '上传者 user_id',
+    `uploaded_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_task_uploaded_files_file_id` (`file_id`),
+    KEY `ix_task_uploaded_files_task_id` (`task_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='任务附件表';
+
+  CREATE TABLE IF NOT EXISTS `task_messages` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `message_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `task_id` CHAR(36) NOT NULL COMMENT '任务 id',
+    `role` ENUM('user','assistant','tool') NOT NULL COMMENT '角色',
+    `content` TEXT NOT NULL COMMENT '内容(Markdown)',
+    `file_refs` JSON NULL COMMENT '文件引用',
+    `tool_calls` JSON NULL COMMENT '工具调用',
+    `tokens_in` INT NOT NULL DEFAULT 0 COMMENT '输入 token',
+    `tokens_out` INT NOT NULL DEFAULT 0 COMMENT '输出 token',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_task_messages_message_id` (`message_id`),
+    KEY `ix_task_messages_task_id` (`task_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='任务对话消息表';
+  ```
+
+- **前端依赖**:react-dropzone 如引入(package-lock 为准)
+- **AI 执行路径决策**:claude-agent-sdk 未装(pip 受限)→ V1 走 CLI 兜底(容器内 `claude -p` 非交互,Runner exec_tool 通道);SDK adapter 接口已预留(claude_service.ClaudeSdkAdapter),装包后切换
+- **影响范围**:R4 任务全链路;R3 打磨已切换到 tasks 表(type=requirement);R5/R6/R7 复用 create_task + extended_attributes
+- **回滚方案**:`DROP TABLE task_messages; DROP TABLE task_uploaded_files; DROP TABLE tasks;`(顺序不可反)
+
+## 2026-09-22 R4 前端任务工作台(补充条目,无 DB 变更)
+
+- **类型**:前端(TaskDetail 三栏工作台 / TaskChat 对话框(@引用+附件)/ ActivityStream 活动流 / TaskCreateDialog)
+- **影响范围**:/tasks/{task_id} 工作台;RequirementDetail 创建任务入口
+- **回滚方案**:随代码回滚

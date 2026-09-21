@@ -76,6 +76,14 @@ class ErrCode:
     TERMINAL_UNAVAILABLE = 9001    # 终端不可用(Runner 离线/容器非 running)
     TERMINAL_NOT_FOUND = 9002      # 会话不存在或无权访问
 
+    # R4 任务
+    TASK_REQ_STATUS_INVALID = 4001   # 需求状态不合法(如 dev 要求 approved)
+    TASK_NO_GITLAB_TOKEN = 4002      # 用户未绑定 GitLab token
+    TASK_CONCURRENT_LIMIT = 4003     # 单项目并发 running 任务超限(>3)
+    TASK_FILE_TOO_LARGE = 4004       # 单文件超限(>50MB)
+    TASK_UPLOAD_COUNT_LIMIT = 4005   # 单次上传文件数超限(>10)
+    TASK_UPLOAD_TOTAL_LIMIT = 4006   # 单任务累计上传超限(>200MB)
+
     # R3 需求
     POLISH_ALREADY_RUNNING = 3001  # 已有打磨任务进行中
     NOT_IN_POLISHING = 3002        # 需求状态不是 polishing

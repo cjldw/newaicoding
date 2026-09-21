@@ -228,6 +228,48 @@ async def handle_message(ws: Any, msg: dict) -> None:
         except Exception as e:
             logger.warning("PRD commit/push 失败: %s", e)
 
+    elif mtype == "exec_tool":
+        # R4 AI 执行(CLI 兜底):claude -p <prompt>
+        req_id = msg.get("req_id", "")
+        tool = msg.get("tool", "")
+        args = msg.get("args") or {}
+        try:
+            if tool == "claude_prompt":
+                data = manager.claude_prompt(
+                    msg.get("container_id", ""), args.get("prompt", ""),
+                    workdir=args.get("workdir", "/workspace/main"),
+                )
+                await send_result(ws, req_id, True, data)
+            else:
+                await send_result(ws, req_id, False, error=f"未知工具: {tool}")
+        except Exception as e:
+            await send_result(ws, req_id, False, error=str(e))
+
+    elif mtype == "write_file_b64":
+        # R4 附件写入(base64 字节流)
+        req_id = msg.get("req_id", "")
+        try:
+            import base64
+
+            manager.write_file(
+                msg.get("container_id", ""), msg.get("path", ""),
+                base64.b64decode(msg.get("content_b64", "")).decode("utf-8", errors="replace"),
+            )
+            await send_result(ws, req_id, True, {})
+        except Exception as e:
+            await send_result(ws, req_id, False, error=str(e))
+
+    elif mtype == "read_file_b64":
+        # R4 附件下载(base64 字节流)
+        req_id = msg.get("req_id", "")
+        try:
+            import base64
+
+            raw = manager.read_file_bytes(msg.get("container_id", ""), msg.get("path", ""))
+            await send_result(ws, req_id, True, {"content_b64": base64.b64encode(raw).decode("ascii")})
+        except Exception as e:
+            await send_result(ws, req_id, False, error=str(e))
+
     else:
         logger.warning("未知指令 type=%s", mtype)
 

@@ -70,6 +70,7 @@ async def engine():
     from app.models.terminal import TerminalSession  # noqa: F401 — R9 表注册
     from app.models.route import Route  # noqa: F401 — R10 表注册
     from app.models.requirement import Requirement  # noqa: F401 — R3 表注册
+    from app.models.task import Task, TaskUploadedFile, TaskMessage  # noqa: F401 — R4 表注册
 
     # 确保表存在(create_all 是幂等的,已存在则跳过)
     async with app_engine.begin() as conn:
@@ -100,6 +101,7 @@ async def db_session(engine):
     from app.models.terminal import TerminalSession
     from app.models.route import Route
     from app.models.requirement import Requirement
+    from app.models.task import Task, TaskUploadedFile, TaskMessage
     from app.database import async_session_factory
 
     # 使用 app 的 session factory 创建 session
@@ -109,6 +111,9 @@ async def db_session(engine):
         # 前序测试写入的 bot token 会污染后续 2001 未配置场景)
         await session.execute(delete(PlatformSetting))
         await session.execute(delete(Route))
+        await session.execute(delete(TaskMessage))
+        await session.execute(delete(TaskUploadedFile))
+        await session.execute(delete(Task))
         await session.execute(delete(Requirement))
         await session.execute(delete(TerminalSession))
         await session.execute(delete(ProjectSkill))
