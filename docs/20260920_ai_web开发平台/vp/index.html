@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
-<title>CodingConsole 演示</title>
+<title>旗程 · AI 研发流程平台</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="%2318181b"/><rect x="7.2" y="6" width="2.6" height="21" rx="1.3" fill="%23ffffff"/><path d="M10.4 7.6 24 13.2 10.4 13.2Z" fill="%233b82f6"/><path d="M10.4 13.2H24l-7 2.9h-6.6Z" fill="%23d4d4d8"/><path d="M10.4 16.1h6.6L10.4 19Z" fill="%23a1a1aa"/></svg>'>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
@@ -342,6 +343,45 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .login-card{width:100%;max-width:400px}
 .login-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-md);padding:26px;display:flex;flex-direction:column;gap:14px}
 .login-logo{display:flex;align-items:center;gap:10px}
+/* ===== dashboard / 四维管理(R21/R22)===== */
+.dgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:16px}
+.dcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm);padding:16px;cursor:pointer;transition:border-color .12s, background .12s}
+.dcard:hover{background:var(--surface-2)}
+.dcard:active{background:var(--surface-3)}
+.dcard .hd{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px;font-weight:500}
+.dcard .big{font-size:26px;font-weight:600;margin-top:6px;font-family:var(--mono)}
+.dcard .mini{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.dlist-row{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer}
+.dlist-row:last-child{border-bottom:none}
+.dlist-row:hover{background:var(--surface-2)}
+.dlist-row .ttl{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border)}
+.fbar .input{width:auto;min-width:150px}
+.fbar .grow{flex:1;min-width:160px}
+select.input{cursor:pointer}
+/* ===== 项目知识库 wiki(R20)===== */
+.wiki{display:grid;grid-template-columns:260px minmax(0,1fr)}
+.wiki-tree{border-right:1px solid var(--border);overflow:auto;max-height:560px}
+.wiki-body{padding:20px 28px;overflow:auto;max-height:560px}
+.mdc h2{font-size:17px;margin:0 0 10px}
+.mdc h3{font-size:14px;margin:16px 0 6px}
+.mdc p{margin:0 0 10px;font-size:13.5px}
+.mdc ul{margin:0 0 10px;padding-left:20px;font-size:13.5px;display:flex;flex-direction:column;gap:4px}
+.mdc code{font-family:var(--mono);font-size:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+.mdc pre{background:var(--term-bg);color:var(--term-tx);border-radius:8px;padding:12px 14px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.65;margin:0 0 10px}
+.mdc blockquote{margin:0 0 10px;padding:7px 12px;border-left:3px solid var(--border-strong);color:var(--muted);font-size:13px;background:var(--surface-2);border-radius:0 6px 6px 0}
+@media (max-width:1180px){.dgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.wiki{grid-template-columns:minmax(0,1fr)}.wiki-tree{max-height:220px;border-right:none;border-bottom:1px solid var(--border)}}
+/* ===== 文件树「全部/变更」双视图(Q27)===== */
+.tree-tabs{display:flex;gap:5px;padding:9px 9px 0}
+.ttab{flex:1;border:1px solid var(--border);background:var(--surface);border-radius:6px;font-size:11.5px;padding:3px 0;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.ttab:hover{color:var(--text)}
+.ttab.on{background:var(--surface-2);color:var(--text);border-color:var(--border-strong);font-weight:500}
+.ttab .n{font-size:10px;background:#fff;border:1px solid var(--border);border-radius:999px;padding:0 5px}
+.chg-repo{padding:9px 10px 3px;font-size:11px;font-weight:600;color:var(--faint);letter-spacing:.04em}
+.chg-row{display:flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;font-size:12.5px;cursor:pointer;min-width:0}
+.chg-row:hover{background:var(--surface-2)}
+.chg-row .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.chg-row .cnt{font-family:var(--mono);font-size:11px;white-space:nowrap}
 /* ===== responsive ===== */
 @media (max-width:1180px){
   .wb{grid-template-columns:minmax(0,1fr)}
@@ -427,20 +467,46 @@ const ICONS = {
   'sparkle':'<path d="M9.94 15.5a2 2 0 0 0-1.44-1.44l-6.13-1.58a.5.5 0 0 1 0-.96l6.13-1.58A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0l1.58 6.13a2 2 0 0 0 1.44 1.44l6.13 1.58a.5.5 0 0 1 0 .96l-6.13 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/>',
   'pencil':'<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   'zap':'<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+  'layout':'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+  'list':'<path d="M3 6h13"/><path d="M3 12h13"/><path d="M3 18h13"/><path d="M19 6h2"/><path d="M19 12h2"/><path d="M19 18h2"/>',
+  'scroll':'<path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>',
+  'book-open':'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  'user-plus':'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
+  'user-x':'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m17 8 5 5"/><path d="m22 8-5 5"/>',
 };
 const ic = (n,s=15) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;
 function toast(m){const w=document.getElementById('toasts');const t=document.createElement('div');t.className='toast';t.textContent=m;w.appendChild(t);setTimeout(()=>t.remove(),2800);}
 function openModal(html){document.getElementById('modal-root').innerHTML=`<div class="modal-mask" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`;}
 function closeModal(){document.getElementById('modal-root').innerHTML='';}
 const go = h => { location.hash = h; };
+/* ================= 品牌 Logo:三段升旗(打磨→开发→发布,旗到顶即上线) ================= */
+const LOGO = (s=16) => `<svg width="${s}" height="${s}" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+  <rect x="6.6" y="3.4" width="2.8" height="25.2" rx="1.4" fill="#ffffff"/>
+  <path d="M9.4 5.2 25 11.6 9.4 11.6Z" fill="#3b82f6"/>
+  <path d="M9.4 11.6H25l-7.8 3.2H9.4Z" fill="#d4d4d8"/>
+  <path d="M9.4 14.8h7.8L9.4 18Z" fill="#a1a1aa"/>
+</svg>`;
 /* ================= 模拟数据(静态演示) ================= */
+/* 平台角色(R19):plat=superadmin/user 双层叠加项目角色 role;phone 按 R1 打码 */
 const USERS = {
-  luowen:{name:'罗文',  init:'罗', color:'#18181b', role:'owner',  gitlab:true},
-  wangq:{name:'王倩',  init:'王', color:'#1d4ed8', role:'editor', gitlab:true},
-  liming:{name:'李明',  init:'李', color:'#6d28d9', role:'editor', gitlab:true},
-  zhangy:{name:'张野',  init:'张', color:'#b45309', role:'viewer', gitlab:false},
+  luowen:{name:'罗文',  init:'罗', color:'#18181b', role:'owner',  gitlab:true, plat:'superadmin', phone:'138****5678', pstatus:'active', reg:'2026-08-01'},
+  wangq:{name:'王倩',  init:'王', color:'#1d4ed8', role:'editor', gitlab:true, plat:'user', phone:'137****2345', pstatus:'active', reg:'2026-08-03'},
+  liming:{name:'李明',  init:'李', color:'#6d28d9', role:'editor', gitlab:true, plat:'user', phone:'136****8899', pstatus:'active', reg:'2026-08-10'},
+  zhangy:{name:'张野',  init:'张', color:'#b45309', role:'viewer', gitlab:false, plat:'user', phone:'150****6622', pstatus:'active', reg:'2026-08-15'},
+  chenx:{name:'陈晓',  init:'陈', color:'#15803d', role:'editor', gitlab:true, plat:'user', phone:'139****0421', pstatus:'disabled', reg:'2026-09-01'},
 };
 const ROLE_CN = {owner:'负责人', editor:'编辑者', viewer:'观察者'};
+const ROLE_PLAT = {superadmin:['超级管理员','b-blue'], user:['普通用户','b-zinc']};
+const PST = {active:['正常','b-green'], disabled:['已禁用','b-red']};
+const platB = u => { const [t,c] = ROLE_PLAT[u]; return `<span class="bdg ${c}">${t}</span>`; };
+const pstB = s => { const [t,c] = PST[s]; return `<span class="bdg ${c}">${t}</span>`; };
+/* Q26 文档目录:docs/{YYYYMMDD}_{descSlug}_{taskShortId}/(按任务生成并固定;归档用 _archive) */
+const DOCDIRS = {
+  'REQ-042':'20260919_购物车优惠券叠加使用_b301a9c2',
+  'REQ-040':'20260912_地址簿智能识别_a2001f3e',
+};
+const docDir = r => DOCDIRS[r.id] || ('{YYYYMMDD}_' + r.title + '_{taskShortId}');
+const archDir = r => DOCDIRS[r.id] ? DOCDIRS[r.id].replace(/^(\d{8})_.*$/, '$1') + '_' + r.title + '_archive' : ('{YYYYMMDD}_' + r.title + '_archive');
 const PROJECTS = [
   {id:'order-center', name:'订单中心', slug:'order-center', desc:'电商订单核心域:购物车、优惠券、履约与售后', branch:'master', repos:[
     {role:'main', url:'gitlab.internal/order-center/order-center', bind:'auto'},
@@ -464,18 +530,18 @@ let REQS = [
 ];
 let REQSEQ = 45;
 const TASKS = {
-  'T-301':{id:'T-301', req:'REQ-042', type:'requirement', title:'需求打磨:购物车优惠券叠加', status:'done', branch:'req-042', runner:'runner-beijing-01', container:'c-7f2a91', tokens:'↑8.2k ↓26.5k', by:'wangq',
+  'T-301':{id:'T-301', req:'REQ-042', type:'requirement', title:'需求打磨:购物车优惠券叠加', status:'done', branch:'req-042', runner:'runner-beijing-01', container:'c-7f2a91', tokens:'↑8.2k ↓26.5k', by:'wangq', upd:'09-19 15:12',
     commits:['d41e5f9 docs(req-042): PRD 打磨草稿']},
-  'T-310':{id:'T-310', req:'REQ-042', type:'dev', title:'实现优惠券叠加计算引擎', status:'running', branch:'req-042', runner:'runner-beijing-01', container:'c-a3f9e2', tokens:'↑12.4k ↓38.1k', by:'luowen', lastCommit:'a3f9e21',
+  'T-310':{id:'T-310', req:'REQ-042', type:'dev', title:'实现优惠券叠加计算引擎', status:'running', branch:'req-042', runner:'runner-beijing-01', container:'c-a3f9e2', tokens:'↑12.4k ↓38.1k', by:'luowen', upd:'09-21 15:47', lastCommit:'a3f9e21',
     commits:['a3f9e21 feat(cart): 优惠券叠加计算引擎 + 单测','77b01cc refactor(cart): CartService.quote 接入叠加结果']},
-  'T-311':{id:'T-311', req:'REQ-042', type:'dev', title:'优惠券叠加前端交互', status:'pending', branch:'req-042', runner:'—', container:'—', tokens:'—', by:'wangq', commits:[]},
-  'T-201':{id:'T-201', req:'REQ-040', type:'dev', title:'地址解析引擎 + OCR 预处理', status:'done', branch:'req-040', runner:'runner-beijing-01', container:'已销毁', tokens:'↑31.0k ↓92.7k', by:'luowen',
+  'T-311':{id:'T-311', req:'REQ-042', type:'dev', title:'优惠券叠加前端交互', status:'pending', branch:'req-042', runner:'—', container:'—', tokens:'—', by:'wangq', upd:'09-20 09:00', commits:[]},
+  'T-201':{id:'T-201', req:'REQ-040', type:'dev', title:'地址解析引擎 + OCR 预处理', status:'done', branch:'req-040', runner:'runner-beijing-01', container:'已销毁', tokens:'↑31.0k ↓92.7k', by:'luowen', upd:'09-13 11:02',
     commits:['f00c1d2 feat(addr): 地址解析引擎','91aa7b3 feat(addr): OCR 预处理管道','5d6e7f8 test(addr): 解析用例 28 例']},
-  'T-203':{id:'T-203', req:'REQ-040', type:'test', title:'地址簿识别回归测试', status:'passed', branch:'req-040', runner:'runner-beijing-01', container:'已销毁', tokens:'↑18.9k ↓54.2k', by:'liming', report:'docs/req-040/test-reports/T-203/report.md',
+  'T-203':{id:'T-203', req:'REQ-040', type:'test', title:'地址簿识别回归测试', status:'passed', branch:'req-040', runner:'runner-beijing-01', container:'已销毁', tokens:'↑18.9k ↓54.2k', by:'liming', upd:'09-14 16:20', report:'docs/20260914_地址簿智能识别_c203d7e8/report.md',
     commits:['c3d4e5f test(req-040): 测试报告 T-203 (11 通过 / 1 豁免)','6a7b8c9 test(tests): 修复用例 TC-05 断言']},
-  'T-204':{id:'T-204', req:'REQ-040', type:'release', title:'发布地址簿识别 v1.2', status:'deployed', branch:'master', runner:'runner-deploy-01', container:'c-dep1040', tokens:'↑2.1k ↓6.8k', by:'luowen', port:10040, merge:'9f8e7d6',
+  'T-204':{id:'T-204', req:'REQ-040', type:'release', title:'发布地址簿识别 v1.2', status:'deployed', branch:'master', runner:'runner-deploy-01', container:'c-dep1040', tokens:'↑2.1k ↓6.8k', by:'luowen', upd:'09-15 10:00', port:10040, merge:'9f8e7d6',
     commits:['9f8e7d6 merge: req-040 → master','1a2b3c4 docs(release): T-204 部署产物']},
-  'T-205':{id:'T-205', req:'REQ-041', type:'release', title:'发布订单导出 v1.0', status:'deployed', branch:'master', runner:'runner-deploy-01', container:'c-dep1041', tokens:'↑1.8k ↓5.5k', by:'wangq', port:10041, merge:'2b3c4d5',
+  'T-205':{id:'T-205', req:'REQ-041', type:'release', title:'发布订单导出 v1.0', status:'deployed', branch:'master', runner:'runner-deploy-01', container:'c-dep1041', tokens:'↑1.8k ↓5.5k', by:'wangq', upd:'09-19 18:22', port:10041, merge:'2b3c4d5',
     commits:['2b3c4d5 merge: req-041 → master']},
 };
 /* --- T-310 开发工作台内容 --- */
@@ -590,7 +656,7 @@ const DIFF_FILES = [
 ];
 const CHAT_310 = [
   {role:'user', by:'luowen', time:'15:02', text:'大促要支持多券叠加,互斥规则和叠加顺序看这个附件,按 PRD 实现。', file:'活动规则-v3.md', inj:'2.3KB 已注入'},
-  {role:'ai', time:'15:02', text:'已读取 @活动规则-v3.md(2.3 KB,< 100KB,内容已注入)。结合 docs/req-042/PRD.md,我的实现计划:\n1. 抽象 CouponStackEngine:互斥组内贪心选最优\n2. 固定叠加顺序:满减 → 折扣 → 运费券\n3. 边界:叠加后金额不为负\n开始编码,先写单测。'},
+  {role:'ai', time:'15:02', text:'已读取 @活动规则-v3.md(2.3 KB,< 100KB,内容已注入)。结合 docs/20260919_购物车优惠券叠加使用_b301a9c2/PRD.md,我的实现计划:\n1. 抽象 CouponStackEngine:互斥组内贪心选最优\n2. 固定叠加顺序:满减 → 折扣 → 运费券\n3. 边界:叠加后金额不为负\n开始编码,先写单测。'},
   {role:'ai', time:'15:21', text:'计算引擎与 12 个单测已完成,pytest/jest 全绿。已 commit + push 到 req-042(a3f9e21),可在 Diff 页查看改动。'},
   {role:'user', by:'luowen', time:'15:33', text:'注意性能:结算页计算要求 <10ms,用例里补一个基准。'},
   {role:'ai', time:'15:35', text:'已补充基准用例 tests/coupon-stack.spec.ts:24(500 券 × 1000 次 ≈ 0.4ms),满足 <10ms。准备 push,是否继续?'},
@@ -598,7 +664,7 @@ const CHAT_310 = [
 const TERM_310 = [
   {t:'prompt', c:'claude'},
   {t:'ai', c:'✻ Claude Code · model claude-sonnet-5 · cwd /workspace/main'},
-  {t:'dim', c:'  已加载 docs/req-042/PRD.md(评审通过版本)+ 3 个 Skills'},
+  {t:'dim', c:'  已加载 docs/20260919_购物车优惠券叠加使用_b301a9c2/PRD.md(评审通过版本)+ 3 个 Skills'},
   {t:'tool', c:'⏺ Read(src/cart/cart.service.ts)'},
   {t:'tool', c:'⏺ Write(src/cart/coupon-engine.ts)  +86 行'},
   {t:'tool', c:'⏺ Bash(npm test -- coupon-stack)'},
@@ -610,7 +676,7 @@ const TERM_310 = [
   {t:'dim', c:'  任务保持运行中,输入可介入 · 容器 60min 超时兜底'},
 ];
 const ACT_310 = [
-  {icn:'file-text', t:'read_file', p:'docs/req-042/PRD.md', sub:'验收标准 4 条已解析', d:'0.3s'},
+  {icn:'file-text', t:'read_file', p:'docs/20260919_购物车优惠券叠加使用_b301a9c2/PRD.md', sub:'验收标准 4 条已解析', d:'0.3s'},
   {icn:'file-text', t:'read_file', p:'src/cart/cart.service.ts', sub:'定位单券计算点', d:'0.2s'},
   {icn:'pencil', cls:'wr', t:'write_file', p:'src/cart/coupon-engine.ts', sub:'+86 行(新文件)', d:'0.8s'},
   {icn:'pencil', cls:'wr', t:'edit_file', p:'src/cart/cart.service.ts', sub:'+24 −6', d:'0.4s'},
@@ -640,7 +706,7 @@ const DEPLOY_LOG = [
   {t:'ok', c:'  ✓ listening :10040'},
   {t:'dim', c:'$ curl -s -o /dev/null -w "%{http_code}" http://localhost:10040/'},
   {t:'ok', c:'  200 · 健康检查通过 → deployed'},
-  {t:'ai', c:'  <CHIP>[ai:release]</CHIP> CHANGELOG.md + deploy-log.txt → master docs/releases/T-204/'},
+  {t:'ai', c:'  <CHIP>[ai:release]</CHIP> CHANGELOG.md + deploy-log.txt → master docs/20260915_地址簿智能识别_d204b9f4/'},
 ];
 const KNOWLEDGE = [
   {scope:'proj', pid:'order-center', type:'pattern', title:'优惠券互斥组 + 固定叠加顺序模式', req:'REQ-042', tags:['促销','定价'], by:'ai', draft:false,
@@ -654,7 +720,7 @@ const KNOWLEDGE = [
   {scope:'platform', type:'snippet', title:'Git 乐观锁:push 失败自动 rebase 一次', req:'—', tags:['Git','并发'], by:'human', draft:false,
    txt:'push 被拒时自动 git pull --rebase 重试一次;冲突文件 >5 个转人工(任务终端介入)。'},
   {scope:'platform', type:'doc', title:'测试报告路径规范', req:'—', tags:['规范'], by:'human', draft:false,
-   txt:'docs/req-{reqId}/test-reports/{taskId}/report.md + cases.json,commit 到主仓库需求分支。'},
+   txt:'docs/{YYYYMMDD}_{descSlug}_{taskShortId}/report.md + cases.json,commit 到主仓库需求分支。'},
 ];
 const RUNNERS = [
   {name:'runner-beijing-01', role:'worker', status:'online', load:[3,10], machine:'Ubuntu 22.04 · 8C / 32G · Docker 26.1', hb:'3s 前', ip:'—'},
@@ -662,6 +728,29 @@ const RUNNERS = [
   {name:'runner-deploy-01', role:'deploy', status:'online', load:[2,5], machine:'Ubuntu 22.04 · 4C / 16G · Docker 26.1', hb:'5s 前', ip:'47.98.x.x'},
 ];
 const KB_TYPE = {pattern:['模式','b-violet'], snippet:['片段','b-blue'], pitfall:['踩坑','b-amber'], doc:['文档','b-zinc']};
+/* --- R20 项目知识库(wiki 文档空间,与知识条目并存、命名隔离) --- */
+const KB_SPACES = {
+  'order-center':[
+    {id:'kb-api', name:'订单域 API 手册', type:'repo_import', pages:42, synced:'09-20 08:00', src:'order-center / master · docs/api(2 个目录)'},
+    {id:'kb-onboard', name:'新人上手指南', type:'blank', pages:6, upd:'09-18 14:30'},
+  ],
+};
+const KB_TYPE2 = {repo_import:['目录导入','b-violet'], blank:['空模板','b-blue']};
+const KBS = {idle:['—','b-zinc'], importing:['导入中','b-amber'], done:['已同步','b-green'], failed:['导入失败','b-red']};
+/* --- R19 审计日志(只读追加 · 保留 1 年) --- */
+const AUDIT = [
+  {t:'09-21 15:47', u:'luowen', act:'deploy.execute', proj:'order-center', tgt:'T-204 · req-040 → master · :10040', ip:'10.8.2.31'},
+  {t:'09-21 15:21', u:'luowen', act:'task.force_push', proj:'order-center', tgt:'T-310 · a3f9e21(容器超时兜底)', ip:'10.8.2.31'},
+  {t:'09-21 14:10', u:'luowen', act:'review.reject', proj:'order-center', tgt:'REQ-043 · 理由:积分规则口径待定', ip:'10.8.2.31'},
+  {t:'09-21 11:02', u:'wangq', act:'member.invite', proj:'order-center', tgt:'liming → editor', ip:'10.8.3.12'},
+  {t:'09-21 10:31', u:'wangq', act:'model_config.update', proj:'order-center', tgt:'默认模型 → claude-sonnet-5', ip:'10.8.3.12'},
+  {t:'09-20 18:40', u:'luowen', act:'user.invite', proj:'—', tgt:'139****0421(邀请注册 · 7 天有效)', ip:'10.8.2.31'},
+  {t:'09-20 09:12', u:'chenx', act:'login', proj:'—', tgt:'登录成功', ip:'10.8.4.77'},
+  {t:'09-19 17:05', u:'luowen', act:'user.disable', proj:'—', tgt:'chenx · 取消 1 个进行中任务', ip:'10.8.2.31'},
+  {t:'09-19 16:58', u:'luowen', act:'runner.reset_token', proj:'—', tgt:'runner-shanghai-02(旧 token 失效)', ip:'10.8.2.31'},
+  {t:'09-19 10:24', u:'luowen', act:'project.create', proj:'crm', tgt:'crm-web(auto · 平台 bot token)', ip:'10.8.2.31'},
+];
+const AUDIT_CN = {login:'登录', 'user.disable':'禁用用户', 'user.invite':'平台注册邀请', 'project.create':'创建项目', 'member.invite':'邀请成员', 'model_config.update':'模型配置变更', 'review.reject':'驳回需求', 'task.force_push':'强制 push', 'deploy.execute':'执行部署', 'runner.reset_token':'重置 Runner token'};
 const ST = {
   draft:['草稿','b-zinc'], polishing:['打磨中','b-blue'], reviewing:['评审中','b-amber'],
   approved:['已评审','b-green'], in_progress:['开发中','b-blue'], done:['已完成','b-green'],
@@ -694,27 +783,44 @@ const diffBlock = lines => lines.map((l,i)=>{
 
 /* ================= 骨架 ================= */
 function shell(inner, crumb, active){
-  const nav = [
-    ['projects','folder','项目', PROJECTS.length],
-    ['knowledge','book','知识库',''],
-    ['runners','server','Runner 管理', RUNNERS.filter(r=>r.status==='online').length+'/'+RUNNERS.length],
+  const navTop = [['dashboard','layout','工作台','']];
+  const navProj = [
+    ['projects','folder','项目列表', PROJECTS.length],
+    ['manage/requirements','list','需求管理',''],
+    ['manage/tasks','activity','任务管理',''],
+    ['manage/tests','flask','测试管理',''],
+    ['manage/releases','rocket','发布管理',''],
   ];
+  const navKb = [['knowledge','book','知识条目','']];
+  const navAdmin = [
+    ['runners','server','Runner 管理', RUNNERS.filter(r=>r.status==='online').length+'/'+RUNNERS.length],
+    ['admin/users','users','用户管理',''],
+    ['admin/audit','scroll','审计日志',''],
+  ];
+  const item = n => `<button class="sitem${active===n[0]?' on':''}" onclick="go('#/${n[0]}')">${ic(n[1])}<span class="lbl">${n[2]}</span>${n[3]!==''?`<span class="cnt">${n[3]}</span>`:''}</button>`;
   return `<div class="shell">
     <aside class="sidebar">
-      <div class="logo"><span class="logo-mark">${ic('terminal',16)}</span><span><b>CodingConsole</b><span>AI 研发流程平台</span></span></div>
-      <div class="sgroup">工作区</div>
-      ${nav.map(n=>`<button class="sitem${active===n[0]?' on':''}" onclick="go('#/${n[0]}')">${ic(n[1])}<span class="lbl">${n[2]}</span>${n[3]!==''?`<span class="cnt">${n[3]}</span>`:''}</button>`).join('')}
-      <div class="sgroup">平台</div>
+      <div class="logo"><span class="logo-mark">${LOGO(17)}</span><span><b>旗程</b><span>AI 研发流程平台</span></span></div>
+      ${navTop.map(item).join('')}
+      <div class="sgroup">项目管理</div>
+      ${navProj.map(item).join('')}
+      <div class="sgroup">知识</div>
+      ${navKb.map(item).join('')}
+      <div class="sgroup">平台管理 · 仅超管</div>
       <button class="sitem" onclick="toast('演示环境:平台设置为静态展示')">${ic('sliders')}<span class="lbl">平台设置</span></button>
+      ${navAdmin.map(item).join('')}
       <div class="tour">
-        <b>${ic('play',12)} 演示导览(一条需求的一生)</b>
-        <a href="#/p/order-center"><span class="n">1</span>项目 · 订单中心</a>
-        <a href="#/r/REQ-042"><span class="n">2</span>需求 REQ-042(开发中)</a>
-        <a href="#/t/T-310"><span class="n">3</span>开发工作台 · Claude 运行中</a>
-        <a href="#/t/T-203"><span class="n">4</span>测试任务 · 用例与报告</a>
-        <a href="#/t/T-204"><span class="n">5</span>发布任务 · 已上线</a>
-        <a href="#/archive/REQ-040"><span class="n">6</span>归档时间线</a>
-        <a href="#/knowledge"><span class="n">7</span>知识库</a>
+        <b>${ic('play',12)} 平台导览</b>
+        <a href="#/"><span class="n">1</span>工作台 · Dashboard</a>
+        <a href="#/manage/requirements"><span class="n">2</span>四维管理 · 需求管理</a>
+        <a href="#/p/order-center"><span class="n">3</span>项目 · 订单中心(知识库 Tab)</a>
+        <a href="#/r/REQ-042"><span class="n">4</span>需求 REQ-042(开发中)</a>
+        <a href="#/t/T-310"><span class="n">5</span>开发工作台 · Claude 运行中</a>
+        <a href="#/t/T-203"><span class="n">6</span>测试任务 · 用例与报告</a>
+        <a href="#/t/T-204"><span class="n">7</span>发布任务 · 已上线</a>
+        <a href="#/archive/REQ-040"><span class="n">8</span>归档时间线</a>
+        <a href="#/knowledge"><span class="n">9</span>知识条目</a>
+        <a href="#/admin/users"><span class="n">10</span>用户管理 / 审计日志(超管)</a>
       </div>
     </aside>
     <div class="main">
@@ -722,8 +828,8 @@ function shell(inner, crumb, active){
         <div class="crumb">${crumb}</div>
         <div class="top-actions">
           <span class="demo-chip">静态演示 · 数据为模拟</span>
-          <button class="btn btn-ghost icon-btn" title="通知" onclick="toast('暂无新通知')">${ic('bell')}</button>
-          <button class="btn btn-ghost" style="gap:8px;padding:3px 8px" title="个人信息 / 退出登录" onclick="go('#/login')">${av('luowen')}<span class="small nowrap"><b>罗文</b> · ${ROLE_CN.owner}</span></button>
+          <button class="btn btn-ghost icon-btn" title="站内信" onclick="toast('暂无新通知(R18 站内信:critical 走站内信 + 钉钉 + toast)')">${ic('bell')}</button>
+          <button class="btn btn-ghost" style="gap:8px;padding:3px 8px" title="个人信息 / 退出登录" onclick="go('#/login')">${av('luowen')}<span class="small nowrap"><b>罗文</b> · ${ROLE_CN.owner} ${platB('superadmin')}</span></button>
         </div>
       </header>
       ${inner}
@@ -736,19 +842,19 @@ const crumbLink = (h, t) => h ? `<a href="${h}">${t}</a>` : `<b>${t}</b>`;
 /* ================= 登录页 ================= */
 function pageLogin(){
   return `<div class="login-wrap"><div class="login-card">
-    <div class="login-logo"><span class="logo-mark" style="width:38px;height:38px;border-radius:10px">${ic('terminal',20)}</span>
-      <span><b style="font-size:18px">CodingConsole</b><span class="muted small" style="display:block">AI 研发流程平台 · 需求 → 开发 → 测试 → 发布 → 归档</span></span></div>
+    <div class="login-logo"><span class="logo-mark" style="width:38px;height:38px;border-radius:10px">${LOGO(22)}</span>
+      <span><b style="font-size:18px">旗程</b><span class="muted small" style="display:block">AI 研发流程平台 · 需求启程,一路旗程:需求 → 开发 → 测试 → 发布 → 归档</span></span></div>
     <div class="login-box">
-      <div><h2 style="font-size:17px">登录</h2><div class="muted small">账号密码登录(JWT · access 2h)</div></div>
-      <div class="field"><label>用户名</label><input class="input" value="luowen" id="lg-u"></div>
+      <div><h2 style="font-size:17px">登录</h2><div class="muted small">手机号 + 密码登录(JWT · access 2h · 短信验证码 V2)</div></div>
+      <div class="field"><label>手机号</label><input class="input" value="13800005678" id="lg-u"></div>
       <div class="field"><label>密码</label><input class="input" type="password" value="demo-password" id="lg-p">
         <div class="hint">5 次错误将锁定 10 分钟 · 演示环境任意密码可进</div></div>
-      <button class="btn btn-pri" style="justify-content:center" onclick="go('#/projects')">${ic('logout')}进入平台</button>
+      <button class="btn btn-pri" style="justify-content:center" onclick="go('#/')">${ic('logout')}进入平台</button>
       <div class="chip-row small" style="justify-content:center">
         <span class="bdg b-green">${ic('key',12)}GitLab token 已绑定(luowen@gitlab.internal)</span>
       </div>
     </div>
-    <div class="small muted" style="text-align:center">演示账号:luowen / wangq(产品)/ liming(测试)/ zhangy(只读)</div>
+    <div class="small muted" style="text-align:center">演示账号:罗文(超管)/ 王倩(产品)/ 李明(测试)/ 张野(只读);注册为邀请制(token 由超管在「用户管理」生成)</div>
   </div></div>`;
 }
 
@@ -790,6 +896,7 @@ function pageProject(pid, tab){
     ['members','成员', ic('users')],
     ['models','模型', ic('cpu')],
     ['mcp','MCP · Skills', ic('plug')],
+    ['kb','知识库', ic('book-open')],
   ];
   const head = `<div class="page wide"><div class="page-head">
       <div><h1>${p.name} <span class="chip">${p.slug}</span> <span class="bdg b-green">${ic('key',12)}GitLab 已连接</span></h1>
@@ -803,7 +910,7 @@ function pageProject(pid, tab){
       <div class="kv"><label>主仓库</label><div class="mono small">${p.repos[0].url}</div></div>
       <div class="kv"><label>默认分支</label><div>${brChip(p.branch)}</div></div>
       <div class="kv"><label>默认模型</label><div>${ic('cpu',13)}${MODEL.model}</div></div>
-      <div class="kv"><label>成员</label><div class="av-stack">${Object.keys(USERS).map(u=>av(u,1)).join('')}</div></div>
+      <div class="kv"><label>成员</label><div class="av-stack">${Object.keys(USERS).filter(u=>u!=='chenx').map(u=>av(u,1)).join('')}</div></div>
     </div>
     <div class="twrap card">
       <div class="tabs" style="padding:0 10px">
@@ -849,7 +956,7 @@ function projTab(tab, p, reqs){
     </tbody></table></div>
     <div class="card-foot">${ic('alert',13)} 需求分支 <span class="chip">req-{reqId}</span> 会同时在所有绑定仓库上创建 · Git 操作用个人 token,可追溯到人</div>`;
   if(tab==='members') return `<div class="scrollx"><table class="tbl"><thead><tr><th>成员</th><th>项目角色</th><th>GitLab token</th><th>仓库权限</th><th></th></tr></thead><tbody>
-    ${Object.entries(USERS).map(([u,o])=>`<tr>
+    ${Object.entries(USERS).filter(([u])=>u!=='chenx').map(([u,o])=>`<tr>
       <td style="display:flex;align-items:center;gap:8px">${av(u)}<span><b>${o.name}</b><span class="small muted" style="display:block">${u}</span></span></td>
       <td><span class="bdg ${o.role==='owner'?'b-blue':o.role==='editor'?'b-green':'b-zinc'}">${ROLE_CN[o.role]}</span></td>
       <td>${o.gitlab?'<span class="bdg b-green">'+ic('check',12)+'已绑定</span>':'<span class="bdg b-amber">未绑定</span>'}</td>
@@ -857,7 +964,7 @@ function projTab(tab, p, reqs){
       <td>${o.role==='owner'?'':`<button class="btn btn-sm btn-ghost" onclick="toast('演示环境:成员操作为静态展示')">${ic('sliders',13)}</button>`}</td>
     </tr>`).join('')}
     </tbody></table></div>
-    <div class="card-foot"><button class="btn btn-sm btn-pri" onclick="toast('演示环境:邀请后 bot 会将其加入所有绑定仓库')">${ic('plus',13)}邀请成员</button> <span>平台 bot 自动同步 GitLab 仓库成员权限</span></div>`;
+    <div class="card-foot"><button class="btn btn-sm btn-pri" onclick="toast('演示环境:输入手机号精确搜索已注册用户;未注册请联系管理员在「平台管理 → 用户管理」邀请注册')">${ic('plus',13)}邀请成员</button> <span>平台 bot 自动同步 GitLab 仓库成员权限</span></div>`;
   if(tab==='models') return `<div class="stack" style="padding:16px">
     <div class="card"><div class="card-head"><span class="card-title">${ic('cpu')}默认模型配置</span><span class="right">${MODEL.isDefault?'<span class="bdg b-green">默认</span>':''}
       <button class="btn btn-sm" onclick="toast('连接成功 · GET /models 200 · 12 models')">${ic('zap',13)}测试连接</button></span></div>
@@ -893,6 +1000,27 @@ function projTab(tab, p, reqs){
       </tbody></table></div>
       <div class="card-foot">任务创建时写入容器 <span class="chip">~/.claude/skills/</span></div></div>
   </div>`;
+  if(tab==='kb'){
+    const kbs = KB_SPACES[p.id] || [];
+    return `<div style="padding:16px">
+      <div class="pcards">
+        ${kbs.map(k=>`<div class="pcard" onclick="go('#/p/${p.id}/kb/${k.id}')">
+          <h3>${ic('book-open',16)}${k.name} <span class="bdg ${KB_TYPE2[k.type][1]}">${KB_TYPE2[k.type][0]}</span></h3>
+          <p>${k.type==='repo_import'?`快照导入自 ${k.src} · 平台内只读`: '平台内创建与编辑(Monaco + 预览)'}</p>
+          <div class="meta">
+            <span>${ic('file-text',13)}${k.pages} 个页面</span>
+            ${k.type==='repo_import'
+              ? `<span class="bdg ${KBS[k.status||'done'][1]}">${KBS[k.status||'done'][0]}</span><span>${ic('clock',13)}同步于 ${k.synced}</span>`
+              : `<span>${ic('clock',13)}更新于 ${k.upd}</span>`}
+          </div>
+          <div class="foot"><span class="small muted">${k.type==='repo_import'?'修改仓库文件后点「重新导入」刷新(手动同步)':'树形目录 · 拖拽排序 · 全文搜索'}</span>
+            <span class="small faint" style="margin-left:auto">${ic('chevR',13)}</span></div>
+        </div>`).join('') || '<div class="empty">暂无知识库</div>'}
+      </div>
+      <div class="card" style="margin-top:16px"><div class="card-foot" style="border-top:none">${ic('alert',13)}
+        <span>「知识库」= 文档空间 wiki(R20,左树右文);「知识条目」= 归档沉淀的条目级知识(R14,${`<a href="#/knowledge">前往</a>`})——两者并存、命名隔离。导入型以仓库为准:同步后删除的源文件对应页面一并移除。</span></div></div>
+    </div>`;
+  }
   return '';
 }
 /* ================= 需求详情 ================= */
@@ -912,7 +1040,7 @@ const POLISH_CHAT = [
   {role:'user', by:'wangq', time:'09-19 15:02', text:'大促要支持多券叠加,规则见 @活动规则-v3.md,帮我打磨成 PRD。'},
   {role:'ai', time:'09-19 15:03', text:'已读取规则文档。有两个关键问题需要确认:\n1. 满减与折扣是否可叠加?(规则 §3.2:可,顺序为满减→折扣)\n2. 运费券是否占用互斥组名额?(§4.1:不占用)'},
   {role:'user', by:'wangq', time:'09-19 15:10', text:'按文档执行,另外补一条:叠加后金额不能为负。'},
-  {role:'ai', time:'09-19 15:12', text:'已更新 PRD 草稿到容器 docs/req-042/PRD.md(未 commit,评审通过后入库)。验收标准已含金额兜底,建议再补性能指标(结算 &lt;10ms)?'},
+  {role:'ai', time:'09-19 15:12', text:'已更新 PRD 草稿到容器 docs/20260919_购物车优惠券叠加使用_b301a9c2/PRD.md(未 commit,评审通过后入库)。验收标准已含金额兜底,建议再补性能指标(结算 &lt;10ms)?'},
 ];
 function pageReq(rid){
   const r = REQS.find(x=>x.id===rid); if(!r) return shell('<div class="page">未找到</div>','', '');
@@ -934,7 +1062,7 @@ function pageReq(rid){
   return shell(`<div class="page wide">
     <div class="page-head">
       <div><h1><span class="chip">${r.id}</span>${r.title} ${stB(r.status, r.status==='polishing'||r.status==='in_progress')}</h1>
-        <div class="sub chip-row">${brChip(r.branch)} <span class="chip">${ic('folder',12)}${p.name}</span> <span class="chip">${ic('file-text',12)}docs/${r.branch}/PRD.md</span>
+        <div class="sub chip-row">${brChip(r.branch)} <span class="chip">${ic('folder',12)}${p.name}</span> <span class="chip">${ic('file-text',12)}docs/${docDir(r)}/PRD.md</span>
         <span class="chip">${ic('users',12)}创建 ${USERS[r.by].name}</span></div></div>
       <div class="acts">${acts}
         ${r.status!=='archived'?`<button class="btn btn-ghost" onclick="toast('演示环境:取消后分支保留 30 天')">取消需求</button>`:''}
@@ -1062,7 +1190,7 @@ function selDiff(i, btn){
 }
 /* --- 文件树 --- */
 const TREE_310 = [
-  {d:0, i:'folder-open', n:'docs'},{d:1, i:'folder-open', n:'req-042'},{d:2, i:'file-text', n:'PRD.md', st:'m', act:'prd'},
+  {d:0, i:'folder-open', n:'docs'},{d:1, i:'folder-open', n:'20260919_优惠券叠加_b301a9c2'},{d:2, i:'file-text', n:'PRD.md', st:'m', act:'prd'},
   {d:0, i:'folder-open', n:'src'},{d:1, i:'folder-open', n:'cart'},
   {d:2, i:'file-code', n:'cart.service.ts', st:'m', act:'diff', di:1},
   {d:2, i:'file-code', n:'coupon-engine.ts', st:'a', act:'edit', ei:0},
@@ -1073,16 +1201,45 @@ const TREE_310 = [
   {d:1, i:'file', n:'helpers.ts'},
   {d:0, i:'file', n:'package.json'},
 ];
+/* Q27 变更视图:相对 base_branch 全部差异(已 commit + 未 commit,git 口径,按仓库分组) */
+const CHANGES_310 = [
+  {repo:'主仓库 · /workspace/main', files:[
+    {n:'docs/20260919_优惠券叠加_b301a9c2/PRD.md', stc:'M', cls:'b-amber', add:2, del:1, act:'prd'},
+    {n:'src/cart/coupon-engine.ts', stc:'A', cls:'b-green', add:86, del:0, act:'edit', ei:0},
+    {n:'src/cart/cart.service.ts', stc:'M', cls:'b-amber', add:24, del:6, act:'diff', di:1},
+    {n:'tests/coupon-stack.spec.ts', stc:'A', cls:'b-green', add:58, del:0, act:'edit', ei:1},
+  ]},
+];
+let TREE_TAB = 'all';
+function treeTab(k){
+  TREE_TAB = k;
+  const all = document.getElementById('treeAll'), chg = document.getElementById('treeChg');
+  if(all && chg){ all.hidden = k !== 'all'; chg.hidden = k !== 'chg'; }
+  document.querySelectorAll('.ttab').forEach(b=>b.classList.toggle('on', b.id === 'ttab-' + k));
+}
 function treePane(){
-  return `<div class="tree">
+  const chgCount = CHANGES_310.reduce((n,g)=>n+g.files.length,0);
+  const chgHtml = CHANGES_310.map(g=>`<div class="chg-repo">${ic('git-branch',11)} ${g.repo}</div>` +
+    g.files.map(f=>`<div class="chg-row" onclick="treeOpen('${f.act}',${f.ei??f.di??0})">
+      <span class="bdg ${f.cls}" style="font-size:10px;padding:0 5px">${f.stc}</span>
+      <span class="nm mono">${f.n}</span>
+      <span class="cnt"><span style="color:var(--green-tx)">+${f.add}</span> <span style="color:var(--red-tx)">−${f.del}</span></span>
+    </div>`).join('')).join('');
+  return `<div class="tree-tabs">
+    <button class="ttab${TREE_TAB==='all'?' on':''}" id="ttab-all" onclick="treeTab('all')">${ic('folder',12)}全部文件</button>
+    <button class="ttab${TREE_TAB==='chg'?' on':''}" id="ttab-chg" onclick="treeTab('chg')">${ic('pencil',12)}变更文件<span class="n">${chgCount}</span></button>
+  </div>
+  <div class="tree" id="treeAll" ${TREE_TAB==='chg'?'hidden':''}>
     <div class="tnode dir" style="padding-left:8px">${ic('folder-open',14)}<span class="nm mono">/workspace/main</span></div>
     ${TREE_310.map((f,idx)=>`<div class="tnode${f.act?' sel':''}" style="padding-left:${22 + f.d*16}px" ${f.act?`onclick="treeOpen('${f.act}',${f.ei??f.di??0})"`:''}>
       ${ic(f.i,14)}<span class="nm mono">${f.n}</span>${f.st?`<span class="fdot ${f.st}"></span>`:''}</div>`).join('')}
   </div>
+  <div class="tree" id="treeChg" ${TREE_TAB==='all'?'hidden':''}>${chgHtml}</div>
   <div class="tree-foot">
     <span><b>容器</b> c-a3f9e2 · devbox:v1</span>
     <span><b>Runner</b> runner-beijing-01 · 2c/4g/10g</span>
     <span><b>分支</b> req-042(基础 = 工作分支)</span>
+    <span><b>变更</b> 相对 req-042 基线全部差异(已 commit + 未 commit)</span>
   </div>`;
 }
 function treeOpen(act, i){
@@ -1162,7 +1319,7 @@ function centerPane(t){
           <div class="kv"><label>报告 commit</label><div class="mono small">${REPORT_203.commit} → req-040</div></div>
         </div>
         <div><h3 style="font-size:13.5px;margin-bottom:6px">报告文件</h3>
-          <span class="chip">${ic('file-text',12)}docs/req-040/test-reports/T-203/report.md</span>
+          <span class="chip">${ic('file-text',12)}docs/20260914_地址簿智能识别_c203d7e8/report.md</span>
           <span class="chip" style="margin-left:6px">${ic('file',12)}cases.json</span></div>
         <div class="small muted">失败处理:可豁免(填理由仍 passed)或驳回回开发 —— 自动创建 dev 任务并携带失败上下文与报告路径。</div>
       </div></div></div>
@@ -1190,7 +1347,7 @@ function centerPane(t){
           <div class="ed-scroll" style="border:1px solid var(--border);border-radius:8px"><div class="ed-code">${hl(`npm run build
 node server.js --port $DEPLOY_PORT
 curl -f http://localhost:$DEPLOY_PORT/ || exit 1`)}</div></div></div>
-        <div class="small muted">部署产物(CHANGELOG.md + deploy-log.txt)已用平台 bot token commit 到 master 的 <span class="chip">docs/releases/T-204/</span>。</div>
+        <div class="small muted">对外域名默认 <span class="chip">{slug}.{deploy_base_domain}</span>(平台设置,超管可配),创建发布任务时可自定义覆盖(仅 HTTP,需将域名解析到网关);部署产物(CHANGELOG.md + deploy-log.txt)已用平台 bot token commit 到 master 的 <span class="chip">docs/20260915_地址簿智能识别_d204b9f4/</span>。</div>
       </div></div></div>
       <div class="pane fill" data-p="merge"><div class="card-body stack" style="gap:10px">
         <div class="kvs" style="box-shadow:none">
@@ -1200,7 +1357,7 @@ curl -f http://localhost:$DEPLOY_PORT/ || exit 1`)}</div></div></div>
         <table class="tbl"><tbody>
           <tr><td class="mono small">src/addr/engine.ts</td><td><span class="bdg b-green">+312</span> <span class="bdg b-zinc">−0</span></td></tr>
           <tr><td class="mono small">src/addr/ocr.ts</td><td><span class="bdg b-green">+187</span> <span class="bdg b-zinc">−0</span></td></tr>
-          <tr><td class="mono small">docs/req-040/**</td><td><span class="bdg b-green">+4</span> <span class="bdg b-zinc">−0</span> 个文件</td></tr>
+          <tr><td class="mono small">docs/{doc_dir}/**</td><td><span class="bdg b-green">+4</span> <span class="bdg b-zinc">−0</span> 个文件</td></tr>
         </tbody></table>
       </div></div>`;
   }
@@ -1214,7 +1371,7 @@ curl -f http://localhost:$DEPLOY_PORT/ || exit 1`)}</div></div></div>
       <div class="card-foot">${ic('alert',13)} 草稿仅存在于任务容器 · 评审通过后才 commit 到 req-042(评审人个人 token)</div></div>
     <div class="pane fill" data-p="files"><div class="ed-scroll"><div class="tree">
       <div class="tnode dir">${ic('folder-open',14)}<span class="nm mono">/workspace/main</span></div>
-      <div class="tnode" style="padding-left:38px">${ic('file-text',14)}<span class="nm mono">docs/req-042/PRD.md</span><span class="fdot m"></span></div>
+      <div class="tnode" style="padding-left:38px">${ic('file-text',14)}<span class="nm mono">docs/20260919_购物车优惠券叠加使用_b301a9c2/PRD.md</span><span class="fdot m"></span></div>
       <div class="tnode" style="padding-left:22px">${ic('folder-open',14)}<span class="nm mono">src</span></div>
     </div></div></div>`;
 }
@@ -1229,7 +1386,7 @@ const CHAT_203 = [
 ];
 const CHAT_204 = [];
 const ACT_203 = [
-  {icn:'file-text', t:'read_file', p:'docs/req-040/PRD.md', sub:'验收标准 6 条', d:'0.3s'},
+  {icn:'file-text', t:'read_file', p:'docs/20260912_地址簿智能识别_a2001f3e/PRD.md', sub:'验收标准 6 条', d:'0.3s'},
   {icn:'flask', cls:'wr', t:'gen_cases', p:'12 条用例草稿', sub:'人审后执行', d:'2.1s'},
   {icn:'terminal', t:'bash', p:'cd /workspace/tests/order-center-tests && pytest -q', sub:'11 passed · 1 waived', d:'38s'},
   {icn:'git-commit', cls:'git', t:'git commit', p:'test(req-040): 测试报告 T-203', sub:'报告 → 主仓库 req-040;脚本修复 → tests 仓库', d:'0.6s'},
@@ -1238,11 +1395,11 @@ const ACT_204 = [
   {icn:'git-merge', cls:'git', t:'git merge', p:'req-040 → master', sub:'9f8e7d6 · 平台 bot token', d:'1.8s'},
   {icn:'terminal', t:'bash', p:'npm run build && node server.js --port 10040', sub:'build 14.2s', d:'16s'},
   {icn:'zap', cls:'ok', t:'健康检查', p:'GET / → 200', sub:'路由已注册 · 公网可访问', d:'0.2s'},
-  {icn:'box', cls:'git', t:'部署产物', p:'docs/releases/T-204/ → master', sub:'CHANGELOG + deploy-log(bot token)', d:'0.5s'},
+  {icn:'box', cls:'git', t:'部署产物', p:'docs/20260915_地址簿智能识别_d204b9f4/ → master', sub:'CHANGELOG + deploy-log(bot token)', d:'0.5s'},
 ];
 const ACT_301 = [
   {icn:'msg', t:'对话打磨', p:'2 轮澄清(互斥口径 / 运费券)', sub:'用户 王倩 参与', d:'—'},
-  {icn:'pencil', cls:'wr', t:'write_file', p:'docs/req-042/PRD.md', sub:'草稿写入容器(未 commit)', d:'1.2s'},
+  {icn:'pencil', cls:'wr', t:'write_file', p:'docs/20260919_购物车优惠券叠加使用_b301a9c2/PRD.md', sub:'草稿写入容器(未 commit)', d:'1.2s'},
   {icn:'check-circle', cls:'ok', t:'提交评审', p:'PRD 就绪', sub:'容器在评审通过后销毁', d:'—'},
 ];
 function uploadsRow(files){
@@ -1289,7 +1446,7 @@ function rightPane(t){
         {t:'ai', c:'  <CHIP>[ai:test]</CHIP> report.md + cases.json 已 commit → req-040'},
       ]:[
         {t:'dim', c:'$ claude(打磨会话 · 模型 claude-sonnet-5)'},
-        {t:'tool', c:'⏺ Write(docs/req-042/PRD.md)  草稿 v3'},
+        {t:'tool', c:'⏺ Write(docs/20260919_购物车优惠券叠加使用_b301a9c2/PRD.md)  草稿 v3'},
         {t:'ok', c:'  ✓ 已提交评审,等待评审人操作'},
       ], 'bash · 只读回显(关键命令)', t.id+'term')}</div>`);
   panes.push(`<div class="pane fill" data-p="act">${actPane(acts[t.id]||ACT_310, t.tokens)}</div>`);
@@ -1332,7 +1489,7 @@ const TL_040 = [
   {t:'开发任务 T-201', m:'3 commits:地址解析引擎 / OCR 预处理 / 28 例单测,全部 push 到 req-040', w:'09-13 11:02', icn:'file-code', done:1},
   {t:'测试任务 T-203', m:'12 用例:11 通过 / 1 豁免;报告 commit 到 req-040,脚本修复 commit 到 tests 仓库', w:'09-14 16:20', icn:'flask', done:1},
   {t:'发布任务 T-204', m:'req-040 → master(bot token merge)· 部署 :10040 · 健康检查 200 · 需求 → done', w:'09-15 10:00', icn:'rocket', done:1},
-  {t:'归档完成', m:'AI 生成 summary.md commit 到 master docs/archive/req-040/;提取 3 条知识(2 发布 / 1 草稿)', w:'09-15 10:05', icn:'archive', done:1},
+  {t:'归档完成', m:'AI 生成 summary.md commit 到 master docs/20260915_地址簿智能识别_archive/;提取 3 条知识(2 发布 / 1 草稿)', w:'09-15 10:05', icn:'archive', done:1},
 ];
 function pageArchive(rid){
   const r = REQS.find(x=>x.id===rid) || REQS[0];
@@ -1341,8 +1498,8 @@ function pageArchive(rid){
     <div class="page-head">
       <div><h1>${ic('archive',18)} 归档 · <span class="chip">${r.id}</span>${r.title}</h1>
         <div class="sub">全流程关键节点来自 GitLab commit + 任务历史 + 部署记录 · summary.md 已 commit 到 master</div></div>
-      <div class="acts"><a class="btn" onclick="toast('演示环境:GitLab 跳转为静态展示')">${ic('ext')}docs/archive/${r.id}/summary.md</a>
-        <a class="btn" href="#/knowledge">${ic('book')}知识库</a></div>
+      <div class="acts"><a class="btn" onclick="toast('演示环境:GitLab 跳转为静态展示')">${ic('ext')}docs/${archDir(r)}/summary.md</a>
+        <a class="btn" href="#/knowledge">${ic('book')}知识条目</a></div>
     </div>
     <div class="grid-sb">
       <div class="card"><div class="card-head"><span class="card-title">${ic('clock')}时间线</span><span class="right muted small">2026-09-12 → 09-15 · 全程平台内留痕</span></div>
@@ -1384,7 +1541,7 @@ function pageKnowledge(){
     </div></div>`;
   return shell(`<div class="page">
     <div class="page-head">
-      <div><h1>${ic('book',18)} 知识库</h1><div class="sub">需求归档时 AI 自动提取可复用知识;项目内成员可见项目库,平台库全员可见</div></div>
+      <div><h1>${ic('book',18)} 知识条目</h1><div class="sub">需求归档时 AI 自动提取的可复用知识(条目级,R14);与项目内「知识库」(文档空间 wiki,R20)并存、命名隔离</div></div>
       <div class="acts">
         <div class="search">${ic('search',14)}<input class="input" placeholder="搜索标题 / 内容 / 标签…" oninput="filterKb(this.value)"></div>
         <button class="btn" onclick="toast('演示环境:手动新增知识为静态展示')">${ic('plus')}新增条目</button>
@@ -1451,22 +1608,312 @@ function openNewRunner(){
   </div>
   <div class="m-foot"><button class="btn" onclick="closeModal()">关闭</button><button class="btn btn-pri" onclick="closeModal();toast('已生成 token,等待 Runner 上线注册')">完成</button></div>`);
 }
+/* ================= 工作台 Dashboard(R21)================= */
+const ME = 'luowen'; /* 演示当前用户;口径 = created_by=me(Q21) */
+const recentSort = arr => arr.slice().sort((a,b)=>(b.upd==='刚刚')-(a.upd==='刚刚') || String(b.upd).localeCompare(a.upd));
+function pageDashboard(){
+  const reqs = REQS.filter(r=>r.by===ME);
+  const tasksOf = ty => Object.values(TASKS).filter(t=>t.type===ty && t.by===ME);
+  const dims = [
+    {k:'requirements', name:'需求', icn:'file-text', items:reqs, href:'#/manage/requirements', rowHref:r=>'#/r/'+r.id},
+    {k:'dev', name:'开发任务', icn:'file-code', items:tasksOf('dev'), href:'#/manage/tasks', rowHref:t=>'#/t/'+t.id},
+    {k:'test', name:'测试任务', icn:'flask', items:tasksOf('test'), href:'#/manage/tests', rowHref:t=>'#/t/'+t.id},
+    {k:'release', name:'发布任务', icn:'rocket', items:tasksOf('release'), href:'#/manage/releases', rowHref:t=>'#/t/'+t.id},
+  ];
+  const cards = dims.map(d=>{
+    const by = {};
+    Object.keys(ST).forEach(s=>{ if(d.items.some(i=>i.status===s)) by[s]=d.items.filter(i=>i.status===s).length; });
+    return `<div class="dcard" onclick="go('${d.href}')" role="link" tabindex="0">
+      <div class="hd">${ic(d.icn,14)}${d.name}</div>
+      <div class="big">${d.items.length}</div>
+      <div class="mini">${Object.entries(by).map(([s,n])=>`<span class="bdg ${ST[s][1]}" style="font-size:11px">${ST[s][0]} ×${n}</span>`).join('') || '<span class="small faint">暂无数据</span>'}</div>
+    </div>`;
+  }).join('');
+  const lists = dims.map(d=>{
+    const rows = recentSort(d.items).slice(0,5);
+    const projName = it => it.pid ? (PROJECTS.find(p=>p.id===it.pid)||{}).name : (PROJECTS.find(p=>p.id===(REQS.find(r=>r.id===it.req)||{}).pid)||{}).name || '—';
+    return `<div class="card">
+      <div class="card-head"><span class="card-title">${ic(d.icn)}${d.name} · 最近 5 条</span>
+        <a class="small" style="margin-left:auto" href="${d.href}">查看全部 ${ic('chevR',12)}</a></div>
+      <div>${rows.map(it=>`<div class="dlist-row" onclick="go('${d.rowHref(it)}')">
+        <span class="ttl"><b class="mono small">${it.id}</b> · ${it.title}</span>
+        <span class="small muted nowrap">${projName(it)}</span>
+        ${stB(it.status, it.status==='running')}
+        <span class="mono small faint nowrap">${it.upd}</span>
+      </div>`).join('') || `<div class="empty">${d.k==='requirements'?'暂无需求,去创建第一个需求':'暂无'+d.name}</div>`}</div>
+    </div>`;
+  }).join('');
+  const hasProject = PROJECTS.length > 0;
+  return shell(`<div class="page">
+    <div class="page-head"><div><h1>工作台</h1><div class="sub">与我相关的四类数据 · 口径「我创建的」(created_by=me)+ 成员项目过滤,与四维管理菜单同源工具(R21)</div></div></div>
+    ${hasProject ? `<div class="dgrid">${cards}</div><div class="grid2">${lists}</div>
+      <div class="small faint" style="margin-top:12px">${ic('alert',12)} 统计仅进入页面时拉取一次,不做实时刷新;变更感知走站内信 / toast(R18)。被移出项目后,该项目数据下次拉取起不再出现。</div>`
+      : `<div class="card"><div class="card-body empty">${ic('folder',20)}<div style="margin-top:8px">还没有项目 · 创建项目或等待邀请,开始你的第一个需求</div>
+        <button class="btn btn-pri" style="margin:10px auto 0" onclick="go('#/projects')">${ic('plus')}新建项目</button></div></div>`}
+  </div>`, crumbLink('','工作台'), 'dashboard');
+}
+/* ================= 四维管理(R22)================= */
+const MF = {requirements:{pid:'',st:'',q:''}, tasks:{pid:'',st:'',q:''}, tests:{pid:'',st:'',q:''}, releases:{pid:'',st:'',q:''}};
+const ST_REQ = ['draft','polishing','reviewing','approved','in_progress','done','archived','rejected'];
+const ST_TASK = ['pending','running','cases_review','passed','failed','deploying','deployed','cancelled'];
+const projChip = pid => { const p = PROJECTS.find(x=>x.id===pid); return `<span class="chip">${ic('folder',11)}${p?p.name:pid}</span>`; };
+const userCell = u => `<span style="display:flex;align-items:center;gap:6px">${av(u,1)}<span class="small">${USERS[u].name}</span></span>`;
+function pageManage(dim){
+  if(!{requirements:1, tasks:1, tests:1, releases:1}[dim]) dim = 'requirements';
+  const c = MF[dim] || MF.requirements;
+  const conf = {
+    requirements:{title:'需求管理', icn:'list', desc:'成员项目全量需求汇总 · 与工作台口径不同:此处不限「我创建的」(R22)', st:ST_REQ, createLabel:'新建需求', heads:['需求','所属项目','状态','优先级','需求分支','创建人','更新时间'],
+      rows:()=>REQS.map(r=>({href:'#/r/'+r.id, pid:r.pid, st:r.status, q:(r.id+' '+r.title).toLowerCase(), cells:[
+        `<b>${r.id}</b> · ${r.title}`, projChip(r.pid), stB(r.status),
+        r.pri==='high'?'<span class="bdg b-red">高</span>':r.pri==='medium'?'<span class="bdg b-amber">中</span>':'<span class="bdg b-zinc">低</span>',
+        brChip(r.branch), userCell(r.by), `<span class="mono small muted nowrap">${r.upd}</span>`]}))},
+    tasks:{title:'任务管理', icn:'activity', desc:'成员项目全量任务(四种类型)· 固定按更新时间倒序', st:ST_TASK, createLabel:'新建任务', heads:['任务','所属项目','类型','状态','Runner','创建人','更新时间'],
+      rows:()=>Object.values(TASKS).map(t=>{ const r = REQS.find(x=>x.id===t.req)||{}; return {href:'#/t/'+t.id, pid:r.pid, st:t.status, q:(t.id+' '+t.title).toLowerCase(), cells:[
+        `<b>${t.id}</b> · ${t.title}`, projChip(r.pid), tpB(t.type), stB(t.status, t.status==='running'),
+        `<span class="mono small">${t.runner}</span>`, userCell(t.by), `<span class="mono small muted nowrap">${t.upd||'—'}</span>`]};})},
+    tests:{title:'测试管理', icn:'flask', desc:'成员项目全量测试任务(type=test)· 前置:至少一个开发任务 done', st:ST_TASK, createLabel:'新建测试任务', heads:['测试任务','所属项目','状态','用例通过','创建人','更新时间'],
+      rows:()=>Object.values(TASKS).filter(t=>t.type==='test').map(t=>{ const r = REQS.find(x=>x.id===t.req)||{}; const cases = t.id==='T-203' ? `${REPORT_203.pass}/${REPORT_203.pass+REPORT_203.waived+REPORT_203.fail}` : '—'; return {href:'#/t/'+t.id, pid:r.pid, st:t.status, q:(t.id+' '+t.title).toLowerCase(), cells:[
+        `<b>${t.id}</b> · ${t.title}`, projChip(r.pid), stB(t.status),
+        `<span class="mono small" style="color:${cases==='—'?'var(--faint)':'var(--green-tx)'}">${cases}</span>`,
+        userCell(t.by), `<span class="mono small muted nowrap">${t.upd||'—'}</span>`]};})},
+    releases:{title:'发布管理', icn:'rocket', desc:'成员项目全量发布任务(type=release)· 前置:至少一个测试 passed + 端口全平台唯一', st:ST_TASK, createLabel:'新建发布任务', heads:['发布任务','所属项目','状态','部署 URL','端口','创建人','更新时间'],
+      rows:()=>Object.values(TASKS).filter(t=>t.type==='release').map(t=>{ const r = REQS.find(x=>x.id===t.req)||{}; const slug = (PROJECTS.find(p=>p.id===r.pid)||{}).slug||'app'; return {href:'#/t/'+t.id, pid:r.pid, st:t.status, q:(t.id+' '+t.title).toLowerCase(), cells:[
+        `<b>${t.id}</b> · ${t.title}`, projChip(r.pid), stB(t.status, t.status==='deploying'),
+        `<a class="mono small nowrap" onclick="event.stopPropagation();toast('演示环境:公网地址不可达(静态演示)')" href="javascript:void(0)">${ic('globe',12)} http://${slug}.coding-console.zhanqitv.com.cn:${t.port}</a>`,
+        `<span class="mono small">${t.port}</span>`, userCell(t.by), `<span class="mono small muted nowrap">${t.upd||'—'}</span>`]};})},
+  }[dim] || {};
+  const all = (conf.rows?conf.rows():[]);
+  const rows = all.filter(x=>(!c.pid||x.pid===c.pid) && (!c.st||x.st===c.st) && (!c.q||x.q.includes(c.q.toLowerCase())));
+  const stOpts = `<option value="">全部状态</option>` + conf.st.map(s=>`<option value="${s}" ${c.st===s?'selected':''}>${(ST[s]||[s])[0]}</option>`).join('');
+  const pjOpts = `<option value="">全部项目</option>` + PROJECTS.map(p=>`<option value="${p.id}" ${c.pid===p.id?'selected':''}>${p.name}</option>`).join('');
+  return shell(`<div class="page wide">
+    <div class="page-head">
+      <div><h1>${ic(conf.icn,18)} ${conf.title}</h1><div class="sub">${conf.desc}</div></div>
+      <div class="acts"><button class="btn btn-pri" onclick="openQuick('${dim}')">${ic('plus')}${conf.createLabel}(快速创建)</button></div>
+    </div>
+    <div class="card">
+      <div class="fbar">
+        <select class="input" onchange="mset('${dim}','pid',this.value)">${pjOpts}</select>
+        <select class="input" onchange="mset('${dim}','st',this.value)">${stOpts}</select>
+        <input class="input grow" placeholder="搜索标题,回车确认" value="${esc(c.q)}" onchange="mset('${dim}','q',this.value)">
+        <span class="small faint" style="margin-left:auto">共 ${rows.length} 条 · updated_at 倒序 · 20/页</span>
+      </div>
+      <div class="scrollx"><table class="tbl"><thead><tr>${conf.heads.map(h=>`<th>${h}</th>`).join('')}<th></th></tr></thead><tbody>
+        ${rows.map(x=>`<tr class="rowclick" onclick="go('${x.href}')">${x.cells.map(td=>`<td>${td}</td>`).join('')}<td>${ic('chevR',14)}</td></tr>`).join('')
+          || `<tr><td colspan="${conf.heads.length+1}" class="empty">暂无数据 · 调整筛选或快速创建</td></tr>`}
+      </tbody></table></div>
+      <div class="card-foot">${ic('shield',13)} 归档 / 软删项目数据不出现;viewer 只读(新建按钮隐藏,API 写操作 403 前后端双重拦截)</div>
+    </div>
+  </div>`, `${crumbLink('#/','工作台')} ${sep} ${crumbLink('#/projects','项目管理')} ${sep} ${crumbLink('', conf.title)}`, 'manage/'+dim);
+}
+function mset(dim,k,v){ MF[dim][k] = v.trim?v.trim():v; render(); }
+/* --- 快速创建(复用项目内创建链路,前置校验完全一致,Q23)--- */
+let QC = {dim:'requirements', pid:'order-center'};
+function reqStateFor(dim, r){
+  const tasks = Object.values(TASKS).filter(t=>t.req===r.id);
+  if(dim==='tasks'){ return r.status==='approved' ? [1,''] : [0,'该需求未进入已批准状态']; }
+  if(dim==='tests'){ const dev = tasks.filter(t=>t.type==='dev');
+    return (dev.length>0 && dev.every(t=>t.status==='done')) ? [1,''] : [0,'该需求尚无已完成的开发任务']; }
+  if(dim==='releases'){ return tasks.some(t=>t.type==='test' && t.status==='passed') ? [1,''] : [0,'该需求尚无通过的测试任务']; }
+  return [1,''];
+}
+function quickDyn(){
+  const reqs = REQS.filter(r=>r.pid===QC.pid);
+  if(QC.dim==='requirements'){
+    return `<div class="field"><label>标题</label><input class="input" id="qc-title" value="下单页地址联想补全"></div>
+    <div class="field"><label>描述(初始草稿,后续 AI 打磨)</label><textarea class="input" rows="3" id="qc-desc">用户输入地址时实时联想补全,减少填写成本。</textarea></div>
+    <div class="hint">${ic('git-branch',12)} 创建后平台 bot 自动从默认分支切出需求分支(所有绑定仓库)</div>`;
+  }
+  const opts = reqs.map(r=>{ const [ok, why] = reqStateFor(QC.dim, r);
+    return `<option value="${r.id}" ${ok?'':'disabled'} title="${ok?'':why}">${r.id} · ${r.title}${ok?'':'(不可选:'+why+')'}</option>`; }).join('');
+  const reqSel = `<div class="field"><label>需求</label><select class="input">${opts}</select>
+    <div class="hint">前置不满足的需求已置灰并标注原因(与项目内创建入口校验完全一致,服务端仍会兜底校验)</div></div>`;
+  if(QC.dim==='tasks') return reqSel + `<div class="field"><label>要让 AI 做什么(描述)</label><textarea class="input" rows="3">按 PRD 实现并补充单测。</textarea></div>
+    <div class="hint">${ic('key',12)} 创建前校验:你已绑定 GitLab 个人 token(未绑定将引导个人设置)</div>`;
+  if(QC.dim==='tests') return reqSel + `<div class="hint">${ic('flask',12)} AI 基于 PRD 验收标准 + 测试仓库存量用例生成用例,人审后执行</div>`;
+  return reqSel + `<div class="field"><label>部署端口(10000-10099,全平台唯一)</label><input class="input" value="10042"></div>
+    <div class="hint">${ic('alert',12)} 端口冲突时创建被拒(错误码沿用发布任务规则);对外域名默认 <span class="chip">{slug}.{部署根域名}</span>(平台设置),可自定义覆盖</div>`;
+}
+function openQuick(dim){
+  QC = {dim, pid: MF[dim].pid || PROJECTS[0].id};
+  const names = {requirements:'新建需求', tasks:'新建开发任务', tests:'新建测试任务', releases:'新建发布任务'};
+  openModal(`<div class="m-head">${ic('plus')}${names[dim]} · 快速创建<div class="x"><button class="btn btn-ghost icon-btn" onclick="closeModal()">${ic('x')}</button></div></div>
+  <div class="m-body">
+    <div class="field"><label>项目</label><select class="input" onchange="QC.pid=this.value;document.getElementById('qc-dyn').innerHTML=quickDyn()">
+      ${PROJECTS.map(p=>`<option value="${p.id}" ${QC.pid===p.id?'selected':''}>${p.name}</option>`).join('')}</select></div>
+    <div id="qc-dyn">${quickDyn()}</div>
+  </div>
+  <div class="m-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn btn-pri" onclick="quickSubmit()">${names[dim]}</button></div>`);
+}
+function quickSubmit(){
+  if(QC.dim==='requirements'){
+    const t = (document.getElementById('qc-title')||{}).value || '未命名需求';
+    const id = 'REQ-0'+(REQSEQ++);
+    REQS.unshift({id, pid:QC.pid, title:t, branch:'req-'+id.split('-')[1], status:'draft', pri:'medium', by:ME, upd:'刚刚', review:null});
+    closeModal(); toast('需求 '+id+' 已创建(快速创建 · 复用项目内创建链路)'); go('#/r/'+id); return;
+  }
+  closeModal(); toast('已按项目内同一校验链创建(演示):需求状态 / token / 端口唯一性均不放宽');
+}
+/* ================= 用户管理(R19,仅超管)================= */
+function pageAdminUsers(){
+  const superCount = Object.values(USERS).filter(u=>u.plat==='superadmin' && u.pstatus==='active').length;
+  const rows = Object.entries(USERS).map(([u,o])=>{
+    const isLastSuper = o.plat==='superadmin' && superCount<=1;
+    return `<tr>
+      <td><span class="mono small">${o.phone}</span></td>
+      <td style="display:flex;align-items:center;gap:8px">${av(u)}<span><b>${o.name}</b><span class="small muted" style="display:block">${u}</span></span></td>
+      <td>${platB(o.plat)}</td>
+      <td>${pstB(o.pstatus)}</td>
+      <td>${o.gitlab?'<span class="bdg b-green">'+ic('check',12)+'已绑定</span>':'<span class="bdg b-amber">未绑定</span>'}</td>
+      <td class="mono small muted">${o.reg}</td>
+      <td style="white-space:nowrap">${o.pstatus==='active'
+        ? `<button class="btn btn-sm btn-danger" ${isLastSuper?'disabled title="最后一个超级管理员不可禁用"':`onclick="toggleUser('${u}')"`}>${ic('user-x',12)}禁用</button>`
+        : `<button class="btn btn-sm" onclick="toggleUser('${u}')">${ic('check',12)}启用</button>`}</td>
+    </tr>`;}).join('');
+  return shell(`<div class="page">
+    <div class="page-head">
+      <div><h1>${ic('users',18)} 用户管理</h1><div class="sub">平台级账号管理(仅超管)· 禁用即全失效:登录被拒 + 现有 JWT 立即失效(token_version)+ 进行中任务立即取消(销毁前强制 push)</div></div>
+      <div class="acts"><button class="btn btn-pri" onclick="openInvite()">${ic('user-plus')}邀请新用户</button></div>
+    </div>
+    <div class="card"><div class="scrollx"><table class="tbl">
+      <thead><tr><th>手机号</th><th>用户</th><th>平台角色</th><th>状态</th><th>GitLab token</th><th>注册时间</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <div class="card-foot">${ic('alert',13)} 最后一个超管不可禁用 · 超管在所有项目自动等同 owner(审计记 superadmin 身份)· 平台注册邀请与项目成员邀请(R12)分离</div>
+    </div>
+  </div>`, `${crumbLink('','平台管理')} ${sep} ${crumbLink('','用户管理')}`, 'admin/users');
+}
+function toggleUser(u){
+  const o = USERS[u];
+  if(o.pstatus==='active'){
+    const n = o.plat==='superadmin' ? 1 : 2;
+    o.pstatus='disabled'; render(); toast('已禁用 '+o.name+' · 现有登录立即失效 · 取消 '+n+' 个进行中任务(销毁前强制 push)');
+  } else { o.pstatus='active'; render(); toast('已启用 '+o.name+' · 可重新登录'); }
+}
+function openInvite(){
+  const token = 'inv_7f3k9Qm2Np8Vs1T';
+  openModal(`<div class="m-head">${ic('user-plus')}邀请新用户 · 平台注册邀请(超管)<div class="x"><button class="btn btn-ghost icon-btn" onclick="closeModal()">${ic('x')}</button></div></div>
+  <div class="m-body">
+    <div class="field"><label>被邀请人手机号(选填,备注)</label><input class="input" placeholder="139****0421"></div>
+    <div class="field"><label>邀请 Token(一次性 · 7 天有效 · 仅显示一次)</label>
+      <div class="chip-row"><span class="chip" style="font-size:13px">${token}</span><button class="btn btn-sm" onclick="toast('已复制(演示)')">${ic('copy',13)}复制</button></div></div>
+    <div class="hint">被邀请人注册时在「邀请码」中粘贴该 token;与项目成员邀请(owner,面向已注册用户)是两条链路。</div>
+  </div>
+  <div class="m-foot"><button class="btn" onclick="closeModal()">关闭</button><button class="btn btn-pri" onclick="closeModal();toast('邀请已生成(token 仅显示一次),可站内信告知对方')">完成</button></div>`);
+}
+/* ================= 审计日志(R19,仅超管)================= */
+const AF = {u:'', act:''};
+function pageAdminAudit(){
+  const rows = AUDIT.filter(a=>(!AF.u||a.u===AF.u) && (!AF.act||a.act===AF.act));
+  return shell(`<div class="page wide">
+    <div class="page-head">
+      <div><h1>${ic('scroll',18)} 审计日志</h1><div class="sub">敏感操作全量留痕(仅超管可查)· 只读追加、不可删改 · 异步写入(失败重试,连续失败 critical 告警)· 保留 1 年</div></div>
+    </div>
+    <div class="card">
+      <div class="fbar">
+        <span class="bdg b-zinc">${ic('clock',12)}最近 7 天</span>
+        <select class="input" onchange="AF.u=this.value;render()">
+          <option value="">全部操作人</option>
+          ${Object.entries(USERS).map(([u,o])=>`<option value="${u}" ${AF.u===u?'selected':''}>${o.name}</option>`).join('')}
+        </select>
+        <select class="input" onchange="AF.act=this.value;render()">
+          <option value="">全部操作类型</option>
+          ${Object.entries(AUDIT_CN).map(([k,v])=>`<option value="${k}" ${AF.act===k?'selected':''}>${v}</option>`).join('')}
+        </select>
+        <span class="small faint" style="margin-left:auto">共 ${rows.length} 条 · created_at 倒序 · 不开放自定义排序</span>
+      </div>
+      <div class="scrollx"><table class="tbl">
+        <thead><tr><th>时间</th><th>操作者</th><th>操作类型</th><th>项目</th><th>目标 / 详情</th><th>IP</th></tr></thead>
+        <tbody>${rows.map(a=>`<tr>
+          <td class="mono small muted nowrap">${a.t}</td>
+          <td style="display:flex;align-items:center;gap:7px">${av(a.u,1)}<span class="small">${USERS[a.u].name}</span>${USERS[a.u].plat==='superadmin'?'<span class="bdg b-blue" style="font-size:10px;padding:0 5px">superadmin</span>':''}</td>
+          <td><span class="bdg ${['user.disable','task.force_push','review.reject'].includes(a.act)?'b-red':'b-zinc'}">${AUDIT_CN[a.act]||a.act}</span></td>
+          <td class="small">${a.proj==='—'?'<span class="faint">—</span>':projChip(a.proj)}</td>
+          <td class="small">${a.tgt}</td>
+          <td class="mono small faint">${a.ip}</td>
+        </tr>`).join('') || '<tr><td colspan="6" class="empty">暂无符合条件的日志</td></tr>'}</tbody></table></div>
+    </div>
+  </div>`, `${crumbLink('','平台管理')} ${sep} ${crumbLink('','审计日志')}`, 'admin/audit');
+}
+/* ================= 项目知识库 wiki 阅读页(R20)================= */
+const WIKI_NODES = [
+  {d:0,i:'folder-open',n:'docs/api'},
+  {d:1,i:'file-text',n:'README.md'},
+  {d:1,i:'folder-open',n:'coupons'},
+  {d:2,i:'file-text',n:'stack-rules.md',sel:1},
+  {d:2,i:'file-text',n:'mutex-groups.md'},
+  {d:1,i:'folder-open',n:'orders'},
+  {d:2,i:'file-text',n:'create-order.md'},
+  {d:2,i:'file-text',n:'refund.md'},
+  {d:1,i:'file-text',n:'dto.md'},
+];
+const WIKI_CONTENT = `
+  <blockquote>同互斥组内贪心取最优,跨组按 满减 → 折扣 → 运费券 固定顺序叠加;金额下限 <code>0</code> 兜底。与 <code>coupon-engine.ts</code> 实现保持一致。</blockquote>
+  <h2>优惠券叠加规则</h2>
+  <p>本文由目录导入生成(快照)。平台内只读,修改仓库源文件后点「重新导入」刷新。</p>
+  <h3>叠加顺序</h3>
+  <ul><li><b>满减券</b>:按门槛从高到低尝试</li><li><b>折扣券</b>:乘算,保留两位</li><li><b>运费券</b>:最后核销运费</li></ul>
+  <h3>示例</h3>
+  <pre>applyCoupons(makeCart(169700), [FULL_120, DISCOUNT_90, FREESHIP])
+// → 满减 −120 → 9 折 → 免邮
+// payable = 140730(¥1,407.30)</pre>
+  <h3>互斥组</h3>
+  <p>同组内仅生效优惠金额最大的一张;跨组可叠加。详见 <code>mutex-groups.md</code>。</p>
+  <h3>时序图</h3>
+  <div style="border:1px dashed var(--border-strong);border-radius:8px;padding:18px;text-align:center;color:var(--faint);font-size:12.5px">${ic('file',13)} 资源未导入(仅导入 .md 文本,相对路径图片不导入)</div>`;
+function pageKb(pid, kbid){
+  const p = PROJECTS.find(x=>x.id===pid) || PROJECTS[0];
+  const kb = (KB_SPACES[p.id]||[]).find(k=>k.id===kbid) || (KB_SPACES[p.id]||[])[0];
+  if(!kb) return shell('<div class="page">未找到知识库</div>','','projects');
+  const isImport = kb.type==='repo_import';
+  return shell(`<div class="page wide">
+    <div class="page-head">
+      <div><h1>${ic('book-open',18)} ${kb.name} <span class="bdg ${KB_TYPE2[kb.type][1]}">${KB_TYPE2[kb.type][0]}</span></h1>
+        <div class="sub chip-row">${projChip(p.id)}
+          ${isImport?`<span class="bdg ${KBS[kb.status||'done'][1]}">${KBS[kb.status||'done'][0]}</span><span class="small muted">同步于 ${kb.synced} · 来源 ${kb.src}</span>`
+            :`<span class="small muted">${kb.pages} 个页面 · 更新于 ${kb.upd}</span>`}
+          <span class="chip">${ic('file-text',11)}${kb.pages} 页</span></div></div>
+      <div class="acts">
+        <div class="search">${ic('search',14)}<input class="input" placeholder="库内标题 / 全文搜索…" oninput="toast('演示环境:FULLTEXT 检索为静态展示')"></div>
+        ${isImport
+          ? `<button class="btn" onclick="toast('同步任务已入队 · 按原 source_config 重新拉取,事务内整体替换快照;完成后站内信 + toast 通知')">${ic('refresh')}重新导入</button>`
+          : `<button class="btn btn-pri" onclick="toast('演示环境:新建页面(blank 树形目录 + Monaco 编辑 + 预览)')">${ic('plus')}新建页面</button>`}
+      </div>
+    </div>
+    <div class="card" style="overflow:hidden">
+      <div class="wiki">
+        <div class="wiki-tree tree">${WIKI_NODES.map(f=>`<div class="tnode${f.sel?' sel':''}" style="padding-left:${10 + f.d*16}px" onclick="wikiOpen(this)">
+          ${ic(f.i,13)}<span class="nm mono">${f.n}</span></div>`).join('')}
+        </div>
+        <div class="wiki-body mdc">${WIKI_CONTENT}</div>
+      </div>
+      <div class="card-foot">${isImport
+        ? `${ic('alert',13)} 导入型只读:编辑入口隐藏,API 写操作 403(前后端双重拦截);以仓库为准——同步后已删除源文件的页面一并移除;相对路径图片标注「资源未导入」。`
+        : `${ic('alert',13)} 空模板:owner / editor 可增删改、拖拽排序(Monaco 编辑 + 预览);内容存平台数据库;后保存覆盖前者。`}</div>
+    </div>
+  </div>`, `${crumbLink('#/projects','项目')} ${sep} ${crumbLink('#/p/'+p.id, p.name)} ${sep} ${crumbLink('#/p/'+p.id, '知识库')} ${sep} ${crumbLink('', kb.name)}`, 'projects');
+}
+function wikiOpen(el){ document.querySelectorAll('.wiki-tree .tnode').forEach(n=>n.classList.toggle('sel', n===el)); toast('演示环境:仅「stack-rules.md」页有示例内容'); }
 /* ================= 路由 ================= */
 function render(){
   TERM_GEN++;
   const h = location.hash.replace(/^#\/?/, '');
   const seg = h.split('/').filter(Boolean);
-  const [p0, p1] = seg;
-  let html;
-  if(!p0 || p0==='projects') html = pageProjects();
-  else if(p0==='login') html = pageLogin();
-  else if(p0==='p' && p1) html = pageProject(p1, 'requirements');
-  else if(p0==='r' && p1) html = pageReq(p1);
-  else if(p0==='t' && p1) html = pageTask(p1);
-  else if(p0==='archive' && p1) html = pageArchive(p1);
-  else if(p0==='knowledge') html = pageKnowledge();
-  else if(p0==='runners') html = pageRunners();
-  else html = pageProjects();
+  const [p0, p1, p2, p3] = seg;
+  let html, act;
+  if(!p0){ html = pageDashboard(); act = 'dashboard'; }
+  else if(p0==='projects'){ html = pageProjects(); act = 'projects'; }
+  else if(p0==='login'){ html = pageLogin(); act = ''; }
+  else if(p0==='p' && p1 && p2==='kb' && p3){ html = pageKb(p1, p3); act = 'projects'; }
+  else if(p0==='p' && p1){ html = pageProject(p1, 'requirements'); act = 'projects'; }
+  else if(p0==='r' && p1){ html = pageReq(p1); act = 'projects'; }
+  else if(p0==='t' && p1){ html = pageTask(p1); act = 'projects'; }
+  else if(p0==='archive' && p1){ html = pageArchive(p1); act = 'projects'; }
+  else if(p0==='knowledge'){ html = pageKnowledge(); act = 'knowledge'; }
+  else if(p0==='runners'){ html = pageRunners(); act = 'runners'; }
+  else if(p0==='manage'){ html = pageManage(p1 || 'requirements'); act = 'manage/' + (p1 || 'requirements'); }
+  else if(p0==='admin' && p1==='users'){ html = pageAdminUsers(); act = 'admin/users'; }
+  else if(p0==='admin' && p1==='audit'){ html = pageAdminAudit(); act = 'admin/audit'; }
+  else { html = pageDashboard(); act = 'dashboard'; }
   document.getElementById('app').innerHTML = html;
   window.scrollTo(0,0);
 }

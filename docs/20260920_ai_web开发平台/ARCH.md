@@ -8,19 +8,21 @@
 
 ### 涉及的既有模块
 
-**无**——`/Users/luowen/codingplatform/` 当前为空目录,仅含 `docs/20260920_ai_web开发平台/PRD.md`。本需求是全新项目的地基,无历史代码/模块需要改动。
+**无业务代码(绿地)**——仓库 `E:\codelab\zhanqiNet\monorepo\newaicoding` 根仅有 `design.md`、`propmt.md` 与 `docs/`。无历史代码/模块需要改动。
 
 ### 可复用资产
 
-**无**——空项目,所有组件/工具/接口从零搭建。
+- `design.md`:**shadcn/ui (New York)** 视觉体系 tokens(zinc 色板 / 0.5rem 圆角 / Geist·Inter 字体 / Tailwind v4 @theme)——D8 前端选型的既有约束与设计基线
+- `propmt.md`:Landing Page 生成提示词模板(非架构输入)
 
 ### 冲突点
 
-**无**——无既有实现。
+- **D20(新增)与 PRD R15/R16、ARCH D6/D13/D14 冲突**:容器端口已映射宿主机随机端口并回报平台,"Runner 本地代理"层属冗余转发一跳,建议取消(待用户拍板,见 D20)
+- 无代码层冲突
 
 ### 底账
 
-**无**——`knowledge/` 目录不存在(预期,全新项目)。建议 rd-plan 完成后跑 `/rd-knowledge` 建账。
+**无**——`knowledge/` 目录不存在(预期,全新项目)。建议 rd-dev 首期落地后跑 `/rd-knowledge` 建账。
 
 ## 决策点清单
 
@@ -120,10 +122,9 @@
   - 任务调度(最少负载 + role 匹配)
   - 状态机(MySQL 行级锁)
   - WebSocket 网关(把终端/预览/文件 watcher 流量转发到 Runner)
-- **Runner 上的本地代理**:
-  - Runner 机器上跑一个本地反向代理(**Nginx**),把容器端口暴露给 Runner 的某个端口
-  - Runner 启动容器时分配随机宿主机端口(范围 20000-29999),配置 Nginx 转发到该端口
-  - 平台网关转发到 Runner 的 Nginx 端口,再到容器
+- **端口直连(D20 修订,原"本地代理"已取消)**:
+  - Runner 启动容器时分配随机宿主机端口(范围 20000-29999)**直接回报平台**
+  - 平台网关 upstream 直连 `http://{runner_host}:{mapped_port}` 到容器,无中间代理层
 - **影响的需求点**:R4、R8、R9、R10、R15、R16
 - **冲突点**:无
 - **状态**:✅ 已确认(用户明确要求 Runner 架构)
@@ -286,9 +287,9 @@
   | **A 专用 deploy Runner** | Runner 分 `worker`(跑任务容器,任务结束销毁)和 `deploy`(跑部署容器,长驻);部署任务只调度到 `role=deploy` 的 Runner | 部署容器固定在特定机器,IP/域名稳定;worker Runner 可动态增减 | 需要额外维护 deploy Runner |
   | B 任何 Runner 都可跑部署 | 部署 URL 指向 Runner IP:端口 | 简单 | Runner 动态增减时部署 URL 会变;Runner 掉线部署就挂 |
 - **推荐**:**方案 A(专用 deploy Runner)**——部署容器长驻(R7 deployed 后不销毁),需要**固定在特定 Runner 上**(IP 稳定,域名/端口可访问);deploy Runner 是"绑定公网 IP / 域名"的机器,跑部署任务的容器;worker Runner 只跑开发/测试任务(任务结束销毁)
-- **部署 URL 路由**:
-  - 部署任务 deployed 后,路由 upstream 指向 `http://{deploy_runner_public_ip}:{deploy_port}`
-  - deploy Runner 上的 Nginx 把 `deploy_port` 转发到容器的 8000 端口
+- **部署 URL 路由(D20 修订)**:
+  - 部署任务 deployed 后,路由/公网直接指向 `http://{deploy_runner_public_ip}:{deploy_port}`
+  - 部署容器启动时将容器 8000 端口**直接映射到宿主机 `{deploy_port}`**(10000-10099),无中间代理层
 - **影响的需求点**:R7、R8、R15、R16
 - **冲突点**:无
 - **状态**:✅ 已确认(用户确认)
@@ -326,19 +327,66 @@
 - **冲突点**:无
 - **状态**:✅ 已确认(用户确认)
 
-- **类别**:一致性并发(部署容器长驻,不能漂移)
+### D16:权限模型落地(R19 双层角色)
+- **类别**:安全权限(PRD R19 增量)
 - **候选方案**:
   | 方案 | 一句话 | 优点 | 缺点 |
   |---|---|---|---|
-  | **A 专用 deploy Runner** | Runner 分 `worker`(跑任务容器,任务结束销毁)和 `deploy`(跑部署容器,长驻);部署任务只调度到 `role=deploy` 的 Runner | 部署容器固定在特定机器,IP/域名稳定;worker Runner 可动态增减 | 需要额外维护 deploy Runner |
-  | B 任何 Runner 都可跑部署 | 部署 URL 指向 Runner IP:端口 | 简单 | Runner 动态增减时部署 URL 会变;Runner 掉线部署就挂 |
-- **推荐**:**方案 A(专用 deploy Runner)**——部署容器长驻(R7 deployed 后不销毁),需要**固定在特定 Runner 上**(IP 稳定,域名/端口可访问);deploy Runner 是"绑定公网 IP / 域名"的机器,跑部署任务的容器;worker Runner 只跑开发/测试任务(任务结束销毁)
-- **部署 URL 路由**:
-  - 部署任务 deployed 后,路由 upstream 指向 `http://{deploy_runner_public_ip}:{deploy_port}`
-  - deploy Runner 上的 Nginx 把 `deploy_port` 转发到容器的 8000 端口
-- **影响的需求点**:R7、R8、R15、R16
+  | **A 代码固化 + FastAPI 依赖项双层 Guard** | 平台级 `require_superadmin` 依赖;项目级 `require_project_role(level)` 依赖(**超管=虚拟 owner,R19**);所有项目资源查询统一经"成员项目集合"过滤(超管=全部);审计为声明式依赖 `audit(type)` | 与 R19"矩阵代码固化"一致;越权防护统一在依赖注入层;FastAPI Depends 天然组合 | 权限变更需发版(内部平台可接受) |
+  | B Casbin 策略引擎 | 动态权限策略 | 可热更 | 与 R19"不做权限点动态配置"相悖,过度设计 |
+- **推荐**:方案 A。前端配套:路由 meta 标注所需角色 + 菜单按角色渲染(R19/R22 导航),后端为唯一事实源
+- **影响的需求点**:R12、R19、R20、R22
 - **冲突点**:无
-- **状态**:✅ 已确认(用户确认)
+- **状态**:✅ 已确认(自动确认,依据:PRD R19 已定"矩阵代码固化")
+
+### D17:JWT 立即失效机制(R19 禁用即全失效)
+- **类别**:安全权限(认证会话)
+- **候选方案**:
+  | 方案 | 一句话 | 优点 | 缺点 |
+  |---|---|---|---|
+  | **A token_version 机制** | `users.token_version`;登录/禁用/改密时 +1,JWT payload 携带;鉴权依赖每请求点查 users(status + token_version),不匹配即 401 → **禁用即全失效**(Q16) | 严格立即失效;无额外存储;点查代价可忽略 | 每请求一次 DB 点查 |
+  | B 黑名单表 | 维护失效 token 名单 | 不查用户表 | 额外存储 + 清理任务 |
+  | C 仅靠过期 | 禁用等 access 自然过期 | 最简 | 违反 Q16 已确认决策 |
+- **推荐**:方案 A。access 2h + refresh 7d 双 token 均校验 token_version
+- **影响的需求点**:R1、R19
+- **冲突点**:无
+- **状态**:✅ 已确认(自动确认,依据:Q16 已确认"禁用即全失效")
+
+### D18:R20 项目知识库模型与导入
+- **类别**:数据模型 / 集成(PRD R20 增量)
+- **候选方案**:
+  | 方案 | 一句话 | 优点 | 缺点 |
+  |---|---|---|---|
+  | **A 双表 + 后台导入任务** | `knowledge_bases`(source_type=blank/repo_import + source_config)+ `knowledge_docs`(树形 path);导入/同步为后台任务(D7 asyncio 队列),经 python-gitlab(D4)**bot token** 拉取目录树 .md 生成快照 | 与 R20 已定行为一一对应;导入型只读由后端 guard 强制(source_type 判定) | 无 |
+  | B 实时读取不落库 | 查看时实时调 GitLab API | 永远一致 | 不可离线;与 R20"快照+手动同步"已确认决策相悖 |
+- **推荐**:方案 A。搜索 V1 用 MySQL FULLTEXT(与 D2 关键调整一致,向量检索 V2)
+- **影响的需求点**:R20
+- **冲突点**:无
+- **状态**:✅ 已确认(自动确认,依据:R20 Q19/Q20 已确认)
+
+### D19:R21/R22 聚合视图与导航
+- **类别**:数据模型 / 前端架构(PRD R21/R22 增量)
+- **候选方案**:
+  | 方案 | 一句话 | 优点 | 缺点 |
+  |---|---|---|---|
+  | **A 无新表聚合查询 + 前端路由增量** | 四维聚合接口走 SQL IN(成员项目)+ created_by 过滤(R21 口径),无新表;前端新增路由"工作台"与"项目管理"分组(四维子路由),复用既有创建接口做快速创建(project_id 入参 + 前置校验复用) | 零冗余存储;快速创建与项目内入口同源校验 | 聚合查询跨项目 IN 列表(单用户 ≤50 项目,量级可控) |
+  | B 读扩散冗余表(用户维度汇总表) | 维护"我的"汇总表 | 查询快 | 数据冗余+一致性维护,V1 过度 |
+- **推荐**:方案 A
+- **影响的需求点**:R21、R22
+- **冲突点**:无
+- **状态**:✅ 已确认(自动确认,依据:R21/R22 Q21–Q24 已确认)
+
+### D20:网关链路简化——取消 Runner 本地代理层 ⚠️
+- **类别**:集成 / 性能(**与 PRD R15/R16、ARCH D6/D13/D14 冲突**)
+- **候选方案**:
+  | 方案 | 一句话 | 优点 | 缺点 |
+  |---|---|---|---|
+  | **A 取消本地代理,网关直连** | 预览 upstream = `http://{runner_host}:{mapped_port}`(Runner 已回报映射);部署容器直接映射宿主机 `{deploy_port}`(10000-10099),公网直连 `http://{deploy_runner_public_ip}:{deploy_port}` | 少一个组件与配置生成/reload;链路短一跳;故障点少 | 失去代理层统一入口(V2 TLS/限流需另做) |
+  | B 维持本地代理(现状) | Runner 上 Nginx 转发到容器端口 | 入口统一,未来可在该层加 TLS | 端口已映射宿主机,代理层为纯转发冗余;每 Runner 多维护一套 Nginx |
+- **推荐**:方案 A。理由:V1 HTTP only 无 TLS 需求;V2 上 HTTPS 在平台网关前置 Caddy/Nginx 终结即可,无需 Runner 层代理
+- **影响的需求点**:R7、R8、R10、R15、R16(采纳则回写 PRD)
+- **冲突点**:**与 PRD R15/R16 原文冲突**,需用户拍板
+- **状态**:✅ 已确认(用户拍板:取消本地代理,采纳方案 A)
 
 ### D11:Web 终端实现方案(Runner 架构下)
 
@@ -388,6 +436,8 @@
 - **冲突点**:无
 - **状态**:✅ 已确认(用户确认;Runner 架构下关键实现要点已补充)
 
+## 数据模型概要
+
 (表级:新表清单 + 用途 + 关键关系;字段级定义归 rd-plan)
 
 | 表 | 类型 | 用途 | 关键关系 |
@@ -407,6 +457,8 @@
 | **knowledge_entries** | 新增 | 知识条目表(R14) | N:1 projects(可空=平台级), N:1 requirements(来源) |
 | **usage_records** | 新增 | 用量记录表(R14) | N:1 users, N:1 projects, N:1 model_configs, N:1 tasks(可空) |
 | **audit_logs** | 新增 | 审计日志表 | N:1 users, N:1 projects(可空) |
+| **knowledge_bases** | 新增 | 项目知识库(R20,source_type=blank/repo_import) | N:1 projects, 1:N knowledge_docs |
+| **knowledge_docs** | 新增 | 知识库页面(R20,树形 path,导入型只读) | N:1 knowledge_bases |
 | **invitations** | 新增 | 邀请表(R1/R12) | N:1 users(被邀请人,可空=未注册), N:1 projects(可空=平台级), N:1 users(invited_by) |
 | **platform_settings** | 新增 | 平台设置表(单例,R2 GitLab 配置) | - |
 | **skills** | 新增 | Skills 表(R17) | 1:N project_skills |
@@ -421,6 +473,9 @@
 - **skills** 表存 Skills(scope=platform/project);**project_skills** 是项目与 Skills 的关联表(项目安装了哪些 Skills)
 - **projects.mcp_config_encrypted** 存项目级 MCP server 配置(JSON),AES-256-GCM 加密
 - **audit_logs** 记录所有敏感操作(登录/项目增删/成员变更/部署/模型配置变更/驳回/强制 push),保留 1 年
+- **users.role**(superadmin/user,R19/D16)与 **users.token_version**(D17 禁用即全失效);超管在项目 guard 中视为虚拟 owner,不做成员关系冗余
+- **knowledge_bases.source_type** 决定读写权限:repo_import 只读 + 手动同步(R20/D18);`knowledge_docs.source_file_path` 记录导入来源
+- **usage_records** 仅做 token 用量统计(R4 total_tokens 汇总),不涉及计费(PRD 范围外)
 
 ## 接口概要
 
@@ -434,7 +489,7 @@
 | /api/auth/login | POST | 登录(账号+密码,返回 JWT) | 新建 |
 | /api/auth/refresh | POST | 刷新 access token | 新建 |
 | /api/auth/logout | POST | 登出 | 新建 |
-| /api/auth/forgot-password | POST | 找回密码(发邮件) | 新建 |
+| /api/auth/forgot-password | POST | **V1 不建**:PRD R1 定为 V2 短信找回,V1 降级"联系管理员" | 不建 |
 | /api/auth/reset-password | POST | 重置密码(用邮件 token) | 新建 |
 | /api/users/me | GET/PATCH | 获取/更新个人信息 | 新建 |
 | /api/users/me/gitlab-token | PUT/DELETE | 绑定/解绑 GitLab token | 新建 |
@@ -446,6 +501,8 @@
 |---|---|---|---|
 | /api/admin/platform-settings | GET/PUT | 查看/更新平台设置(GitLab 实例/bot token) | 新建 |
 | /api/admin/users | GET | 用户列表(超管) | 新建 |
+| /api/admin/users/{id}/status | PATCH | 禁用/启用用户(D17 禁用即全失效,最后一个超管保护) | 新建 |
+| /api/admin/invitations | GET/POST | 平台注册邀请管理(Q5 超管邀请) | 新建 |
 | /api/admin/usage | GET | 全平台用量统计 | 新建 |
 | /api/admin/audit-logs | GET | 审计日志查询 | 新建 |
 
@@ -517,6 +574,29 @@
 | /api/knowledge/{id}/publish | POST | 发布知识条目(draft → published) | 新建 |
 | /api/knowledge/{id}/promote | POST | 提升到平台级(owner) | 新建 |
 
+### 项目知识库空间(R20,D18;与上方"知识条目"并存,命名隔离)
+
+| 接口 | 方法 | 用途 | 新建/复用/变更 |
+|---|---|---|---|
+| /api/projects/{pid}/knowledge-bases | GET/POST | 知识库列表/创建(blank 或带 source_config) | 新建 |
+| /api/projects/{pid}/knowledge-bases/{id} | GET/PATCH/DELETE | 详情(树)/改名/删除 | 新建 |
+| /api/projects/{pid}/knowledge-bases/{id}/import | POST | 目录导入(后台任务) | 新建 |
+| /api/projects/{pid}/knowledge-bases/{id}/sync | POST | 重新导入(手动同步) | 新建 |
+| /api/knowledge-bases/{id}/docs | GET/POST | 页面树/新建页面(blank) | 新建 |
+| /api/knowledge-bases/{id}/docs/{doc_id} | GET/PUT/DELETE | 页面读/改/删(blank;repo_import 写操作 403) | 新建 |
+| /api/knowledge-bases/{id}/search | GET | 库内标题+全文搜索 | 新建 |
+
+### 全局工作台与四维管理(R21/R22,D19)
+
+| 接口 | 方法 | 用途 | 新建/复用/变更 |
+|---|---|---|---|
+| /api/dashboard/summary | GET | R21:四类卡片统计(created_by=me)+ 每类最近 5 条 | 新建 |
+| /api/manage/requirements | GET | R22 聚合列表(成员项目过滤 + 项目/状态/关键字筛选 + 分页) | 新建 |
+| /api/manage/tasks | GET | R22 聚合列表(全部任务类型) | 新建 |
+| /api/manage/tests | GET | R22 聚合列表(type=test) | 新建 |
+| /api/manage/releases | GET | R22 聚合列表(type=release) | 新建 |
+| (快速创建) | POST | 复用既有 /api/projects/{pid}/requirements、/api/requirements/{rid}/tasks,project_id 由表单选定;前置校验与项目内一致 | 复用 |
+
 ### MCP server 与 Skills
 
 | 接口 | 方法 | 用途 | 新建/复用/变更 |
@@ -572,3 +652,6 @@
 | 2026-09-21 | **D6 重写**(单机 Docker → Runner 架构);**新增 D12 文件上传与 @ 引用**(平台中转 + 混合注入策略);**新增 D13 Runner 通信协议**(WebSocket + 注册/心跳/指令);**新增 D14 部署 Runner 专用化**(role=deploy);新增表 `task_uploaded_files`/`task_messages`/`runners`;新增接口 `/api/tasks/{id}/files/upload` 等 3 个 + `/api/admin/runners/*` 4 个 + `/ws/runner` | 用户补充:文件上传 + Runner 架构 |
 | 2026-09-21 | **D11 补充 Runner 架构下的终端实现要点**:xterm.js 本地回显(用户无感延迟)、pty 会话复用(session_id attach)、Runner 本地缓冲 + 批量推送(50ms/8KB)、pty 生命周期跟着容器走、AI 输出与用户输入双通道分离、Runner offline 优雅降级、业界验证(GitHub Codespaces/Gitpod/CodeSandbox 都是这个模式) | 用户问"Runner 模式下终端效果能否保证",补充关键实现要点 |
 | 2026-09-21 | **新增 R17(PR D)+ D15(ARCH)**:MCP server 与 Skills 管理;**混合策略**(镜像预装 + 项目级配置注入 + Skills 市场);新增表 `skills`/`project_skills`;新增接口 `/api/projects/{pid}/mcp-config` + `/api/skills/*` + `/api/projects/{pid}/skills/*` 等 8 个;**MCP server 分类**(无状态镜像预装 / 项目特定注入 / 有状态远程化 V2);**Skills 分类**(平台级市场 / 项目级上传);敏感信息 AES-256-GCM 加密 + 接口打码 | 用户补充:MCP server + Skills 管理 |
+| 2026-09-21 | **PRD 增量对齐(R19–R22)**:新增 D16 权限模型(双层 Guard,超管=虚拟 owner)、D17 token_version 立即失效、D18 知识库双表+后台导入、D19 聚合视图无新表;新增表 `knowledge_bases`/`knowledge_docs`;新增接口 `/api/admin/users/{id}/status`、`/api/admin/invitations`、`/api/dashboard/summary`、`/api/manage/*` 4 个、`/api/*/knowledge-bases/*` 7 个;修正 forgot-password 为 V1 不建(对齐 PRD R1);清理重复粘贴的 D14 块;现状地图更新为本仓库路径 + design.md(shadcn tokens)资产;**D20 网关链路简化(取消 Runner 本地代理)待人工确认** | PRD 增量:权限体系/项目知识库/Dashboard/四维管理菜单 |
+| 2026-09-21 | **D20 用户拍板:取消 Runner 本地代理**(方案 A);D6/D14 同步修订:预览 upstream 直连 `runner_host:mapped_port`,部署容器直接映射宿主机 `deploy_port`;PRD R15/R16 已同步回写;ARCH 全部决策点(D1–D20)已确认 | 人工核对确认 |
+| 2026-09-21 | PRD 增量 Q26(文档目录规范)/Q27(文件树变更视图)架构快筛:**9 类全绿,无新增系统级决策**——slug 生成与目录命名规则、变更清单聚合接口细节归 rd-plan(按 D6 exec 通道实现);ARCH 维持已确认 | 例行增量复核 |
