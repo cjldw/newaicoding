@@ -71,6 +71,40 @@ async def set_route_status(db: AsyncSession, host: str, status: str) -> None:
         logger.info("路由状态变更 host=%s → %s", host, status)
 
 
+async def register_deploy_route(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    task_id: str,
+    container_id: str,
+    runner_id: str,
+    deploy_host: str,
+    deploy_port: int,
+    upstream: str,
+) -> Route:
+    """
+    R7/R15:部署路由注册(deploy_host 默认 {slug}.{deploy_base_domain},可自定义 Q29)。
+    deploy_host 全平台唯一(HOST UNIQUE 硬约束;冲突 → 15001);部署路由公开不鉴权。
+    """
+    from app.core.response import BizError, ErrCode
+
+    host = f"{deploy_host}:{deploy_port}"
+    dup = await db.execute(select(Route.id).where(Route.host == host).limit(1))
+    if dup.scalar_one_or_none() is not None:
+        raise BizError(ErrCode.DEPLOY_HOST_CONFLICT, "部署域名冲突:该 deploy_host 已被占用")
+    return await upsert_route(
+        db,
+        host=host,
+        upstream=upstream,
+        type="deploy",
+        task_id=task_id,
+        project_id=project_id,
+        port=deploy_port,
+        auth_required=False,
+        status="active",
+    )
+
+
 async def remove_routes_for_container(db: AsyncSession, container_id: str) -> int:
     """容器销毁:摘除该容器的全部预览路由(URL 失效)"""
     from app.models.container import Container

@@ -76,6 +76,9 @@ class ErrCode:
     TERMINAL_UNAVAILABLE = 9001    # 终端不可用(Runner 离线/容器非 running)
     TERMINAL_NOT_FOUND = 9002      # 会话不存在或无权访问
 
+    # R15 网关
+    DEPLOY_HOST_CONFLICT = 15001   # deploy_host 全平台唯一,冲突拒绝
+
     # R16 Runner
     RUNNER_HAS_CONTAINERS = 16001  # Runner 上有运行中容器,不可删除
 

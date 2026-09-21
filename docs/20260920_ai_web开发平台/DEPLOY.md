@@ -356,3 +356,15 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **容器镜像变更**:docker/devbox/Dockerfile 追加 `inotify-tools`(R11 文件 watcher 依赖;未装则 watcher 静默降级,前端手动刷新兜底)——需重新构建 `platform/devbox:v1`
 - **影响范围**:R11 文件 API 8 个(项目模式只读 GitLab 浏览/任务模式容器文件 CRUD/Diff/变更清单 Q27/watcher WS 频道);Runner 新增 file_manager 消息处理(file_list/read_file/write_file/file_op/git_diff/git_changes,req_id 请求-响应协议)
 - **回滚方案**:无 DB 回滚;镜像回退旧 tag(watcher 降级不影响主流程)
+
+## 2026-09-22 R15 平台网关与域名
+
+- **类型**:新组件(网关;routes 表已随 R10 建表,无新迁移)
+- **新组件**:仓库 `gateway/` 目录(自研 Python 反向代理:`backend/app/core/gateway.py` 核心 + `gateway/main.py` 独立进程入口)
+- **影响范围**:预览/部署域名流量入口;preview 鉴权(JWT+项目成员)/deploy 公开;WebSocket 透传(HMR/TTY);单 host QPS 限流(默认 100);404/403/502 异常页(带项目名与日志链接)
+- **上线动作**:
+  1. 网关进程部署:`GATEWAY_PORT=80 python3 gateway/main.py`(依赖 backend app 代码与 DATABASE_URL,实时查 routes 表)
+  2. DNS:泛域名 `*.{preview_base_domain}` 与 `*.{deploy_base_domain}` A 记录指向网关
+  3. 平台设置确认 `preview_base_domain` / `deploy_base_domain`(变更仅影响后续注册路由)
+- **决策留痕**:V1 自研 Python 网关替代 Nginx/Traefik(动态路由直查 routes 表即时生效,无需 reload);HTTPS/CDN/WAF 范围外
+- **回滚方案**:停网关进程回退代码;无 DB 变更
