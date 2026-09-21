@@ -70,6 +70,7 @@ from app.api.admin.runners import router as admin_runners_router
 from app.api.terminal import router as terminal_router
 from app.api.previews import router as previews_router
 from app.api.files import router as files_router
+from app.api.requirements import router as requirements_router
 
 # 配置日志
 logging.basicConfig(
@@ -167,6 +168,7 @@ app.include_router(admin_runners_router)
 app.include_router(terminal_router)
 app.include_router(previews_router)
 app.include_router(files_router)
+app.include_router(requirements_router)
 
 
 # -------------------------------------------------------------------

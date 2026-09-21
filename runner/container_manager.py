@@ -304,6 +304,31 @@ class ContainerManager:
             files.append(entry)
         return files
 
+    def commit_push(self, container_id: str, repo_path: str, add_path: str,
+                    message: str, branch: str, token: str) -> None:
+        """
+        R3 评审通过:容器内 git add/commit/push(评审人个人 token 注入 remote URL;
+        push 后恢复原始 remote,不留 token 痕迹)。失败抛错。
+        """
+        code, out = self.exec_capture(container_id, "git remote get-url origin", workdir=repo_path)
+        origin = out.decode(errors="ignore").strip()
+        if code == 0 and origin.startswith("http"):
+            auth_url = origin.replace("https://", f"https://oauth2:{token}@", 1)
+            self.exec_capture(container_id, f"git remote set-url origin {auth_url}", workdir=repo_path)
+
+        code, out = self.exec_capture(
+            container_id, f"git add {add_path} && git commit -m '{message}' || echo 'nothing to commit'",
+            workdir=repo_path,
+        )
+        code, out = self.exec_capture(container_id, f"git push origin {branch}", workdir=repo_path)
+
+        if auth_url:
+            self.exec_capture(container_id, f"git remote set-url origin {origin}", workdir=repo_path)
+
+        if code != 0:
+            raise RuntimeError(f"PRD push 失败({code}): {out.decode(errors='ignore')[:300]}")
+        logger.info("PRD 已 commit+push repo=%s branch=%s", repo_path, branch)
+
     def iter_events(self) -> Any:
         """阻塞迭代 Docker events(只关注容器 start/die/oom)"""
         for event in self.client.events(decode=True):

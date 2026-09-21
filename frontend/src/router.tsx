@@ -27,6 +27,8 @@ import { ProjectDetail } from '@/pages/projects/ProjectDetail'
 import { PlatformSettings } from '@/pages/admin/PlatformSettings'
 import { SkillsMarket } from '@/pages/admin/SkillsMarket'
 import { RunnerManagement } from '@/pages/admin/RunnerManagement'
+import { RequirementList } from '@/pages/requirements/RequirementList'
+import { RequirementDetail } from '@/pages/requirements/RequirementDetail'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -50,6 +52,8 @@ export const router = createBrowserRouter([
       { path: 'projects', element: <ProjectList /> },
       { path: 'projects/create', element: <ProjectCreate /> },
       { path: 'projects/:projectId', element: <ProjectDetail /> },
+      { path: 'projects/:projectId/requirements', element: <RequirementList /> },
+      { path: 'requirements/:reqId', element: <RequirementDetail /> },
     ],
   },
   { path: '/admin/platform-settings', element: <PlatformSettings /> },

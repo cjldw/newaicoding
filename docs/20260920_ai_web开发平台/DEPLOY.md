@@ -368,3 +368,40 @@ CREATE TABLE IF NOT EXISTS `users` (
   3. 平台设置确认 `preview_base_domain` / `deploy_base_domain`(变更仅影响后续注册路由)
 - **决策留痕**:V1 自研 Python 网关替代 Nginx/Traefik(动态路由直查 routes 表即时生效,无需 reload);HTTPS/CDN/WAF 范围外
 - **回滚方案**:停网关进程回退代码;无 DB 变更
+
+## 2026-09-22 R3 需求管理与打磨
+
+- **类型**:数据库(alembic revision `d9b4f8e2a6c1`,down_revision `c8e2a6d9f1b4`)
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `requirements` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `req_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `project_id` CHAR(36) NOT NULL COMMENT '项目 id',
+    `title` VARCHAR(128) NOT NULL COMMENT '标题',
+    `background` TEXT NULL COMMENT '背景(Markdown)',
+    `description` TEXT NOT NULL COMMENT '描述(Markdown)',
+    `acceptance_criteria` TEXT NULL COMMENT '验收标准(Markdown)',
+    `req_branch` VARCHAR(64) NOT NULL COMMENT '需求分支名',
+    `prd_file_path` VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'PRD repo 内路径(Q26 规则生成)',
+    `status` ENUM('draft','polishing','reviewing','approved','in_progress','done','archived','rejected') NOT NULL DEFAULT 'draft' COMMENT '状态',
+    `priority` ENUM('low','medium','high') NOT NULL DEFAULT 'medium' COMMENT '优先级',
+    `created_by` CHAR(36) NOT NULL COMMENT '创建者 user_id',
+    `reviewed_by` CHAR(36) NULL COMMENT '评审人 user_id',
+    `reviewed_at` DATETIME NULL COMMENT '评审时间',
+    `reject_reason` TEXT NULL COMMENT '驳回理由',
+    `polish_task_id` CHAR(36) NULL COMMENT '当前打磨任务 id',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_requirements_req_id` (`req_id`),
+    KEY `ix_requirements_project_id` (`project_id`),
+    KEY `ix_requirements_req_branch` (`req_branch`),
+    KEY `ix_requirements_status` (`status`),
+    KEY `ix_requirements_created_by` (`created_by`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='需求表';
+  ```
+
+- **影响范围**:R3 需求全链路(状态机 draft→polishing→reviewing→approved;打磨容器经 R8 拉起;PRD 路径 Q26 规则)
+- **回滚方案**:`DROP TABLE requirements;`

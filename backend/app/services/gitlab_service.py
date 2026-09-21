@@ -369,6 +369,32 @@ async def bot_test_connection(bot_token: str, gitlab_url: str) -> dict:
 # ---------------------------------------------------------------------------
 # R11 项目模式:仓库浏览(GitLab API,bot token;只读)
 # ---------------------------------------------------------------------------
+async def bot_create_branch(bot_token: str, gitlab_url: str, repo_id: int, branch: str, ref: str) -> dict:
+    """
+    建分支(R3 创建需求):POST /api/v4/projects/{id}/repository/branches
+    body {branch, ref};分支已存在(400)视为成功幂等;其他错误抛 2002。
+    """
+    client = _get_client()
+    try:
+        resp = await client.post(
+            f"{gitlab_url.rstrip('/')}/api/v4/projects/{repo_id}/repository/branches",
+            headers=_bot_headers(bot_token),
+            json={"branch": branch, "ref": ref},
+        )
+        if resp.status_code in (200, 201):
+            return resp.json()
+        if resp.status_code == 400 and "already exists" in resp.text:
+            logger.info("GitLab 分支已存在(幂等) repo=%s branch=%s", repo_id, branch)
+            return {}
+        logger.warning("GitLab 建分支失败 repo=%s %s: %s", repo_id, resp.status_code, resp.text[:200])
+        raise BizError(ErrCode.REPO_URL_INVALID, "需求分支创建失败")
+    except httpx.HTTPError as e:
+        logger.warning("GitLab 建分支连接失败: %s", e)
+        raise BizError(ErrCode.REPO_URL_INVALID, "GitLab 服务连接失败")
+    finally:
+        await client.aclose()
+
+
 async def bot_get_tree(bot_token: str, gitlab_url: str, repo_id: int,
                        ref: str, path: str) -> list:
     """

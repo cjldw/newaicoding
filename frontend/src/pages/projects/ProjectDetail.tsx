@@ -19,6 +19,7 @@ import { MemberManagement } from './MemberManagement'
 import { ModelConfigManagement } from './ModelConfigManagement'
 import { McpConfigManagement } from './McpConfigManagement'
 import { SkillsManagement } from './SkillsManagement'
+import { RequirementList } from '../requirements/RequirementList'
 
 const statusMap: Record<string, { label: string; variant: 'success' | 'default' | 'error' }> = {
   active: { label: '活跃', variant: 'success' },
@@ -27,7 +28,7 @@ const statusMap: Record<string, { label: string; variant: 'success' | 'default' 
 }
 
 const tabs = [
-  { key: 'requirements', label: '需求', disabled: true },
+  { key: 'requirements', label: '需求', disabled: false },
   { key: 'tasks', label: '任务', disabled: true },
   { key: 'repos', label: '仓库', disabled: false },
   { key: 'members', label: '成员', disabled: false },
@@ -133,6 +134,7 @@ export function ProjectDetail() {
       </div>
 
       {/* Tab 内容 */}
+      {activeTab === 'requirements' && <RequirementList />}
       {activeTab === 'repos' && <RepoManagement projectId={project.project_id} />}
       {activeTab === 'members' && <MemberManagement projectId={project.project_id} />}
       {activeTab === 'settings' && (
@@ -163,7 +165,7 @@ export function ProjectDetail() {
           {settingsTab === 'model' && <ModelConfigManagement projectId={project.project_id} />}
         </div>
       )}
-      {activeTab !== 'repos' && activeTab !== 'members' && activeTab !== 'settings' && (
+      {activeTab !== 'requirements' && activeTab !== 'repos' && activeTab !== 'members' && activeTab !== 'settings' && (
         <div className="text-center py-12 text-text-muted">
           该功能暂未开放
         </div>

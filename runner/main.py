@@ -217,6 +217,17 @@ async def handle_message(ws: Any, msg: dict) -> None:
         except Exception as e:
             await send_result(ws, req_id, False, error=str(e))
 
+    elif mtype == "git_commit":
+        # R3 评审通过:PRD commit + push(评审人个人 token)
+        try:
+            manager.commit_push(
+                msg.get("container_id", ""), msg.get("repo_path", "/workspace/main"),
+                msg.get("add_path", ""), msg.get("message", ""),
+                msg.get("branch", ""), msg.get("token", ""),
+            )
+        except Exception as e:
+            logger.warning("PRD commit/push 失败: %s", e)
+
     else:
         logger.warning("未知指令 type=%s", mtype)
 

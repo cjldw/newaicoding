@@ -76,6 +76,10 @@ class ErrCode:
     TERMINAL_UNAVAILABLE = 9001    # 终端不可用(Runner 离线/容器非 running)
     TERMINAL_NOT_FOUND = 9002      # 会话不存在或无权访问
 
+    # R3 需求
+    POLISH_ALREADY_RUNNING = 3001  # 已有打磨任务进行中
+    NOT_IN_POLISHING = 3002        # 需求状态不是 polishing
+
     # R15 网关
     DEPLOY_HOST_CONFLICT = 15001   # deploy_host 全平台唯一,冲突拒绝
 
