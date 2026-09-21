@@ -16,7 +16,7 @@ import { useAuthStore } from '@/stores/authStore'
 // ---- Types ----
 export type TaskType = 'requirement' | 'dev' | 'test' | 'release'
 export type TaskStatus =
-  | 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'timeout'
+  | 'pending' | 'running' | 'done' | 'failed' | 'cancelled' | 'timeout' | 'cases_review'
 
 export interface TaskUser {
   user_id: string

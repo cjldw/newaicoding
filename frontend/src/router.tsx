@@ -30,6 +30,8 @@ import { RunnerManagement } from '@/pages/admin/RunnerManagement'
 import { RequirementList } from '@/pages/requirements/RequirementList'
 import { RequirementDetail } from '@/pages/requirements/RequirementDetail'
 import TaskDetail from '@/pages/tasks/TaskDetail'
+import TestCasesReview from '@/pages/tasks/TestCasesReview'
+import TestReport from '@/pages/tasks/TestReport'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -56,6 +58,8 @@ export const router = createBrowserRouter([
       { path: 'projects/:projectId/requirements', element: <RequirementList /> },
       { path: 'requirements/:reqId', element: <RequirementDetail /> },
       { path: 'tasks/:taskId', element: <TaskDetail /> },
+      { path: 'tasks/:taskId/cases', element: <TestCasesReview /> },
+      { path: 'tasks/:taskId/report', element: <TestReport /> },
     ],
   },
   { path: '/admin/platform-settings', element: <PlatformSettings /> },

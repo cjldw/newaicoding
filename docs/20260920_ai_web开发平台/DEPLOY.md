@@ -496,3 +496,18 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **类型**:纯代码(无 DB/配置变更——复用 R4 tasks 表,fix_context 存 extended_attributes JSON)
 - **影响范围**:POST /api/tasks/{test_task_id}/reject-to-dev(测试驳回回开发);send_message 首条消息自动注入【修复上下文】
 - **回滚方案**:随代码回滚
+
+## 2026-09-22 R6 测试任务(type=test)
+
+- **类型**:数据库迁移(alembic revision `f2a7c9e4b8d1`,down_revision `e1f6b3a8d5c2`;tasks.status 枚举扩展)
+- **数据库**:
+
+  ```sql
+  ALTER TABLE `tasks` MODIFY COLUMN `status`
+    ENUM('pending','running','cases_review','passed','done','failed','cancelled','timeout')
+    NOT NULL DEFAULT 'pending' COMMENT '状态(R6 扩展 cases_review/passed)';
+  ```
+
+- **影响范围**:R6 测试任务全链路(创建前置 dev-done/确认用例/接受失败豁免/驳回回开发回环);新状态 cases_review(用例审阅)与 passed(通过,含豁免标记入 extended_attributes)
+- **开发库同步说明**:开发库表结构历史由 create_all 维护,本次以 `alembic stamp head` 对齐版本号(f2a7c9e4b8d1)并手工执行等价 ALTER;上线库走标准 alembic upgrade
+- **回滚方案**:先 `UPDATE tasks SET status='pending' WHERE status='cases_review'; UPDATE tasks SET status='done' WHERE status='passed';` 再执行 downgrade ALTER

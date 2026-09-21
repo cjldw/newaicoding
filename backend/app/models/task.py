@@ -38,12 +38,14 @@ class Task(Base):
     base_branch = Column(String(64), nullable=False, comment="基础分支")
     work_branch = Column(String(64), nullable=False, comment="工作分支(默认=基础分支)")
     status = Column(
-        Enum("pending", "running", "done", "failed", "cancelled", "timeout", name="task_status_enum"),
+        # R6 扩展:cases_review(用例审阅)/ passed(测试通过,含豁免)
+        Enum("pending", "running", "cases_review", "passed", "done", "failed", "cancelled", "timeout",
+             name="task_status_enum"),
         nullable=False,
         default="pending",
         server_default="pending",
         index=True,
-        comment="状态",
+        comment="状态(R6 扩展 cases_review/passed)",
     )
     container_id = Column(String(64), nullable=True, index=True, comment="任务运行时的 docker id")
     runner_id = Column(CHAR(36), nullable=True, index=True, comment="任务运行的 Runner id")

@@ -74,11 +74,20 @@ async def create_task(
     )).scalars().first()
     await project_member_service.require_project_role(db, project, current_user, "editor")
 
-    task = await task_service.create_task(
-        db, requirement, project, current_user,
-        type=req.type, title=req.title, description=req.description,
-        base_branch=req.base_branch, work_branch=req.work_branch,
-    )
+    # test 类型走专用创建(dev-done 前置 + test 仓库清单 + 报告路径;R6)
+    hint = None
+    if req.type == "test":
+        task, hint = await task_service.create_test_task(
+            db, requirement, project, current_user,
+            title=req.title, description=req.description,
+            based_on_dev_tasks=[],
+        )
+    else:
+        task = await task_service.create_task(
+            db, requirement, project, current_user,
+            type=req.type, title=req.title, description=req.description,
+            base_branch=req.base_branch, work_branch=req.work_branch,
+        )
     # 创建即尝试拉起(无可用 Runner → 保持 pending 排队,8003 由前端轮询提示)
     from app.core.response import BizError as _BizError
 
@@ -89,7 +98,10 @@ async def create_task(
             raise
         logger.info("无可用 Runner,任务排队 task=%s", task.task_id)
 
-    return success(data={"task_id": task.task_id}, message="任务已创建")
+    return success(
+        data={"task_id": task.task_id, **({"hint": hint} if hint else {})},
+        message="任务已创建",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +216,53 @@ async def reject_to_dev(
         if e.code != 8003:
             raise
     return success(data={"task_id": task.task_id}, message="已创建修复任务")
+
+
+# ---------------------------------------------------------------------------
+# R6:测试任务(用例确认 / 接受失败)
+# ---------------------------------------------------------------------------
+class ConfirmCasesRequest(BaseModel):
+    test_cases: list[dict] = Field(min_length=1)
+
+
+class AcceptFailureRequest(BaseModel):
+    reason: str = Field(min_length=1)
+
+
+@router.post("/tasks/{task_id}/confirm-cases")
+async def confirm_cases(
+    task_id: str,
+    req: ConfirmCasesRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """确认用例(可增删改)→ 开始执行(cases_review/pending → running)"""
+    task = await task_service.get_task_or_404(db, task_id)
+    await project_member_service.require_project_role(
+        db, (await db.execute(
+            select(Project).where(Project.project_id == task.project_id)
+        )).scalars().first(), current_user, "editor",
+    )
+    await task_service.confirm_cases(db, task, current_user, req.test_cases)
+    return success(message="用例已确认,开始执行")
+
+
+@router.post("/tasks/{task_id}/accept-failure")
+async def accept_failure(
+    task_id: str,
+    req: AcceptFailureRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """接受失败(豁免):status=passed(带豁免标记)"""
+    task = await task_service.get_task_or_404(db, task_id)
+    await project_member_service.require_project_role(
+        db, (await db.execute(
+            select(Project).where(Project.project_id == task.project_id)
+        )).scalars().first(), current_user, "editor",
+    )
+    await task_service.accept_failure(db, task, current_user, req.reason)
+    return success(message="已接受失败,任务标记为通过")
 
 
 # ---------------------------------------------------------------------------

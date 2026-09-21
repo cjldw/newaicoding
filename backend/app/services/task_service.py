@@ -165,6 +165,13 @@ async def reject_to_dev(db: AsyncSession, test_task: Task, operator: User,
     )
     db.add(task)
     await db.flush()
+
+    # 回环:原测试任务记录驳回产生的 dev 任务 id(R6)
+    ext = dict(test_task.extended_attributes or {})
+    ext["rejected_to_dev_task_id"] = task.task_id
+    test_task.extended_attributes = ext  # 新 dict 对象,确保触发 UPDATE
+
+    await db.flush()
     logger.info("测试驳回回开发 test=%s → dev=%s by=%s", test_task.task_id, task.task_id, operator.user_id)
     return task
 
@@ -351,11 +358,12 @@ async def start_task(db: AsyncSession, task: Task, project: Project, requirement
         repos=repos,
     )
 
-    task.status = "running"
+    # R6:test 任务容器拉起后先进"用例审阅"(AI 生成用例 → 用户确认后才 running)
+    task.status = "cases_review" if task.type == "test" else "running"
     task.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.flush()
-    await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": "running"})
-    logger.info("任务容器已调度 task=%s", task.task_id)
+    await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": task.status})
+    logger.info("任务容器已调度 task=%s status=%s", task.task_id, task.status)
 
 
 # ---------------------------------------------------------------------------
@@ -522,3 +530,101 @@ async def sweep_timeouts(db: AsyncSession) -> int:
         await db.flush()
         logger.info("任务超时清理 %d 个", count)
     return count
+
+
+# ---------------------------------------------------------------------------
+# R6:测试任务(type=test)
+# ---------------------------------------------------------------------------
+def build_report_path(title: str, task_id: str, date: Optional[datetime] = None) -> str:
+    """Q26:docs/{YYYYMMDD}_{descSlug}_{taskShortId}/report.md(cases.json 同目录)"""
+    slug = re.sub(r"[^\w一-鿿-]+", "-", title.strip(), flags=re.UNICODE)
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")[:32] or "需求"
+    date = date or datetime.now()
+    return f"docs/{date.strftime('%Y%m%d')}_{slug}_{task_id[:8]}/report.md"
+
+
+async def create_test_task(
+    db: AsyncSession, requirement: Requirement, project: Project, operator: User,
+    title: str, description: str, based_on_dev_tasks: list[str],
+) -> tuple[Task, Optional[str]]:
+    """
+    创建测试任务:
+    - 前置:需求下至少一个 dev 任务 done(4001)
+    - test 仓库缺失允许创建(返回提示语,UI 提示"建议绑定独立测试仓库")
+    - 生成 report_file_path(Q26;cases.json 同目录)→ status=pending(创建即拉起走 start_task)
+    """
+    done_dev = (await db.execute(
+        select(func.count(Task.id)).where(
+            Task.req_id == requirement.req_id,
+            Task.type == "dev",
+            Task.status == "done",
+        )
+    )).scalar() or 0
+    if done_dev == 0:
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "需求状态不允许创建该类型任务")
+
+    from app.models.project import ProjectRepo
+
+    test_repos = (await db.execute(
+        select(ProjectRepo).where(
+            ProjectRepo.project_id == project.project_id, ProjectRepo.role == "test"
+        )
+    )).scalars().all()
+    test_repo_ids = [r.repo_id for r in test_repos]
+
+    # 先生成对外 id(Task 默认值在 flush 时才生效,report 路径需提前引用)
+    task_id = str(uuid.uuid4())
+    task = Task(
+        task_id=task_id,
+        req_id=requirement.req_id,
+        project_id=project.project_id,
+        type="test",
+        title=title,
+        description=description,
+        base_branch=requirement.req_branch,
+        work_branch=requirement.req_branch,
+        status="pending",
+        created_by=operator.user_id,
+        extended_attributes={
+            "based_on_dev_tasks": based_on_dev_tasks,
+            "test_cases": [],
+            "report_file_path": build_report_path(requirement.title, task_id),
+            "test_repo_ids": test_repo_ids,
+        },
+    )
+    db.add(task)
+    await db.flush()
+
+    hint = None if test_repo_ids else "建议绑定独立测试仓库"
+    logger.info("测试任务已创建 task=%s test_repos=%d hint=%s", task.task_id, len(test_repo_ids), hint)
+    return task, hint
+
+
+async def confirm_cases(db: AsyncSession, task: Task, operator: User, test_cases: list[dict]) -> None:
+    """用户确认用例(可增删改)→ cases_review → running(开始执行)"""
+    if task.status not in ("pending", "cases_review"):
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "当前状态不可确认用例")
+    ext = dict(task.extended_attributes or {})
+    ext["test_cases"] = test_cases
+    task.extended_attributes = ext  # 新 dict 对象,确保触发 UPDATE
+    task.status = "running"
+    if not task.started_at:
+        task.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    await db.flush()
+    await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": "running"})
+    logger.info("用例确认并开始执行 task=%s cases=%d", task.task_id, len(test_cases))
+
+
+async def accept_failure(db: AsyncSession, task: Task, operator: User, reason: str) -> None:
+    """接受失败(豁免):status=passed,豁免理由与标记入 extended_attributes"""
+    if task.type != "test":
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "仅测试任务可接受失败")
+    ext = dict(task.extended_attributes or {})
+    ext["exempt_failure"] = {"reason": reason, "by": operator.user_id,
+                             "at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()}
+    task.extended_attributes = ext  # 新 dict 对象,确保触发 UPDATE
+    task.status = "passed"
+    task.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    await db.flush()
+    await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": "passed"})
+    logger.info("测试失败豁免 task=%s by=%s", task.task_id, operator.user_id)

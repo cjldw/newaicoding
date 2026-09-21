@@ -4,8 +4,8 @@
  */
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { Square, RotateCcw, CheckCircle2 } from 'lucide-react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { Square, RotateCcw, CheckCircle2, ClipboardList, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import CodeEditor from '@/components/Editor'
@@ -31,6 +31,7 @@ const statusBadge: Record<string, { label: string; variant: 'default' | 'primary
   failed: { label: '失败', variant: 'error' },
   cancelled: { label: '已取消', variant: 'secondary' },
   timeout: { label: '超时', variant: 'error' },
+  cases_review: { label: '用例审阅', variant: 'primary' },
 }
 
 const typeBadge: Record<string, { label: string; variant: 'default' | 'primary' | 'success' | 'secondary' }> = {
@@ -44,6 +45,7 @@ type CenterView = 'editor' | 'diff' | 'preview'
 
 export default function TaskDetail() {
   const { taskId = '' } = useParams<{ taskId: string }>()
+  const nav = useNavigate()
   const { data: task } = useTaskDetail(taskId)
   const { data: previews } = useTaskPreviews(taskId)
   const stopTask = useStopTask(taskId)
@@ -122,6 +124,22 @@ export default function TaskDetail() {
               onClick={() => { refetchChanges(); setCenterView('diff') }}
             >
               <CheckCircle2 className="w-4 h-4 mr-1" /> 查看 Diff
+            </Button>
+          )}
+          {(task.status === 'cases_review' || task.type === 'test') && (
+            <Button
+              variant="outline" size="sm"
+              onClick={() => nav(`/tasks/${taskId}/cases`)}
+            >
+              <ClipboardList className="w-4 h-4 mr-1" /> 用例审阅
+            </Button>
+          )}
+          {(task.status === 'done' && task.type === 'test') && (
+            <Button
+              variant="outline" size="sm"
+              onClick={() => nav(`/tasks/${taskId}/report`)}
+            >
+              <FileText className="w-4 h-4 mr-1" /> 测试报告
             </Button>
           )}
         </div>
