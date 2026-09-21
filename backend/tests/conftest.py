@@ -64,6 +64,7 @@ async def engine():
     from app.models.project import Project, ProjectRepo, PlatformSetting  # noqa: F401 — R2 表注册
     from app.models.project_member import ProjectMember  # noqa: F401 — R12 表注册
     from app.models.model_config import ModelConfig  # noqa: F401 — R13 表注册
+    from app.models.skill import Skill, ProjectSkill  # noqa: F401 — R17 表注册
 
     # 确保表存在(create_all 是幂等的,已存在则跳过)
     async with app_engine.begin() as conn:
@@ -88,6 +89,7 @@ async def db_session(engine):
     from app.models.project import Project, ProjectRepo, PlatformSetting
     from app.models.project_member import ProjectMember
     from app.models.model_config import ModelConfig
+    from app.models.skill import Skill, ProjectSkill
     from app.database import async_session_factory
 
     # 使用 app 的 session factory 创建 session
@@ -96,6 +98,8 @@ async def db_session(engine):
         # truncate 全部业务表(测试隔离;platform_settings 必须清,否则
         # 前序测试写入的 bot token 会污染后续 2001 未配置场景)
         await session.execute(delete(PlatformSetting))
+        await session.execute(delete(ProjectSkill))
+        await session.execute(delete(Skill))
         await session.execute(delete(ModelConfig))
         await session.execute(delete(ProjectMember))
         await session.execute(delete(ProjectRepo))

@@ -62,6 +62,8 @@ from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.api.projects import router as projects_router
 from app.api.admin.platform_settings import router as platform_settings_router
+from app.api.skills import router as skills_router
+from app.api.admin.skills import router as admin_skills_router
 
 # 配置日志
 logging.basicConfig(
@@ -127,6 +129,8 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(projects_router)
 app.include_router(platform_settings_router)
+app.include_router(skills_router)
+app.include_router(admin_skills_router)
 
 
 # -------------------------------------------------------------------

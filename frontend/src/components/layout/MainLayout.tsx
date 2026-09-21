@@ -4,7 +4,7 @@
  */
 
 import { NavLink, Outlet } from 'react-router-dom'
-import { LayoutDashboard, FolderKanban, Settings } from 'lucide-react'
+import { LayoutDashboard, FolderKanban, Settings, Sparkles } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 
 const navItems = [
@@ -42,19 +42,34 @@ export function MainLayout() {
             </NavLink>
           ))}
           {isSuperadmin && (
-            <NavLink
-              to="/admin/platform-settings"
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                  isActive
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-text-muted hover:bg-surface-strong hover:text-text'
-                }`
-              }
-            >
-              <Settings className="w-4 h-4" />
-              平台设置
-            </NavLink>
+            <>
+              <NavLink
+                to="/admin/skills"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                    isActive
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-text-muted hover:bg-surface-strong hover:text-text'
+                  }`
+                }
+              >
+                <Sparkles className="w-4 h-4" />
+                Skills 市场
+              </NavLink>
+              <NavLink
+                to="/admin/platform-settings"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                    isActive
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-text-muted hover:bg-surface-strong hover:text-text'
+                  }`
+                }
+              >
+                <Settings className="w-4 h-4" />
+                平台设置
+              </NavLink>
+            </>
           )}
         </nav>
       </aside>

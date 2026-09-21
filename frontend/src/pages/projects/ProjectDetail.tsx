@@ -17,6 +17,8 @@ import { useProjectDetail, useDeleteProject, useArchiveProject } from '@/api/pro
 import { RepoManagement } from './RepoManagement'
 import { MemberManagement } from './MemberManagement'
 import { ModelConfigManagement } from './ModelConfigManagement'
+import { McpConfigManagement } from './McpConfigManagement'
+import { SkillsManagement } from './SkillsManagement'
 
 const statusMap: Record<string, { label: string; variant: 'success' | 'default' | 'error' }> = {
   active: { label: '活跃', variant: 'success' },
@@ -42,6 +44,7 @@ export function ProjectDetail() {
 
   const [actionMenu, setActionMenu] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<'delete' | 'archive' | null>(null)
+  const [settingsTab, setSettingsTab] = useState<'mcp' | 'skills' | 'model'>('mcp')
 
   const activeTab = searchParams.get('tab') ?? 'repos'
   const st = project ? (statusMap[project.status] ?? statusMap.active) : statusMap.active
@@ -132,7 +135,34 @@ export function ProjectDetail() {
       {/* Tab 内容 */}
       {activeTab === 'repos' && <RepoManagement projectId={project.project_id} />}
       {activeTab === 'members' && <MemberManagement projectId={project.project_id} />}
-      {activeTab === 'settings' && <ModelConfigManagement projectId={project.project_id} />}
+      {activeTab === 'settings' && (
+        <div className="space-y-4">
+          {/* 设置子导航 */}
+          <div className="flex gap-2 border-b border-border pb-2">
+            {([
+              { key: 'mcp' as const, label: 'MCP 配置' },
+              { key: 'skills' as const, label: 'Skills 管理' },
+              { key: 'model' as const, label: '模型配置' },
+            ]).map((sub) => (
+              <button
+                key={sub.key}
+                onClick={() => setSettingsTab(sub.key)}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  settingsTab === sub.key
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-text-muted hover:text-text hover:bg-surface-strong'
+                }`}
+              >
+                {sub.label}
+              </button>
+            ))}
+          </div>
+          {/* 子 Tab 内容 */}
+          {settingsTab === 'mcp' && <McpConfigManagement projectId={project.project_id} />}
+          {settingsTab === 'skills' && <SkillsManagement projectId={project.project_id} />}
+          {settingsTab === 'model' && <ModelConfigManagement projectId={project.project_id} />}
+        </div>
+      )}
       {activeTab !== 'repos' && activeTab !== 'members' && activeTab !== 'settings' && (
         <div className="text-center py-12 text-text-muted">
           该功能暂未开放

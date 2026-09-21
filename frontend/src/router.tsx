@@ -25,6 +25,7 @@ import { ProjectList } from '@/pages/projects/ProjectList'
 import { ProjectCreate } from '@/pages/projects/ProjectCreate'
 import { ProjectDetail } from '@/pages/projects/ProjectDetail'
 import { PlatformSettings } from '@/pages/admin/PlatformSettings'
+import { SkillsMarket } from '@/pages/admin/SkillsMarket'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -51,5 +52,6 @@ export const router = createBrowserRouter([
     ],
   },
   { path: '/admin/platform-settings', element: <PlatformSettings /> },
+  { path: '/admin/skills', element: <SkillsMarket /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ])

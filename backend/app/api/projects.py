@@ -1,10 +1,10 @@
 """项目路由 - R2 项目管理(列表/创建/详情/更新/删除/归档/仓库绑定解绑)"""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.response import BizError, success
+from app.core.response import BizError, ErrCode, success
 from app.database import get_db
 from app.models.user import User
 from app.schemas.project import (
@@ -22,11 +22,14 @@ from app.schemas.model_config import (
     TestModelConfigRequest,
     UpdateModelConfigRequest,
 )
+from app.schemas.skill import InstallSkillRequest
 from app.services import (
     llm_service,
+    mcp_service,
     model_config_service,
     project_member_service,
     project_service,
+    skill_service,
 )
 
 router = APIRouter(prefix="/api/projects", tags=["项目"])
@@ -327,3 +330,130 @@ async def delete_model_config(
     await project_member_service.require_project_role(db, project, current_user, "owner")
     await model_config_service.delete_config(db, project, current_user, config_id)
     return success(message="配置已删除")
+
+
+# ===================================================================
+# R17 MCP 配置 + Skills 管理(项目侧)
+# ===================================================================
+
+# -------------------------------------------------------------------
+# GET /api/projects/{project_id}/mcp-config - 获取 MCP 配置(打码)
+# -------------------------------------------------------------------
+@router.get("/{project_id}/mcp-config")
+async def get_mcp_config(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """项目成员可看;敏感信息打码(前 4 + *** + 后 4)"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "viewer")
+    config = await mcp_service.get_config_masked(db, project)
+    return success(data={"config": config})
+
+
+# -------------------------------------------------------------------
+# PUT /api/projects/{project_id}/mcp-config - 更新 MCP 配置
+# -------------------------------------------------------------------
+@router.put("/{project_id}/mcp-config")
+async def put_mcp_config(
+    project_id: str,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 保存;结构校验(17001)→ AES-GCM 加密落库;任务创建时解密注入容器"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "owner")
+    config_json = payload.get("config")
+    if config_json is None:
+        raise BizError(ErrCode.MCP_JSON_INVALID, "JSON 格式错误:缺少 config 字段")
+    await mcp_service.save_config(db, project, config_json)
+    return success(message="保存成功")
+
+
+# -------------------------------------------------------------------
+# GET /api/projects/{project_id}/mcp-config/templates - 模板列表
+# -------------------------------------------------------------------
+@router.get("/{project_id}/mcp-config/templates")
+async def list_mcp_templates(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """常用 MCP server 模板(前端填参数 → 按 json_template 生成配置填入编辑器)"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "viewer")
+    return success(data={"items": mcp_service.MCP_TEMPLATES})
+
+
+# -------------------------------------------------------------------
+# GET /api/projects/{project_id}/skills - 项目已安装 Skills
+# -------------------------------------------------------------------
+@router.get("/{project_id}/skills")
+async def list_project_skills(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """项目成员可看已安装 Skills 列表"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "viewer")
+    items = await skill_service.list_installed(db, project)
+    return success(data={"items": items})
+
+
+# -------------------------------------------------------------------
+# POST /api/projects/{project_id}/skills - 安装平台级 Skill
+# -------------------------------------------------------------------
+@router.post("/{project_id}/skills")
+async def install_project_skill(
+    project_id: str,
+    req: InstallSkillRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner/editor 安装;重复安装 17002"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+    await skill_service.install_skill(db, project, current_user, req.skill_id)
+    return success(message="安装成功")
+
+
+# -------------------------------------------------------------------
+# POST /api/projects/{project_id}/skills/upload - 上传项目级自定义 Skill
+# -------------------------------------------------------------------
+@router.post("/{project_id}/skills/upload")
+async def upload_project_skill(
+    project_id: str,
+    file: UploadFile,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner/editor 上传 .md(校验 frontmatter,17003);上传即安装"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+    raw = await file.read()
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise BizError(ErrCode.SKILL_FORMAT_INVALID, "文件格式错误:必须为 UTF-8 编码的 .md 文件")
+    data = await skill_service.upload_skill(db, project, current_user, file.filename or "", content)
+    return success(data=data, message="上传成功")
+
+
+# -------------------------------------------------------------------
+# DELETE /api/projects/{project_id}/skills/{skill_id} - 卸载 Skill
+# -------------------------------------------------------------------
+@router.delete("/{project_id}/skills/{skill_id}")
+async def uninstall_project_skill(
+    project_id: str,
+    skill_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner/editor 卸载(删关联记录)"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+    await skill_service.uninstall_skill(db, project, current_user, skill_id)
+    return success(message="卸载成功")

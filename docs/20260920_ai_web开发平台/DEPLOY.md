@@ -175,3 +175,45 @@ CREATE TABLE IF NOT EXISTS `users` (
 
 - **影响范围**:R13 模型配置接口(5 个);llm_service.resolve_config 供 R4/R5 任务执行消费;LLM_ENV_KEYS 契约供 R8 容器 env 注入消费
 - **回滚方案**:`DROP TABLE model_configs;`
+
+## 2026-09-22 R17 MCP server 与 Skills 管理
+
+- **类型**:数据库(alembic revision `e5a8c3f1d2b7`,down_revision `d4f9a1e2b6c8`)+ 容器镜像
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `skills` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `skill_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `name` VARCHAR(64) NOT NULL COMMENT 'Skill 名(kebab-case)',
+    `description` VARCHAR(255) NOT NULL COMMENT '一句话描述',
+    `content` TEXT NOT NULL COMMENT 'Markdown 正文(YAML frontmatter + 正文)',
+    `scope` ENUM('platform','project') NOT NULL DEFAULT 'platform' COMMENT '作用域',
+    `project_id` CHAR(36) NULL COMMENT 'scope=project 时必填',
+    `created_by` CHAR(36) NOT NULL COMMENT '创建者 user_id',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_skills_skill_id` (`skill_id`),
+    KEY `ix_skills_scope` (`scope`),
+    KEY `ix_skills_project_id` (`project_id`),
+    KEY `ix_skills_scope_project_name` (`scope`,`project_id`,`name`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skills 表';
+
+  CREATE TABLE IF NOT EXISTS `project_skills` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `project_id` CHAR(36) NOT NULL COMMENT '项目 id',
+    `skill_id` CHAR(36) NOT NULL COMMENT 'Skill id',
+    `installed_by` CHAR(36) NOT NULL COMMENT '安装人 user_id',
+    `installed_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '安装时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_project_skill` (`project_id`,`skill_id`),
+    KEY `ix_project_skills_project_id` (`project_id`),
+    KEY `ix_project_skills_skill_id` (`skill_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目-Skill 安装关联表';
+  ```
+
+  注:`projects.mcp_config_encrypted` 列已随 R2 建表存在,本点无 ALTER。
+- **容器镜像**:`docker/devbox/Dockerfile`(预装 5 个 MCP server + 3 个官方 Skills 到 `/home/codespace/.claude/skills/`),上线时构建 `platform/devbox:v1` 并推送镜像仓库
+- **影响范围**:R17 全部接口;R8 任务创建时消费 `mcp_service.get_decrypted_config` 与 `skill_service.list_project_skill_contents` 注入容器
+- **回滚方案**:`DROP TABLE project_skills; DROP TABLE skills;`(顺序不可反);镜像回退旧 tag

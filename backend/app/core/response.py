@@ -62,6 +62,11 @@ class ErrCode:
     CONFIG_DEFAULT_EXISTS = 13003  # 同项目已有 default 配置
     CONFIG_DEFAULT_UNDELETABLE = 13004  # 不可删除 default 配置
 
+    # R17 MCP / Skills
+    MCP_JSON_INVALID = 17001       # MCP 配置 JSON 格式错误(message 携带行号)
+    SKILL_ALREADY_INSTALLED = 17002  # 已安装过该 Skill
+    SKILL_FORMAT_INVALID = 17003   # Skill .md 格式错误(缺 frontmatter name/description)
+
     # 权限
     NOT_SUPERADMIN = 19002            # 非平台超级管理员
     NO_PROJECT_PERMISSION = 1901      # 无项目操作权限(非 owner)
