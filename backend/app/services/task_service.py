@@ -109,6 +109,78 @@ async def create_polish_task(db: AsyncSession, project: Project, requirement: Re
 
 
 # ---------------------------------------------------------------------------
+# R5:测试驳回回开发
+# ---------------------------------------------------------------------------
+async def reject_to_dev(db: AsyncSession, test_task: Task, operator: User,
+                        title: str, description: str) -> Task:
+    """
+    测试驳回创建修复 dev 任务:
+    - 读测试任务 extended_attributes(test_cases 失败用例 / report_file_path 测试报告路径)
+    - 新 dev 任务 extended_attributes 填 related_test_task_id + fix_context
+    - 首条用户消息发送时 prompt 自动携带 fix_context(send_message 注入)
+    """
+    ext = test_task.extended_attributes or {}
+    test_cases = ext.get("test_cases") or []
+    report_path = ext.get("report_file_path") or ""
+
+    lines = []
+    if test_cases:
+        lines.append("失败用例:")
+        if isinstance(test_cases, list):
+            for i, case in enumerate(test_cases, 1):
+                name = case.get("name") if isinstance(case, dict) else str(case)
+                result = case.get("result", "") if isinstance(case, dict) else ""
+                lines.append(f"{i}. {name}{(':' + result) if result else ''}")
+        else:
+            lines.append(str(test_cases))
+    if report_path:
+        lines.append(f"测试报告: {report_path}")
+    fix_context = "\n".join(lines)
+
+    requirement = (await db.execute(
+        select(Requirement).where(Requirement.req_id == test_task.req_id)
+    )).scalars().first()
+    if requirement is None:
+        raise BizError(404, "原需求不存在", status_code=404)
+    project = (await db.execute(
+        select(Project).where(Project.project_id == test_task.project_id)
+    )).scalars().first()
+    if project is None:
+        raise BizError(404, "项目不存在", status_code=404)
+
+    task = Task(
+        req_id=test_task.req_id,
+        project_id=test_task.project_id,
+        type="dev",
+        title=title,
+        description=description,
+        base_branch=test_task.base_branch,
+        work_branch=test_task.work_branch,
+        status="pending",
+        created_by=operator.user_id,
+        extended_attributes={
+            "related_test_task_id": test_task.task_id,
+            "fix_context": fix_context,
+        },
+    )
+    db.add(task)
+    await db.flush()
+    logger.info("测试驳回回开发 test=%s → dev=%s by=%s", test_task.task_id, task.task_id, operator.user_id)
+    return task
+
+
+def _fix_context_block(task: Task) -> str:
+    """首条消息注入的修复上下文块(dev + 有 fix_context 时)"""
+    if task.type != "dev":
+        return ""
+    ext = task.extended_attributes or {}
+    fix = ext.get("fix_context")
+    if not fix:
+        return ""
+    return f"【修复上下文】请优先修复以下测试失败问题:\n{fix}\n---\n"
+
+
+# ---------------------------------------------------------------------------
 # 事件流注册表(WS /ws/tasks/{tid}/events)
 # ---------------------------------------------------------------------------
 class TaskEventRegistry:
@@ -298,6 +370,16 @@ async def send_message(db: AsyncSession, task: Task, operator: User, content: st
 
     # @file 引用解析与注入
     enhanced_prompt, file_refs = await file_upload_service.resolve_file_refs(db, task.task_id, content)
+
+    # R5:修复任务首条消息自动携带 fix_context
+    has_prior_user = (await db.execute(
+        select(func.count(TaskMessage.id)).where(
+            TaskMessage.task_id == task.task_id, TaskMessage.role == "user"
+        )
+    )).scalar() or 0
+    fix_block = _fix_context_block(task) if has_prior_user == 0 else ""
+    if fix_block:
+        enhanced_prompt = fix_block + enhanced_prompt
 
     user_msg = TaskMessage(
         task_id=task.task_id, role="user", content=content, file_refs=file_refs or None,

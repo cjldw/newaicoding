@@ -490,3 +490,9 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **类型**:前端(TaskDetail 三栏工作台 / TaskChat 对话框(@引用+附件)/ ActivityStream 活动流 / TaskCreateDialog)
 - **影响范围**:/tasks/{task_id} 工作台;RequirementDetail 创建任务入口
 - **回滚方案**:随代码回滚
+
+## 2026-09-22 R5 开发任务(type=dev)
+
+- **类型**:纯代码(无 DB/配置变更——复用 R4 tasks 表,fix_context 存 extended_attributes JSON)
+- **影响范围**:POST /api/tasks/{test_task_id}/reject-to-dev(测试驳回回开发);send_message 首条消息自动注入【修复上下文】
+- **回滚方案**:随代码回滚

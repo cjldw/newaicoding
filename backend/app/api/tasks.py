@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.response import BizError, success
+from app.core.response import BizError, ErrCode, success
 from app.database import get_db
 from app.models.project import Project
 from app.models.requirement import Requirement
@@ -162,6 +162,48 @@ async def finish_task(
     task = await task_service.get_task_or_404(db, task_id)
     await task_service.finish_task(db, task, current_user, status="done")
     return success(message="任务已完成")
+
+
+# ---------------------------------------------------------------------------
+# R5:测试驳回回开发
+# ---------------------------------------------------------------------------
+class RejectToDevRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=128)
+    description: str = Field(min_length=1)
+
+
+@router.post("/tasks/{test_task_id}/reject-to-dev")
+async def reject_to_dev(
+    test_task_id: str,
+    req: RejectToDevRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """测试驳回创建修复 dev 任务(fix_context 自动携带失败用例与报告路径)"""
+    test_task = await task_service.get_task_or_404(db, test_task_id)
+    if test_task.type != "test":
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "仅测试任务可驳回回开发")
+    project = (await db.execute(
+        select(Project).where(Project.project_id == test_task.project_id)
+    )).scalars().first()
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+
+    task = await task_service.reject_to_dev(
+        db, test_task, current_user, title=req.title, description=req.description,
+    )
+    # 创建即尝试拉起(排队语义同 R4)
+    from app.core.response import BizError as _BizError
+
+    try:
+        requirement = (await db.execute(
+            select(Requirement).where(Requirement.req_id == task.req_id)
+        )).scalars().first()
+        if requirement is not None:
+            await task_service.start_task(db, task, project, requirement)
+    except _BizError as e:
+        if e.code != 8003:
+            raise
+    return success(data={"task_id": task.task_id}, message="已创建修复任务")
 
 
 # ---------------------------------------------------------------------------

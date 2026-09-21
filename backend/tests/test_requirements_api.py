@@ -210,15 +210,16 @@ async def test_submit_review_and_review_flow(client, auth_headers, db_session, r
     assert req.reject_reason == "验收标准不清晰"
 
     # 再提交 → 评审通过(无容器:跳过 commit,仅状态流转)
-    # 评审通过要求评审人已绑定 GitLab token(1012 校验),直绑 DB
-    from sqlalchemy import text as _text
+    # 评审通过要求评审人已绑定 GitLab token(1012 校验);ORM 对象直改(身份_map 一致)
+    import sqlalchemy
 
     from app.core.encryption import encrypt_token
+    from app.models.user import User
 
-    await db_session.execute(
-        _text("UPDATE users SET gitlab_token_encrypted = :enc WHERE user_id = :uid"),
-        {"enc": encrypt_token("glpat-reviewer"), "uid": registered_user["user_id"]},
-    )
+    reviewer_user = (await db_session.execute(
+        sqlalchemy.select(User).where(User.user_id == registered_user["user_id"])
+    )).scalars().first()
+    reviewer_user.gitlab_token_encrypted = encrypt_token("glpat-reviewer")
     await db_session.flush()
     req.status = "reviewing"
     await db_session.flush()
