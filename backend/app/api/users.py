@@ -123,3 +123,38 @@ async def unbind_gitlab_token(
     await db.flush()
 
     return success(message="解绑成功")
+
+
+# -------------------------------------------------------------------
+# GET /api/users/search?phone= - 手机号精确搜索(R12 邀请成员用)
+# -------------------------------------------------------------------
+@router.get("/search")
+async def search_user_by_phone(
+    phone: str = "",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    按手机号精确匹配用户(R1 已去邮箱,手机号即登录名)。
+    命中返回 {user_id, phone_masked, nickname, avatar_url};未命中返回 null。
+    """
+    from sqlalchemy import select
+
+    from app.core.security import mask_phone
+
+    normalized = phone.strip()
+    # 未传参或格式不足时直接返回空,避免模糊前缀泄露用户列表
+    if len(normalized) < 11:
+        return success(data=None)
+
+    result = await db.execute(select(User).where(User.phone == normalized))
+    user = result.scalar_one_or_none()
+    if user is None:
+        return success(data=None)
+
+    return success(data={
+        "user_id": user.user_id,
+        "phone_masked": mask_phone(user.phone),
+        "nickname": user.nickname,
+        "avatar_url": user.avatar_url,
+    })

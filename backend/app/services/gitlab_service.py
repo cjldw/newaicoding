@@ -285,6 +285,67 @@ async def bot_init_readme(
         await client.aclose()
 
 
+async def bot_remove_member(
+    bot_token: str,
+    gitlab_url: str,
+    repo_id: int,
+    gitlab_user_id: int,
+) -> None:
+    """
+    平台 bot 移除 repo 成员:DELETE /api/v4/projects/{id}/members/{gitlab_user_id}
+    失败不抛异常(非关键步骤,只记 warning;404=本就不是成员,忽略)。
+    """
+    client = _get_client()
+    try:
+        resp = await client.delete(
+            f"{gitlab_url.rstrip('/')}/api/v4/projects/{repo_id}/members/{gitlab_user_id}",
+            headers=_bot_headers(bot_token),
+        )
+        if resp.status_code not in (200, 204, 404):
+            logger.warning(
+                "GitLab 移除成员失败 repo=%s user=%s %s: %s",
+                repo_id, gitlab_user_id, resp.status_code, resp.text[:200],
+            )
+    except httpx.HTTPError as e:
+        logger.warning("GitLab 移除成员请求失败(忽略): %s", e)
+    finally:
+        await client.aclose()
+
+
+async def bot_update_member_level(
+    bot_token: str,
+    gitlab_url: str,
+    repo_id: int,
+    gitlab_user_id: int,
+    access_level: int,
+) -> None:
+    """
+    平台 bot 修改 repo 成员权限:PUT /api/v4/projects/{id}/members/{gitlab_user_id}
+    失败不抛异常(非关键步骤;404=不是成员,降级为尝试直接添加)。
+    """
+    client = _get_client()
+    try:
+        resp = await client.put(
+            f"{gitlab_url.rstrip('/')}/api/v4/projects/{repo_id}/members/{gitlab_user_id}",
+            headers=_bot_headers(bot_token),
+            json={"access_level": access_level},
+        )
+        if resp.status_code == 404:
+            # 不是成员 → 直接添加
+            await client.aclose()
+            await bot_add_member(bot_token, gitlab_url, repo_id, gitlab_user_id, access_level)
+            return
+        if resp.status_code not in (200, 201):
+            logger.warning(
+                "GitLab 改成员权限失败 repo=%s user=%s %s: %s",
+                repo_id, gitlab_user_id, resp.status_code, resp.text[:200],
+            )
+    except httpx.HTTPError as e:
+        logger.warning("GitLab 改成员权限请求失败(忽略): %s", e)
+    finally:
+        await client.aclose()
+
+
 async def bot_test_connection(bot_token: str, gitlab_url: str) -> dict:
     """
     平台设置"测试连接":GET /api/v4/version

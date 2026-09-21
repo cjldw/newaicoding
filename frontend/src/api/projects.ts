@@ -211,3 +211,126 @@ export function useUnbindRepo() {
     },
   })
 }
+
+// ---- 成员管理(R12) ----
+export interface ProjectMember {
+  user_id: string
+  username: string
+  nickname: string
+  avatar_url: string
+  role: 'owner' | 'editor' | 'viewer'
+  invited_by: { user_id: string; username: string } | null
+  joined_at: string
+}
+
+export interface ProjectMembersResponse {
+  items: ProjectMember[]
+}
+
+export interface InviteMemberRequest {
+  phone: string
+  role: 'editor' | 'viewer'
+}
+
+export interface InviteMemberResponse {
+  user_id: string
+  username: string
+  role: 'editor' | 'viewer'
+}
+
+export interface ChangeRoleRequest {
+  role: 'owner' | 'editor' | 'viewer'
+}
+
+export interface TransferOwnershipRequest {
+  new_owner_user_id: string
+}
+
+export const membersApi = {
+  list: (projectId: string) =>
+    api.get<ProjectMembersResponse>(`/projects/${projectId}/members`),
+  invite: (projectId: string, data: InviteMemberRequest) =>
+    api.post<InviteMemberResponse>(`/projects/${projectId}/members`, data),
+  remove: (projectId: string, userId: string) =>
+    api.delete<{ message: string }>(`/projects/${projectId}/members/${userId}`),
+  changeRole: (projectId: string, userId: string, data: ChangeRoleRequest) =>
+    api.patch<ProjectMember>(`/projects/${projectId}/members/${userId}`, data),
+  transferOwnership: (projectId: string, data: TransferOwnershipRequest) =>
+    api.post<{ message: string }>(`/projects/${projectId}/transfer-ownership`, data),
+}
+
+export const MemberErrorCodes = {
+  USER_NOT_FOUND: 12001,
+  ALREADY_MEMBER: 12002,
+  MEMBER_LIMIT_EXCEEDED: 12003,
+  LAST_OWNER_REQUIRED: 12004,
+  TARGET_NOT_MEMBER: 12005,
+} as const
+
+export function getMemberErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case 12001: return '该手机号未注册,请联系管理员邀请注册'
+      case 12002: return '该用户已是项目成员'
+      case 12003: return '项目成员数已达上限(50人)'
+      case 12004: return '项目必须至少保留一个所有者'
+      case 12005: return '目标用户不是项目成员'
+      default: return error.message
+    }
+  }
+  return '操作失败'
+}
+
+export function useProjectMembers(projectId: string) {
+  return useQuery({
+    queryKey: ['project-members', projectId],
+    queryFn: () => membersApi.list(projectId).then(r => r.data),
+    enabled: !!projectId,
+  })
+}
+
+export function useInviteMember() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: InviteMemberRequest }) =>
+      membersApi.invite(projectId, data).then(r => r.data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['project-members', variables.projectId] })
+    },
+  })
+}
+
+export function useRemoveMember() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, userId }: { projectId: string; userId: string }) =>
+      membersApi.remove(projectId, userId),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['project-members', variables.projectId] })
+    },
+  })
+}
+
+export function useChangeMemberRole() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, userId, data }: {
+      projectId: string; userId: string; data: ChangeRoleRequest
+    }) => membersApi.changeRole(projectId, userId, data).then(r => r.data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['project-members', variables.projectId] })
+    },
+  })
+}
+
+export function useTransferOwnership() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: TransferOwnershipRequest }) =>
+      membersApi.transferOwnership(projectId, data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['project-members', variables.projectId] })
+      qc.invalidateQueries({ queryKey: ['project', variables.projectId] })
+    },
+  })
+}

@@ -12,7 +12,12 @@ from app.schemas.project import (
     CreateProjectRequest,
     UpdateProjectRequest,
 )
-from app.services import project_service
+from app.schemas.project_member import (
+    ChangeRoleRequest,
+    InviteMemberRequest,
+    TransferOwnershipRequest,
+)
+from app.services import project_member_service, project_service
 
 router = APIRouter(prefix="/api/projects", tags=["项目"])
 
@@ -56,9 +61,12 @@ async def get_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """项目详情(owner/超管/internal 可见;private 非成员 404)"""
+    """项目详情(owner/成员/超管/internal 可见;private 非成员 404)"""
     project = await project_service.get_project_or_404(db, project_id)
-    project_service._ensure_can_view(project, current_user)
+    from app.services.project_member_service import get_project_role
+
+    role = await get_project_role(db, project, current_user)
+    project_service._ensure_can_view(project, current_user, role)
     data = await project_service.build_detail(db, project)
     return success(data=data)
 
@@ -134,3 +142,87 @@ async def unbind_repo(
     """解绑仓库(main 不可解绑;解绑后不动 GitLab repo)"""
     await project_service.unbind_repo(db, current_user, project_id, repo_id)
     return success(message="仓库已解绑")
+
+
+# ===================================================================
+# R12 项目成员与协作
+# ===================================================================
+
+# -------------------------------------------------------------------
+# GET /api/projects/{project_id}/members - 成员列表
+# -------------------------------------------------------------------
+@router.get("/{project_id}/members")
+async def list_members(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """成员列表(项目成员可见;owner 行懒回填)"""
+    project = await project_service.get_project_or_404(db, project_id)
+    items = await project_member_service.list_members(db, project, current_user)
+    return success(data={"items": items})
+
+
+# -------------------------------------------------------------------
+# POST /api/projects/{project_id}/members - 邀请成员(手机号精确搜索)
+# -------------------------------------------------------------------
+@router.post("/{project_id}/members")
+async def invite_member(
+    project_id: str,
+    req: InviteMemberRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 邀请已注册用户为 editor/viewer;同步加到所有绑定 repo"""
+    project = await project_service.get_project_or_404(db, project_id)
+    data = await project_member_service.invite_member(db, project, current_user, req.phone, req.role)
+    return success(data=data, message="邀请成功")
+
+
+# -------------------------------------------------------------------
+# DELETE /api/projects/{project_id}/members/{member_user_id} - 移除成员
+# -------------------------------------------------------------------
+@router.delete("/{project_id}/members/{member_user_id}")
+async def remove_member(
+    project_id: str,
+    member_user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 移除成员(最后一个 owner 不可移除);同步从所有绑定 repo 移除"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.remove_member(db, project, current_user, member_user_id)
+    return success(message="成员已移除")
+
+
+# -------------------------------------------------------------------
+# PATCH /api/projects/{project_id}/members/{member_user_id} - 改角色
+# -------------------------------------------------------------------
+@router.patch("/{project_id}/members/{member_user_id}")
+async def change_member_role(
+    project_id: str,
+    member_user_id: str,
+    req: ChangeRoleRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 改成员角色(owner/editor/viewer);同步 GitLab access_level"""
+    project = await project_service.get_project_or_404(db, project_id)
+    data = await project_member_service.change_member_role(db, project, current_user, member_user_id, req.role)
+    return success(data=data, message="角色已更新")
+
+
+# -------------------------------------------------------------------
+# POST /api/projects/{project_id}/transfer-ownership - 转让 owner
+# -------------------------------------------------------------------
+@router.post("/{project_id}/transfer-ownership")
+async def transfer_ownership(
+    project_id: str,
+    req: TransferOwnershipRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 转让(目标必须是成员);原 owner 降为 editor"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.transfer_ownership(db, project, current_user, req.new_owner_user_id)
+    return success(message="转让成功,您已降为 editor")

@@ -49,6 +49,13 @@ class ErrCode:
     MAIN_REPO_UNBINDABLE = 2006       # main repo 不可解绑
     PLATFORM_SETTING_INVALID = 2007   # 非法配置值(域名格式非法/数值越界/未知配置键)
 
+    # R12 项目成员
+    INVITE_USER_NOT_FOUND = 12001  # 用户不存在(手机号未注册)
+    ALREADY_MEMBER = 12002         # 用户已是项目成员
+    MEMBER_LIMIT_EXCEEDED = 12003  # 单项目成员数超限(>50)
+    LAST_OWNER_UNREMOVABLE = 12004 # 不可移除/降级最后一个 owner
+    TRANSFER_NON_MEMBER = 12005    # owner 转让给非成员
+
     # 权限
     NOT_SUPERADMIN = 19002            # 非平台超级管理员
     NO_PROJECT_PERMISSION = 1901      # 无项目操作权限(非 owner)

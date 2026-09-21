@@ -110,12 +110,12 @@ async def get_project_or_404(db: AsyncSession, project_id: str) -> Project:
     return project
 
 
-def _ensure_can_view(project: Project, user: User) -> None:
+def _ensure_can_view(project: Project, user: User, role: str) -> None:
     """
-    查看权限:owner / 超管 / internal(平台登录用户可见)。
-    private 非成员返回 404(隐藏存在性;成员体系 R12 接入后此处补成员判断)。
+    查看权限(R12 接入成员体系后):owner/成员(任意角色)/超管/internal(平台登录用户可见)。
+    private 非成员返回 404(隐藏存在性)。
     """
-    if project.owner_id == user.user_id or user.role == "superadmin":
+    if role:
         return
     if project.visibility == "internal":
         return
@@ -414,7 +414,7 @@ async def archive_project(db: AsyncSession, user: User, project_id: str) -> None
 # ---------------------------------------------------------------------------
 async def add_repo(db: AsyncSession, user: User, project_id: str, req) -> dict:
     """
-    追加绑定仓库(role=test/docs/other;main 不允许经此接口)。
+    追加绑定仓库(role=test/docs/other;main 不允许经此接口)。R12 后 owner/editor 均可。
     - 同一 repo 不可重复绑定到同一项目(2004)
     - 单项目绑定 repo 数 ≤ 10(2005)
     - bot 需对该 repo 有权限(2002)
@@ -422,8 +422,10 @@ async def add_repo(db: AsyncSession, user: User, project_id: str, req) -> dict:
     logger.info("追加绑定仓库入口 project=%s role=%s by=%s", project_id, req.role, user.user_id)
 
     project = await get_project_or_404(db, project_id)
-    # 权限矩阵:owner/editor 可追加绑定(R12 前仅 owner/超管)
-    ensure_project_owner(project, user)
+    # 权限矩阵:owner/editor 可追加绑定(R12 Guard;viewer/非成员拒绝)
+    from app.services.project_member_service import require_project_role
+
+    await require_project_role(db, project, user, "editor")
 
     # 平台 GitLab 配置(未配置 → 2001)
     gitlab_url, bot_token, _group_id = await get_gitlab_bot_config(db)

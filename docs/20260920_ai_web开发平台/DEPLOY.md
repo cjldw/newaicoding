@@ -123,3 +123,26 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **影响范围**:R2 项目管理全部接口;项目创建前置依赖 `platform_settings` 配置 `gitlab_url` / `gitlab_bot_token`(未配置返回 2001,项目创建入口禁用)
 - **上线后配置动作**:超管登录 → 平台管理 → 平台设置,录入 `gitlab_url` / `gitlab_bot_token`(scope=api)/ `gitlab_bot_group_id`(auto 建仓必配)/ `gitlab_webhook_secret`;两个根域名 `preview_base_domain` / `deploy_base_domain` 有默认值可不配
 - **回滚方案**:`DROP TABLE platform_settings; DROP TABLE project_repos; DROP TABLE projects;`(顺序不可反,注意先备份)
+
+## 2026-09-21 R12 项目成员与协作
+
+- **类型**:数据库(alembic revision `c2e8b4d7a910`,down_revision `a7d21c9e5f40`)
+- **具体内容**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `project_members` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `project_id` CHAR(36) NOT NULL COMMENT '项目 id',
+    `user_id` CHAR(36) NOT NULL COMMENT '用户 id',
+    `role` ENUM('owner','editor','viewer') NOT NULL DEFAULT 'viewer' COMMENT '角色',
+    `invited_by` CHAR(36) NOT NULL COMMENT '邀请人 user_id',
+    `joined_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '加入时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_project_member_user` (`project_id`,`user_id`),
+    KEY `ix_project_members_project_id` (`project_id`),
+    KEY `ix_project_members_user_id` (`user_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目成员表';
+  ```
+
+- **影响范围**:R12 成员管理接口;R2 项目接口权限判定升级(查看=成员,追加绑定仓库=editor+,其余 owner;超管=虚拟 owner 不落成员行);新增 GET /api/users/search(手机号精确搜索)
+- **回滚方案**:`DROP TABLE project_members;`(并回退 R2 接口权限判定相关代码)

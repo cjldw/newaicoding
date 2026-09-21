@@ -448,13 +448,13 @@ docker run -d \
 
 ## 当前进度
 
-**当前进度: 3/22 (14%) - R2 已完成并提交;下一个 R12**
+**当前进度: 4/22 (18%) - R12 已完成并提交;下一个 R13**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
 | R1 | 用户与账号体系 | M1 | ✅ | ./DEVPLAN/R1.md |
 | R2 | 项目管理(多仓库) | M1 | ✅ | ./DEVPLAN/R2.md |
-| R12 | 项目成员与协作 | M1 | ⬜ | ./DEVPLAN/R12.md |
+| R12 | 项目成员与协作 | M1 | ✅ | ./DEVPLAN/R12.md |
 | R13 | 模型接入 | M3 | ⬜ | ./DEVPLAN/R13.md |
 | R17 | MCP server 与 Skills 管理 | M3 | ⬜ | ./DEVPLAN/R17.md |
 | R8 | 任务级容器 | M5 | ⬜ | ./DEVPLAN/R8.md |
@@ -550,3 +550,4 @@ docker run -d \
 | 2026-09-21 | **R1 完成闭环**:后端(20 文件:models/schemas/api/services/core + alembic 两笔迁移,users 表含 role/token_version/login_fail_count/locked_until;编译零错误;冒烟 /health /docs /openapi.json 9 路径)→ QA 套件 64 用例经三轮红绿迭代全绿(修复:登录锁定 1006+remaining_seconds、GitLab mock 注入机制、scope 1013 AND 校验、锁定字段迁移)→ 前端(Vite+React18+TS+Tailwind3.4 token 照抄,7 路由独立页面 + SettingsLayout,build 零错误,ui-check 66/67✅ + 1 项 V2 占位)→ 审计通过(无阻塞项)。**决策留痕**:① 本机 Python 3.10(规格 3.12,代码兼容;pyproject requires >=3.10);② FastAPI 0.104 + Pydantic 2.5.3 的 OpenAPI enum_schema 缺失用 main.py 兼容补丁(pip 网络受限无法升级);③ bcrypt 锁定 4.x(passlib 1.7.4 与 5.x 不兼容);④ 登录锁定用 DB 字段(login_fail_count/locked_until)而非 Redis;⑤ GitLab mock 注入:gitlab_service 模块级 _test_transport + conftest autouse patch MockTransport.__enter__/__exit__;⑥ 收口审计采用审计 subagent 覆盖核查(code-review skill 需 git 基线,绿地无基线;rd-check 阶段做全量兜底);⑦ DEPLOY.md 记录 users DDL 全文与环境变量(真实密钥只在 backend/.env,不入库) | 多角色 tdd 闭环(QA/API Tester + Backend Architect + Frontend Developer + Code Reviewer) |
 | 2026-09-21 | **R1/R2 待提交工作落地**:计划文档增量与 R1 实现分两笔提交(d7fd2a3 / a452549);.gitignore 补会话产物(.playwright-mcp/.scratch/dash.png) | 用户授权"按建议确认"后进入连续模式 |
 | 2026-09-21 | **R2 完成闭环 + subagent 基础设施降级决策**:① **subagent 8 派 7 死**(QA/后端/前端/审计均反复 autocompact 超限,重派加纪律仍死),后端与收口审计降级为**主 agent 直接实现/直审**,多角色意图部分保留(QA 红测文件由首轮 QA agent 产出、前端由第三次重派的 frontend agent 完成,ui-check 46/46);依赖 rd-check 全量审查兜底;② 后端:三表(models/project.py 修正前序 agent 遗留的 (project_id,role) 全列唯一错误约束 → main 唯一改服务层保证 + 组合唯一硬保证同 repo 重复)+ alembic a7d21c9e5f40 + 8 项目接口 + 3 平台设置接口(敏感项 AES-GCM/打码/白名单/2007/19002,test-connection 为分片"测试连接"按钮的自定契约 POST /api/admin/platform-settings/test-connection)+ require_superadmin 最小 Guard;③ 测试 110 全绿(64 存量 + 46 新增)。**修复记录**:QA 红测缺陷(假 project_id 断言成功→直插 DB 造数据;GitLab 用例补 _seed_gitlab_settings);R1 bootstrap"首个用户=superadmin"致非超管用例失效→conftest 增 second_user_headers;conftest 清理扩至 4 表(platform_settings 残留会污染 2001 场景);PATCH 后 onupdate 字段 MissingGreenlet→显式 await db.refresh;projects 表补 deleted_at(行为规格要求,模型节遗漏);④ 前端:api/projects.ts + 4 项目页面(route-as-modal 创建对话框 max-w-lg)+ 平台设置页 + MainLayout 侧栏(项目/超管平台设置入口),ui-check 46/46(审计发现报告 #28-34 期望项标签笔误,实现代码正确,已修正留注);⑤ DEPLOY.md 记录三表 DDL + 上线配置动作 | 用户指示"完成剩下的所有任务,都按你建议来确认";连续模式第 2 点(R2) |
+| 2026-09-22 | **R12 完成闭环**:后端主 agent 实现(project_members 表 + alembic c2e8b4d7a910 + 5 成员接口 + GET /api/users/search 手机号精确搜索 + **require_project_role 项目级 Guard 正式落地**:viewer(1)<editor(2)<owner(3),超管=虚拟 owner 不落成员行 D16;R2 权限升级:查看=成员、追加绑定仓库=editor+、其余 owner)+ GitLab 成员同步(add/remove/update,owner40/editor30/viewer20,非关键路径容错)+ 前端 subagent 成员管理 Tab(300ms 防抖搜索/三对话框/转让入口,build 通过 ui-check 全对齐)。**测试 128 全绿**(新增 18 条)。**决策留痕**:① owner 成员行懒回填(R2 建项目早于本表);② viewer 邀请同步 GitLab 用 Reporter(20) 非分片字面 Developer(30)——与改角色节映射一致,避免只读角色获写权限;③ 超管转让后无成员行(虚拟 owner 语义),转让用例须用普通用户;④ search 不足 11 位返回 null 防前缀枚举。subagent 策略稳定为:**前端派发(纪律模板存活率 2/2)+ 后端/QA/审计主 agent 直做** | 连续模式第 3 点(R12) |

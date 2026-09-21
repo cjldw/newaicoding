@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/Dialog'
 import { useProjectDetail, useDeleteProject, useArchiveProject } from '@/api/projects'
 import { RepoManagement } from './RepoManagement'
+import { MemberManagement } from './MemberManagement'
 
 const statusMap: Record<string, { label: string; variant: 'success' | 'default' | 'error' }> = {
   active: { label: '活跃', variant: 'success' },
@@ -26,7 +27,7 @@ const tabs = [
   { key: 'requirements', label: '需求', disabled: true },
   { key: 'tasks', label: '任务', disabled: true },
   { key: 'repos', label: '仓库', disabled: false },
-  { key: 'members', label: '成员', disabled: true },
+  { key: 'members', label: '成员', disabled: false },
   { key: 'settings', label: '设置', disabled: true },
 ]
 
@@ -112,6 +113,7 @@ export function ProjectDetail() {
             <button
               key={tab.key}
               disabled={tab.disabled}
+              onClick={() => !tab.disabled && navigate(`?tab=${tab.key}`)}
               className={`pb-2 text-sm font-medium border-b-2 transition-colors ${
                 tab.disabled
                   ? 'text-text-muted/50 cursor-not-allowed border-transparent'
@@ -128,7 +130,8 @@ export function ProjectDetail() {
 
       {/* Tab 内容 */}
       {activeTab === 'repos' && <RepoManagement projectId={project.project_id} />}
-      {activeTab !== 'repos' && (
+      {activeTab === 'members' && <MemberManagement projectId={project.project_id} />}
+      {activeTab !== 'repos' && activeTab !== 'members' && (
         <div className="text-center py-12 text-text-muted">
           该功能暂未开放
         </div>
