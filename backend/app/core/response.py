@@ -1,0 +1,91 @@
+"""统一响应格式与全局异常处理"""
+
+from typing import Any, Optional
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# 业务异常
+# ---------------------------------------------------------------------------
+
+class BizError(Exception):
+    """业务异常，携带错误码和提示信息"""
+
+    def __init__(self, code: int, message: str, status_code: int = 200, data: Any = None):
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        self.data = data
+        super().__init__(message)
+
+
+# ---------------------------------------------------------------------------
+# 错误码常量 (R1 定义)
+# ---------------------------------------------------------------------------
+
+class ErrCode:
+    """业务错误码"""
+    PHONE_EXISTS = 1001          # 手机号已注册
+    WEAK_PASSWORD = 1003         # 密码强度不足
+    WRONG_CREDENTIALS = 1005     # 手机号或密码错误
+    ACCOUNT_LOCKED = 1006        # 账号已锁定(密码错误次数过多)
+    ACCOUNT_DISABLED = 1007      # 账号已禁用
+    INVALID_REFRESH = 1008       # refresh token 无效
+    GITLAB_TOKEN_INVALID = 1012  # GitLab token 无效
+    GITLAB_SCOPE_INSUFFICIENT = 1013  # GitLab token scope 不足
+
+
+# ---------------------------------------------------------------------------
+# 统一响应构造
+# ---------------------------------------------------------------------------
+
+def success(data: Any = None, message: str = "ok") -> dict:
+    """成功响应"""
+    return {"code": 0, "data": data, "message": message}
+
+
+def error(code: int, message: str, data: Any = None) -> dict:
+    """错误响应"""
+    return {"code": code, "data": data, "message": message}
+
+
+# ---------------------------------------------------------------------------
+# 全局异常处理注册
+# ---------------------------------------------------------------------------
+
+def register_exception_handlers(app: FastAPI):
+    """注册全局异常处理器"""
+
+    @app.exception_handler(BizError)
+    async def biz_error_handler(request: Request, exc: BizError):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error(exc.code, exc.message, exc.data),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(request: Request, exc: RequestValidationError):
+        # 提取第一个校验错误信息
+        errors = exc.errors()
+        msg = errors[0]["msg"] if errors else "请求参数校验失败"
+        # 去掉 "Value error, " 前缀（pydantic v2 自定义校验器抛出的）
+        if msg.startswith("Value error, "):
+            msg = msg[len("Value error, "):]
+        return JSONResponse(
+            status_code=422,
+            content=error(422, msg),
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_error_handler(request: Request, exc: Exception):
+        logger.exception("Unhandled exception: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content=error(500, "服务器内部错误"),
+        )

@@ -67,3 +67,8 @@ output/
 # ===== 数据库 =====
 *.sqlite3
 *.db
+
+# ===== rd-flow 会话产物 =====
+.playwright-mcp/
+.scratch/
+dash.png
