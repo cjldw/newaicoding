@@ -16,6 +16,7 @@ import {
 import { useProjectDetail, useDeleteProject, useArchiveProject } from '@/api/projects'
 import { RepoManagement } from './RepoManagement'
 import { MemberManagement } from './MemberManagement'
+import { ModelConfigManagement } from './ModelConfigManagement'
 
 const statusMap: Record<string, { label: string; variant: 'success' | 'default' | 'error' }> = {
   active: { label: '活跃', variant: 'success' },
@@ -28,7 +29,7 @@ const tabs = [
   { key: 'tasks', label: '任务', disabled: true },
   { key: 'repos', label: '仓库', disabled: false },
   { key: 'members', label: '成员', disabled: false },
-  { key: 'settings', label: '设置', disabled: true },
+  { key: 'settings', label: '设置', disabled: false },
 ]
 
 export function ProjectDetail() {
@@ -131,7 +132,8 @@ export function ProjectDetail() {
       {/* Tab 内容 */}
       {activeTab === 'repos' && <RepoManagement projectId={project.project_id} />}
       {activeTab === 'members' && <MemberManagement projectId={project.project_id} />}
-      {activeTab !== 'repos' && activeTab !== 'members' && (
+      {activeTab === 'settings' && <ModelConfigManagement projectId={project.project_id} />}
+      {activeTab !== 'repos' && activeTab !== 'members' && activeTab !== 'settings' && (
         <div className="text-center py-12 text-text-muted">
           该功能暂未开放
         </div>

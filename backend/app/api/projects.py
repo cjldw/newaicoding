@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.response import success
+from app.core.response import BizError, success
 from app.database import get_db
 from app.models.user import User
 from app.schemas.project import (
@@ -17,7 +17,17 @@ from app.schemas.project_member import (
     InviteMemberRequest,
     TransferOwnershipRequest,
 )
-from app.services import project_member_service, project_service
+from app.schemas.model_config import (
+    CreateModelConfigRequest,
+    TestModelConfigRequest,
+    UpdateModelConfigRequest,
+)
+from app.services import (
+    llm_service,
+    model_config_service,
+    project_member_service,
+    project_service,
+)
 
 router = APIRouter(prefix="/api/projects", tags=["项目"])
 
@@ -226,3 +236,94 @@ async def transfer_ownership(
     project = await project_service.get_project_or_404(db, project_id)
     await project_member_service.transfer_ownership(db, project, current_user, req.new_owner_user_id)
     return success(message="转让成功,您已降为 editor")
+
+
+# ===================================================================
+# R13 模型接入(项目级 url+key,主/备多组)
+# ===================================================================
+
+# -------------------------------------------------------------------
+# GET /api/projects/{project_id}/model-configs - 配置列表
+# -------------------------------------------------------------------
+@router.get("/{project_id}/model-configs")
+async def list_model_configs(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """成员可看;viewer 视角不含 api_key 字段(打码也不回)"""
+    project = await project_service.get_project_or_404(db, project_id)
+    role = await project_member_service.get_project_role(db, project, current_user)
+    if not role and project.visibility != "internal":
+        raise BizError(404, "项目不存在", status_code=404)
+    items = await model_config_service.list_configs(db, project, role or "viewer")
+    return success(data={"items": items})
+
+
+# -------------------------------------------------------------------
+# POST /api/projects/{project_id}/model-configs - 创建配置
+# -------------------------------------------------------------------
+@router.post("/{project_id}/model-configs")
+async def create_model_config(
+    project_id: str,
+    req: CreateModelConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 创建;保存前连通性测试(13001);重名 13002;default 冲突 13003"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "owner")
+    data = await model_config_service.create_config(db, project, current_user, req)
+    return success(data=data, message="配置创建成功")
+
+
+# -------------------------------------------------------------------
+# POST /api/projects/{project_id}/model-configs/test - 连通性测试
+# -------------------------------------------------------------------
+@router.post("/{project_id}/model-configs/test")
+async def test_model_config(
+    project_id: str,
+    req: TestModelConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 测试连接(GET {base_url}/models);失败 13001"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "owner")
+    data = await llm_service.test_connectivity(req.base_url, req.api_key, req.model)
+    return success(data=data, message=f"连接成功({data['latency_ms']}ms)")
+
+
+# -------------------------------------------------------------------
+# PATCH /api/projects/{project_id}/model-configs/{config_id} - 更新配置
+# -------------------------------------------------------------------
+@router.patch("/{project_id}/model-configs/{config_id}")
+async def update_model_config(
+    project_id: str,
+    config_id: str,
+    req: UpdateModelConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 更新;api_key 重加密;连接要素变更重测;default 冲突 13003"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "owner")
+    data = await model_config_service.update_config(db, project, current_user, config_id, req)
+    return success(data=data, message="配置更新成功")
+
+
+# -------------------------------------------------------------------
+# DELETE /api/projects/{project_id}/model-configs/{config_id} - 删除配置
+# -------------------------------------------------------------------
+@router.delete("/{project_id}/model-configs/{config_id}")
+async def delete_model_config(
+    project_id: str,
+    config_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 删除;default 不可删(13004,需先指定新 default)"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "owner")
+    await model_config_service.delete_config(db, project, current_user, config_id)
+    return success(message="配置已删除")

@@ -19,6 +19,7 @@ from app.database import Base  # noqa: E402
 from app.models.user import User  # noqa: E402, F401
 from app.models.project import Project, ProjectRepo, PlatformSetting  # noqa: E402, F401
 from app.models.project_member import ProjectMember  # noqa: E402, F401
+from app.models.model_config import ModelConfig  # noqa: E402, F401
 
 # Alembic Config 对象
 config = context.config

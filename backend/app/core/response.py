@@ -56,6 +56,12 @@ class ErrCode:
     LAST_OWNER_UNREMOVABLE = 12004 # 不可移除/降级最后一个 owner
     TRANSFER_NON_MEMBER = 12005    # owner 转让给非成员
 
+    # R13 模型接入
+    LLM_CONNECT_FAILED = 13001     # base_url 不通/超时/401/404(连通性测试失败)
+    CONFIG_NAME_DUPLICATE = 13002  # 同项目下配置名重复
+    CONFIG_DEFAULT_EXISTS = 13003  # 同项目已有 default 配置
+    CONFIG_DEFAULT_UNDELETABLE = 13004  # 不可删除 default 配置
+
     # 权限
     NOT_SUPERADMIN = 19002            # 非平台超级管理员
     NO_PROJECT_PERMISSION = 1901      # 无项目操作权限(非 owner)

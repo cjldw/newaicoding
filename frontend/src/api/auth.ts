@@ -37,6 +37,7 @@ export interface ResetPasswordRequest {
 
 export interface UserInfo {
   id: number
+  user_id?: string  // 后端 login 返回的对外UUID(R13 项目内角色判定用)
   phone: string
   nickname: string
   avatar_url: string | null

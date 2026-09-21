@@ -334,3 +334,134 @@ export function useTransferOwnership() {
     },
   })
 }
+
+// ---- 模型配置(R13) ----
+export interface ModelConfig {
+  config_id: string
+  name: string
+  base_url: string
+  api_key_masked: string
+  model: string
+  is_default: boolean
+  enabled: boolean
+  created_by: {
+    user_id: string
+    username: string
+  }
+  created_at: string
+}
+
+export interface ModelConfigListResponse {
+  items: ModelConfig[]
+}
+
+export interface CreateModelConfigRequest {
+  name: string
+  base_url: string
+  api_key: string
+  model: string
+  is_default: boolean
+  enabled: boolean
+}
+
+export interface UpdateModelConfigRequest {
+  name?: string
+  base_url?: string
+  api_key?: string
+  model?: string
+  is_default?: boolean
+  enabled?: boolean
+}
+
+export interface TestModelConfigRequest {
+  base_url: string
+  api_key: string
+  model: string
+}
+
+export interface TestModelConfigResponse {
+  success: boolean
+  latency_ms: number
+}
+
+export const modelConfigsApi = {
+  list: (projectId: string) =>
+    api.get<ModelConfigListResponse>(`/projects/${projectId}/model-configs`),
+  create: (projectId: string, data: CreateModelConfigRequest) =>
+    api.post<ModelConfig>(`/projects/${projectId}/model-configs`, data),
+  update: (projectId: string, configId: string, data: UpdateModelConfigRequest) =>
+    api.patch<ModelConfig>(`/projects/${projectId}/model-configs/${configId}`, data),
+  delete: (projectId: string, configId: string) =>
+    api.delete<{ message: string }>(`/projects/${projectId}/model-configs/${configId}`),
+  test: (projectId: string, data: TestModelConfigRequest) =>
+    api.post<TestModelConfigResponse>(`/projects/${projectId}/model-configs/test`, data),
+}
+
+export const ModelConfigErrorCodes = {
+  CONNECTION_FAILED: 13001,
+  NAME_DUPLICATE: 13002,
+  DEFAULT_EXISTS: 13003,
+  CANNOT_DELETE_DEFAULT: 13004,
+} as const
+
+export function getModelConfigErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case 13001: return '连接失败,请检查 Base URL 和 API Key'
+      case 13002: return '配置名已存在'
+      case 13003: return '已有默认配置,请先取消原默认'
+      case 13004: return '不可删除默认配置,请先指定新默认'
+      default: return error.message
+    }
+  }
+  return '操作失败'
+}
+
+export function useModelConfigs(projectId: string) {
+  return useQuery({
+    queryKey: ['model-configs', projectId],
+    queryFn: () => modelConfigsApi.list(projectId).then(r => r.data),
+    enabled: !!projectId,
+  })
+}
+
+export function useCreateModelConfig() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: CreateModelConfigRequest }) =>
+      modelConfigsApi.create(projectId, data).then(r => r.data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['model-configs', variables.projectId] })
+    },
+  })
+}
+
+export function useUpdateModelConfig() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, configId, data }: {
+      projectId: string; configId: string; data: UpdateModelConfigRequest
+    }) => modelConfigsApi.update(projectId, configId, data).then(r => r.data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['model-configs', variables.projectId] })
+    },
+  })
+}
+
+export function useDeleteModelConfig() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectId, configId }: { projectId: string; configId: string }) =>
+      modelConfigsApi.delete(projectId, configId),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['model-configs', variables.projectId] })
+    },
+  })
+}
+
+export function useTestModelConfig() {
+  return useMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: TestModelConfigRequest }) =>
+      modelConfigsApi.test(projectId, data).then(r => r.data),
+  })
+}

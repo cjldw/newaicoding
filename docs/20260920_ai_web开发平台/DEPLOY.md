@@ -146,3 +146,32 @@ CREATE TABLE IF NOT EXISTS `users` (
 
 - **影响范围**:R12 成员管理接口;R2 项目接口权限判定升级(查看=成员,追加绑定仓库=editor+,其余 owner;超管=虚拟 owner 不落成员行);新增 GET /api/users/search(手机号精确搜索)
 - **回滚方案**:`DROP TABLE project_members;`(并回退 R2 接口权限判定相关代码)
+
+## 2026-09-22 R13 模型接入(项目级 url+key)
+
+- **类型**:数据库(alembic revision `d4f9a1e2b6c8`,down_revision `c2e8b4d7a910`)
+- **具体内容**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `model_configs` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `config_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `project_id` CHAR(36) NOT NULL COMMENT '项目 id',
+    `name` VARCHAR(64) NOT NULL COMMENT '配置名',
+    `base_url` VARCHAR(255) NOT NULL COMMENT 'OpenAI 兼容 endpoint',
+    `api_key_encrypted` TEXT NOT NULL COMMENT 'AES-GCM 加密的 api_key',
+    `model` VARCHAR(64) NOT NULL COMMENT '模型名',
+    `is_default` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否默认(同项目最多一个,服务层保证)',
+    `enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+    `created_by` CHAR(36) NOT NULL COMMENT '创建者 user_id',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_model_configs_config_id` (`config_id`),
+    UNIQUE KEY `uq_model_config_name` (`project_id`,`name`),
+    KEY `ix_model_configs_project_id` (`project_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目级模型配置表';
+  ```
+
+- **影响范围**:R13 模型配置接口(5 个);llm_service.resolve_config 供 R4/R5 任务执行消费;LLM_ENV_KEYS 契约供 R8 容器 env 注入消费
+- **回滚方案**:`DROP TABLE model_configs;`
