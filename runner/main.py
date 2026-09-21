@@ -120,6 +120,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
                 disk_limit=msg.get("disk_limit", "10g"),
             )
             running_repos[result["container_id"]] = msg.get("repos") or []
+            register_probe(result["container_id"], result["ports"])
             await send(ws, {
                 "type": "container_started",
                 "task_id": task_id,
@@ -133,6 +134,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
     elif mtype == "stop_container":
         container_id = msg.get("container_id", "")
         repos = running_repos.pop(container_id, [])
+        unregister_probe(container_id)
         push_ok = manager.stop_container(container_id, force_push=True, repos=repos)
         if push_ok:
             await send(ws, {"type": "container_stopped", "container_id": container_id})
@@ -173,6 +175,53 @@ async def heartbeat(ws: Any) -> None:
             await send(ws, {"type": "heartbeat", "timestamp": time.time()})
         except Exception:
             return
+
+
+async def port_prober(ws: Any) -> None:
+    """
+    R10 端口探测:每 3s 对运行中容器的映射端口做 TCP 连接探测,
+    监听 → port_listening;关闭 → port_closed(平台注册/摘除预览路由)。
+    """
+    probe_state: dict[tuple[str, int], bool] = {}  # (container_id, 容器端口) → 上次是否监听
+
+    while True:
+        await asyncio.sleep(3)
+        for container_id, info in list(running_probes.items()):
+            for container_port, host_port in info["ports"].items():
+                listening = _probe_port(host_port)
+                key = (container_id, container_port)
+                last = probe_state.get(key)
+                if listening and last is not True:
+                    await send(ws, {"type": "port_listening", "container_id": container_id, "port": container_port})
+                elif not listening and last is True:
+                    await send(ws, {"type": "port_closed", "container_id": container_id, "port": container_port})
+                probe_state[key] = listening
+
+
+def _probe_port(host_port: int, timeout: float = 0.5) -> bool:
+    """TCP 探测宿主机端口是否有监听"""
+    import socket
+
+    if not host_port:
+        return False
+    try:
+        with socket.create_connection(("127.0.0.1", host_port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+# 运行中容器的探测信息(容器 id → {容器端口: 宿主机端口});start 成功时登记
+running_probes: dict[str, dict[str, dict[int, int]]] = {}
+
+
+def register_probe(container_id: str, ports: dict[str, int]) -> None:
+    """start_container 成功后登记探测端口(容器端口 → 宿主机端口)"""
+    running_probes[container_id] = {"ports": {int(k): v for k, v in ports.items()}}
+
+
+def unregister_probe(container_id: str) -> None:
+    running_probes.pop(container_id, None)
 
 
 async def event_listener(ws: Any) -> None:
@@ -239,8 +288,9 @@ async def session() -> None:
         receive_task = asyncio.create_task(_receive_loop(ws))
         beat_task = asyncio.create_task(heartbeat(ws))
         event_task = asyncio.create_task(event_listener(ws))
+        probe_task = asyncio.create_task(port_prober(ws))
         done, pending = await asyncio.wait(
-            {receive_task, beat_task, event_task}, return_when=asyncio.FIRST_COMPLETED
+            {receive_task, beat_task, event_task, probe_task}, return_when=asyncio.FIRST_COMPLETED
         )
         for task in pending:
             task.cancel()

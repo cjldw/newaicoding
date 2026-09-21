@@ -221,6 +221,11 @@ async def handle_container_stopped(db: AsyncSession, docker_container_id: str) -
     container.destroyed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.flush()
 
+    # R10:容器销毁 → 摘除预览路由(URL 失效)
+    from app.services import route_service
+
+    await route_service.remove_routes_for_container(db, container.container_id)
+
     # 调度占用:-1(DB + 内存)
     await runner_service.adjust_container_count(db, container.runner_id, -1)
     conn = runner_registry.get(container.runner_id)

@@ -24,6 +24,7 @@ from app.models.skill import Skill, ProjectSkill  # noqa: E402, F401
 from app.models.container import Container  # noqa: E402, F401
 from app.models.runner import Runner  # noqa: E402, F401
 from app.models.terminal import TerminalSession  # noqa: E402, F401
+from app.models.route import Route  # noqa: E402, F401
 
 # Alembic Config 对象
 config = context.config

@@ -316,3 +316,35 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **前端依赖**:xterm@5.3.0 / xterm-addon-fit@0.8.0 / xterm-addon-web-links@0.6.0(package-lock 已更新)
 - **影响范围**:R9 终端全链路(REST 会话 + WS /ws/terminal/{session_id} + Runner pty);R4/R5 消费 terminal_service.push_ai_output 推送 SDK 事件回显
 - **回滚方案**:`DROP TABLE terminal_sessions;`(内存会话态自然消失)
+
+## 2026-09-22 R10 实时预览(仅任务内)
+
+- **类型**:数据库(alembic revision `c8e2a6d9f1b4`,down_revision `b3d7f9a1c5e2`)
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `routes` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `route_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `host` VARCHAR(255) NOT NULL COMMENT '匹配 Host(Host 精确匹配)',
+    `upstream` VARCHAR(255) NOT NULL COMMENT '上游 http://{runner_host}:{mapped_port}',
+    `type` ENUM('preview','deploy') NOT NULL DEFAULT 'preview' COMMENT '路由类型',
+    `task_id` CHAR(36) NULL COMMENT '任务 id',
+    `project_id` CHAR(36) NOT NULL COMMENT '项目 id',
+    `port` INT NOT NULL COMMENT '容器内端口',
+    `status` ENUM('active','inactive') NOT NULL DEFAULT 'inactive' COMMENT '状态',
+    `auth_required` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否需要鉴权',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_routes_route_id` (`route_id`),
+    UNIQUE KEY `uq_routes_host` (`host`),
+    KEY `ix_routes_task_id` (`task_id`),
+    KEY `ix_routes_project_id` (`project_id`),
+    KEY `ix_routes_type_status` (`type`,`status`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='网关路由表(R10 预览 / R15 网关 / R7 部署共用)';
+  ```
+
+- **影响范围**:R10 预览链路(Runner 端口探测回报 → 路由注册);R15 网关消费 route_service;R7 部署路由复用本表(type=deploy);容器销毁自动摘除预览路由
+- **上线动作**:预览/部署泛域名 `*.{preview_base_domain}` / `*.{deploy_base_domain}` DNS A 记录指向网关(R15)
+- **回滚方案**:`DROP TABLE routes;`

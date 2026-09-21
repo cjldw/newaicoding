@@ -68,6 +68,7 @@ from app.api.admin.skills import router as admin_skills_router
 from app.api.runner_ws import router as runner_ws_router
 from app.api.admin.runners import router as admin_runners_router
 from app.api.terminal import router as terminal_router
+from app.api.previews import router as previews_router
 
 # 配置日志
 logging.basicConfig(
@@ -163,6 +164,7 @@ app.include_router(admin_skills_router)
 app.include_router(runner_ws_router)
 app.include_router(admin_runners_router)
 app.include_router(terminal_router)
+app.include_router(previews_router)
 
 
 # -------------------------------------------------------------------

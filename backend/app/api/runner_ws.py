@@ -132,6 +132,26 @@ async def runner_ws(websocket: WebSocket):
                     msg.get("session_id", ""), "\r\n[进程已退出]\r\n", kind="output"
                 )
 
+            elif mtype == "port_listening":
+                # R10:端口监听 → 注册/激活预览路由
+                from app.services import preview_service
+
+                async with async_session_factory() as db:
+                    await preview_service.handle_port_listening(
+                        db, msg.get("container_id", ""), int(msg.get("port", 0))
+                    )
+                    await db.commit()
+
+            elif mtype == "port_closed":
+                # R10:端口关闭 → 路由 inactive
+                from app.services import preview_service
+
+                async with async_session_factory() as db:
+                    await preview_service.handle_port_closed(
+                        db, msg.get("container_id", ""), int(msg.get("port", 0))
+                    )
+                    await db.commit()
+
             else:
                 logger.warning("Runner 未知消息类型 runner=%s type=%s", runner.runner_id, mtype)
 
