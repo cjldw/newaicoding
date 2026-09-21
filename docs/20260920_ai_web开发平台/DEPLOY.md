@@ -217,3 +217,40 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **容器镜像**:`docker/devbox/Dockerfile`(预装 5 个 MCP server + 3 个官方 Skills 到 `/home/codespace/.claude/skills/`),上线时构建 `platform/devbox:v1` 并推送镜像仓库
 - **影响范围**:R17 全部接口;R8 任务创建时消费 `mcp_service.get_decrypted_config` 与 `skill_service.list_project_skill_contents` 注入容器
 - **回滚方案**:`DROP TABLE project_skills; DROP TABLE skills;`(顺序不可反);镜像回退旧 tag
+
+## 2026-09-22 R8 任务级容器(执行沙箱,Runner 架构)
+
+- **类型**:数据库(alembic revision `f6b9d2e4a1c3`,down_revision `e5a8c3f1d2b7`)+ 新组件(Runner)
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `containers` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `container_id` VARCHAR(64) NOT NULL COMMENT 'Runner 上的 docker id',
+    `task_id` CHAR(36) NULL COMMENT '任务 id(部署中容器可空)',
+    `runner_id` CHAR(36) NOT NULL COMMENT '运行该容器的 Runner id',
+    `project_id` CHAR(36) NOT NULL COMMENT '项目 id',
+    `status` ENUM('creating','running','stopped','failed','destroyed') NOT NULL DEFAULT 'creating' COMMENT '状态',
+    `image` VARCHAR(255) NOT NULL DEFAULT 'platform/devbox:v1' COMMENT '镜像',
+    `cpu_limit` VARCHAR(16) NOT NULL DEFAULT '2c' COMMENT 'CPU 限制',
+    `mem_limit` VARCHAR(16) NOT NULL DEFAULT '4g' COMMENT '内存限制',
+    `disk_limit` VARCHAR(16) NOT NULL DEFAULT '10g' COMMENT '磁盘限制',
+    `exposed_ports` JSON NOT NULL COMMENT '容器内端口列表 [5173, 8000]',
+    `runner_host_port_5173` BIGINT UNSIGNED NULL COMMENT '映射到 5173 的宿主机端口',
+    `runner_host_port_8000` BIGINT UNSIGNED NULL COMMENT '映射到 8000 的宿主机端口',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `destroyed_at` DATETIME NULL COMMENT '销毁时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_containers_container_id` (`container_id`),
+    KEY `ix_containers_task_id` (`task_id`),
+    KEY `ix_containers_runner_id` (`runner_id`),
+    KEY `ix_containers_project_id` (`project_id`),
+    KEY `ix_containers_status` (`status`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='任务容器表';
+  ```
+
+- **新组件**:仓库 `runner/` 目录(Runner 主进程 + Docker SDK 容器管理);依赖 `docker`/`websockets`(仅 Runner 机器安装,见 runner/requirements.txt,不入平台 pyproject)
+- **配置新增**:`RUNNER_TOKEN`(Runner 接入共享密钥,R8 最小版,R16 升级 per-runner token);`RUNNER_PORT_RANGE_*`(端口映射范围)
+- **影响范围**:R8 平台调度/回报处理;R4 任务执行将调用 `container_service.schedule_and_start`;网关(R15)直连 `runner_host:mapped_port`
+- **上线动作**:① 构建镜像 `platform/devbox:v1`(docker/devbox/Dockerfile)推仓库;② Runner 机器部署 runner/ 并配置 PLATFORM_URL/RUNNER_TOKEN/RUNNER_ID/RUNNER_ROLE/RUNNER_HOST
+- **回滚方案**:`DROP TABLE containers;`;Runner 停进程即可(平台标记 Runner offline)

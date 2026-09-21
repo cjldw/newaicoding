@@ -67,6 +67,11 @@ class ErrCode:
     SKILL_ALREADY_INSTALLED = 17002  # 已安装过该 Skill
     SKILL_FORMAT_INVALID = 17003   # Skill .md 格式错误(缺 frontmatter name/description)
 
+    # R8 容器
+    USER_CONTAINER_LIMIT = 8001     # 单用户同时运行容器超限(≤5)
+    PLATFORM_CONTAINER_LIMIT = 8002 # 平台总容器数超限
+    NO_RUNNER_AVAILABLE = 8003      # 无可用 Runner(离线/角色不匹配)
+
     # 权限
     NOT_SUPERADMIN = 19002            # 非平台超级管理员
     NO_PROJECT_PERMISSION = 1901      # 无项目操作权限(非 owner)

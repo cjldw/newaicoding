@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     LOGIN_MAX_WRONG_ATTEMPTS: int = 5
     LOGIN_LOCK_MINUTES: int = 10
 
+    # Runner 接入共享密钥(R8 最小版;R16 升级为 per-runner 注册 token)
+    RUNNER_TOKEN: str = "change-me-runner-token"
+    # Runner 宿主机端口映射范围(D20)
+    RUNNER_PORT_RANGE_START: int = 20000
+    RUNNER_PORT_RANGE_END: int = 29999
+
     # 环境
     ENVIRONMENT: str = "development"
 
