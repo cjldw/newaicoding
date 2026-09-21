@@ -7,6 +7,10 @@ USER root
 # Claude CLI
 RUN npm install -g @anthropic-ai/claude-code
 
+# inotify-tools(R11 文件 watcher)
+RUN apt-get update && apt-get install -y --no-install-recommends inotify-tools \
+    && rm -rf /var/lib/apt/lists/*
+
 # 预装高频 Python 包
 RUN pip3 install --break-system-packages \
     fastapi uvicorn sqlalchemy pytest requests httpx

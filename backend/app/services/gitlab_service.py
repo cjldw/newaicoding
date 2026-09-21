@@ -364,3 +364,64 @@ async def bot_test_connection(bot_token: str, gitlab_url: str) -> dict:
         return {"ok": False, "version": None, "message": f"连接失败:{e}"}
     finally:
         await client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# R11 项目模式:仓库浏览(GitLab API,bot token;只读)
+# ---------------------------------------------------------------------------
+async def bot_get_tree(bot_token: str, gitlab_url: str, repo_id: int,
+                       ref: str, path: str) -> list:
+    """
+    仓库文件树:GET /api/v4/projects/{id}/repository/tree?ref&path(单层)
+    失败(分支/路径不存在)抛 BizError。
+    """
+    from app.core.response import BizError
+
+    client = _get_client()
+    try:
+        resp = await client.get(
+            f"{gitlab_url.rstrip('/')}/api/v4/projects/{repo_id}/repository/tree",
+            headers=_bot_headers(bot_token),
+            params={"ref": ref, "path": path or "", "per_page": 100},
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        if resp.status_code == 404:
+            return []
+        logger.warning("GitLab tree 失败 repo=%s %s: %s", repo_id, resp.status_code, resp.text[:200])
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "无法加载,请稍后重试")
+    except httpx.HTTPError as e:
+        logger.warning("GitLab tree 连接失败: %s", e)
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "无法加载,请稍后重试")
+    finally:
+        await client.aclose()
+
+
+async def bot_get_file(bot_token: str, gitlab_url: str, repo_id: int, ref: str, path: str) -> dict:
+    """
+    文件内容:GET /api/v4/projects/{id}/repository/files/{encoded path}?ref=
+    返回 GitLab JSON(content=base64,size);404 → BizError(404)。
+    """
+    from urllib.parse import quote
+
+    from app.core.response import BizError
+
+    encoded = quote(path, safe="")
+    client = _get_client()
+    try:
+        resp = await client.get(
+            f"{gitlab_url.rstrip('/')}/api/v4/projects/{repo_id}/repository/files/{encoded}",
+            headers=_bot_headers(bot_token),
+            params={"ref": ref},
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        if resp.status_code == 404:
+            raise BizError(404, "文件不存在", status_code=404)
+        logger.warning("GitLab file 失败 %s: %s", path, resp.status_code)
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "无法加载,请稍后重试")
+    except httpx.HTTPError as e:
+        logger.warning("GitLab file 连接失败: %s", e)
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "无法加载,请稍后重试")
+    finally:
+        await client.aclose()

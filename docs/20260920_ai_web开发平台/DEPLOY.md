@@ -348,3 +348,11 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **影响范围**:R10 预览链路(Runner 端口探测回报 → 路由注册);R15 网关消费 route_service;R7 部署路由复用本表(type=deploy);容器销毁自动摘除预览路由
 - **上线动作**:预览/部署泛域名 `*.{preview_base_domain}` / `*.{deploy_base_domain}` DNS A 记录指向网关(R15)
 - **回滚方案**:`DROP TABLE routes;`
+
+## 2026-09-22 R11 在线编辑器(双模式)
+
+- **类型**:前端依赖(无数据库变更——文件树/内容实时读容器或 GitLab API,无持久化)
+- **前端依赖**:@monaco-editor/react / react-diff-viewer-continued(package-lock 已更新)
+- **容器镜像变更**:docker/devbox/Dockerfile 追加 `inotify-tools`(R11 文件 watcher 依赖;未装则 watcher 静默降级,前端手动刷新兜底)——需重新构建 `platform/devbox:v1`
+- **影响范围**:R11 文件 API 8 个(项目模式只读 GitLab 浏览/任务模式容器文件 CRUD/Diff/变更清单 Q27/watcher WS 频道);Runner 新增 file_manager 消息处理(file_list/read_file/write_file/file_op/git_diff/git_changes,req_id 请求-响应协议)
+- **回滚方案**:无 DB 回滚;镜像回退旧 tag(watcher 降级不影响主流程)

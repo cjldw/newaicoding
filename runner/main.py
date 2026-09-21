@@ -26,6 +26,7 @@ from typing import Any
 import websockets
 
 from container_manager import ContainerManager
+from file_watcher import FileWatcher
 from terminal_manager import TerminalManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -40,6 +41,7 @@ HEARTBEAT_INTERVAL = 30  # 秒(D13:30s 心跳;平台 60s 未收到判 offline)
 
 manager = ContainerManager()
 terminals = TerminalManager()
+watchers = FileWatcher()
 
 # 运行中的 repo 清单(停止容器时强制 push 需要;容器 id → repos)
 running_repos: dict[str, list[dict]] = {}
@@ -102,6 +104,23 @@ async def send(ws: Any, payload: dict) -> None:
     await ws.send(json.dumps(payload, ensure_ascii=False))
 
 
+async def send_result(ws: Any, req_id: str, ok: bool, data=None, error: str = "") -> None:
+    """请求-响应结算(R11 文件操作)"""
+    await send(ws, {"type": "result", "req_id": req_id, "ok": ok, "data": data, "error": error})
+
+
+def _watcher_event_callback(ws: Any):
+    """watcher 事件 → 转发平台(R11)"""
+
+    def callback(task_id: str, kind: str, path: str):
+        if _MAIN_LOOP is not None:
+            asyncio.run_coroutine_threadsafe(
+                send(ws, {"type": kind, "task_id": task_id, "path": path}), _MAIN_LOOP
+            )
+
+    return callback
+
+
 async def handle_message(ws: Any, msg: dict) -> None:
     """处理平台指令"""
     mtype = msg.get("type")
@@ -121,6 +140,8 @@ async def handle_message(ws: Any, msg: dict) -> None:
             )
             running_repos[result["container_id"]] = msg.get("repos") or []
             register_probe(result["container_id"], result["ports"])
+            # R11:启动文件 watcher(AI/人修改 → 平台 → 编辑器实时刷新)
+            watchers.start(result["container_id"], task_id, manager, _watcher_event_callback(ws))
             await send(ws, {
                 "type": "container_started",
                 "task_id": task_id,
@@ -135,6 +156,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
         container_id = msg.get("container_id", "")
         repos = running_repos.pop(container_id, [])
         unregister_probe(container_id)
+        watchers.stop(container_id)
         push_ok = manager.stop_container(container_id, force_push=True, repos=repos)
         if push_ok:
             await send(ws, {"type": "container_stopped", "container_id": container_id})
@@ -163,6 +185,37 @@ async def handle_message(ws: Any, msg: dict) -> None:
         session_id = msg.get("session_id", "")
         terminals.kill(session_id)
         await send(ws, {"type": "exec_closed", "session_id": session_id})
+
+    elif mtype in ("file_list", "read_file", "write_file", "file_op", "git_diff", "git_changes"):
+        # R11 容器文件操作(带 req_id 的请求-响应)
+        req_id = msg.get("req_id", "")
+        container_id = msg.get("container_id", "")
+        try:
+            if mtype == "file_list":
+                data = {"items": manager.list_dir(container_id, msg.get("path", "/workspace/main"))}
+            elif mtype == "read_file":
+                data = {"content": manager.read_file(container_id, msg.get("path", ""))}
+            elif mtype == "write_file":
+                manager.write_file(container_id, msg.get("path", ""), msg.get("content", ""))
+                data = {}
+            elif mtype == "file_op":
+                manager.file_op(
+                    container_id, msg.get("operation", ""),
+                    msg.get("path", ""), msg.get("new_path"),
+                    base_branch=msg.get("base_branch", "master"),
+                )
+                data = {}
+            elif mtype == "git_diff":
+                data = {"files": manager.git_diff(
+                    container_id, msg.get("repo_path", "/workspace/main"),
+                    msg.get("base_branch", ""))}
+            else:  # git_changes
+                data = {"files": manager.git_changes(
+                    container_id, msg.get("repo_path", "/workspace/main"),
+                    msg.get("base_branch", "master"))}
+            await send_result(ws, req_id, True, data)
+        except Exception as e:
+            await send_result(ws, req_id, False, error=str(e))
 
     else:
         logger.warning("未知指令 type=%s", mtype)

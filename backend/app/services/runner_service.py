@@ -118,6 +118,40 @@ def build_stop_container_message(container_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 请求-响应关联(R11 文件操作等需要回值的指令)
+# Runner 收到带 req_id 的消息,执行后回报 {"type":"result","req_id","ok","data"};
+# 平台侧 pending Future 表在此结算。
+# ---------------------------------------------------------------------------
+_pending_requests: dict[str, asyncio.Future] = {}
+
+
+async def request_runner(conn: RunnerConnection, message: dict, timeout: float = 15.0) -> dict:
+    """下发指令并等待 Runner 结果(超时抛 TimeoutError)"""
+    req_id = uuid.uuid4().hex
+    message = {**message, "req_id": req_id}
+    loop = asyncio.get_running_loop()
+    fut = loop.create_future()
+    _pending_requests[req_id] = fut
+    try:
+        await send_to_runner(conn, message)
+        return await asyncio.wait_for(fut, timeout)
+    finally:
+        _pending_requests.pop(req_id, None)
+
+
+def resolve_request(req_id: str, ok: bool, data=None, error: str = "") -> bool:
+    """Runner 回报结算 pending Future(无匹配 req_id 返回 False)"""
+    fut = _pending_requests.get(req_id)
+    if fut is None or fut.done():
+        return False
+    if ok:
+        fut.set_result({"ok": True, "data": data})
+    else:
+        fut.set_result({"ok": False, "error": error, "data": None})
+    return True
+
+
+# ---------------------------------------------------------------------------
 # R16:Runner 管理(超管)
 # ---------------------------------------------------------------------------
 def _generate_token() -> str:

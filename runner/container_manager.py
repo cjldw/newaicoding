@@ -185,11 +185,155 @@ class ContainerManager:
             return "restart_failed"
         return None
 
+    def exec_capture(self, container_id: str, cmd: str, workdir: str = None) -> tuple[int, bytes]:
+        """
+        容器内执行命令并采集输出(R11 文件操作):
+        返回 (exit_code, output bytes);不抛异常,由调用方判码。
+        """
+        container = self.client.containers.get(container_id)
+        cmd_args = ["bash", "-lc", cmd]
+        if workdir:
+            cmd_args = ["bash", "-lc", f"cd {workdir} 2>/dev/null || exit 9; {cmd}"]
+        code, output = container.exec_run(cmd_args)
+        return code, output if isinstance(output, bytes) else str(output).encode()
+
+    def read_file(self, container_id: str, path: str) -> str:
+        """读文件(base64 传输,规避二进制/转义问题);>2MB 或失败抛错"""
+        code, out = self.exec_capture(container_id, f"base64 -w0 {path}")
+        if code != 0:
+            raise RuntimeError(f"读取失败({code}): {path}")
+        import base64
+
+        raw = base64.b64decode(out)
+        if len(raw) > 2 * 1024 * 1024:
+            raise RuntimeError("文件超过 2MB")
+        return raw.decode("utf-8", errors="replace")
+
+    def write_file(self, container_id: str, path: str, content: str) -> None:
+        """写文件(base64 解码落盘;自动建父目录)"""
+        import base64
+
+        b64 = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        code, out = self.exec_capture(
+            container_id,
+            f"mkdir -p $(dirname {path}) && echo {b64} | base64 -d > {path}",
+        )
+        if code != 0:
+            raise RuntimeError(f"写入失败({code}): {path} {out.decode(errors='ignore')[:200]}")
+
+    def list_dir(self, container_id: str, path: str) -> list[dict]:
+        """列目录(find 单层;y=time 返回值转 ISO 由平台格式化)"""
+        code, out = self.exec_capture(
+            container_id,
+            f"find {path} -maxdepth 1 -mindepth 1 -printf '%y\\t%s\\t%T@\\t%P\\n' 2>/dev/null | sort",
+        )
+        items = []
+        for line in out.decode(errors="ignore").splitlines():
+            parts = line.split("\t", 3)
+            if len(parts) != 4:
+                continue
+            ftype, size, mtime, rel = parts
+            items.append({
+                "path": rel,
+                "type": "tree" if ftype == "d" else "file",
+                "size": int(float(size)),
+                "mtime": float(mtime),
+            })
+        return items
+
+    def file_op(self, container_id: str, operation: str, path: str, new_path: str = None,
+                base_branch: str = "master") -> None:
+        """文件操作:create(touch)/delete(rm -rf)/rename(mv)/revert(git checkout base -- path)"""
+        if operation == "create":
+            code, out = self.exec_capture(container_id, f"mkdir -p $(dirname {path}) && touch {path}")
+        elif operation == "delete":
+            code, out = self.exec_capture(container_id, f"rm -rf {path}")
+        elif operation == "rename":
+            code, out = self.exec_capture(container_id, f"mkdir -p $(dirname {new_path}) && mv {path} {new_path}")
+        elif operation == "revert":
+            code, out = self.exec_capture(
+                container_id, f"git checkout {base_branch} -- {path}", workdir=str(path).split("/src")[0] or None
+            )
+        else:
+            raise RuntimeError(f"未知操作: {operation}")
+        if code != 0:
+            raise RuntimeError(f"操作失败({code}): {operation} {path} {out.decode(errors='ignore')[:200]}")
+
+    def git_diff(self, container_id: str, repo_path: str, base_branch: str) -> list[dict]:
+        """逐文件 unified diff(git diff -U3 base;含未 commit)"""
+        code, out = self.exec_capture(
+            container_id,
+            f"git diff -U3 --no-color {base_branch} -- . || git diff -U3 --no-color HEAD -- .",
+            workdir=repo_path,
+        )
+        text = out.decode(errors="ignore")
+        if code != 0 and not text.strip():
+            return []
+        return _parse_unified_diff(text)
+
+    def git_changes(self, container_id: str, repo_path: str, base_branch: str) -> list[dict]:
+        """
+        Q27 变更清单:git diff --numstat --name-status {base}
+        numstat 与 name-status 同序逐行配对;R 行附 old_path。
+        """
+        code_num, out_num = self.exec_capture(
+            container_id, f"git diff --numstat {base_branch} -- .", workdir=repo_path)
+        code_name, out_name = self.exec_capture(
+            container_id, f"git diff --name-status {base_branch} -- .", workdir=repo_path)
+        if code_num != 0 or code_name != 0:
+            return []
+
+        num_lines = [ln.split("\t") for ln in out_num.decode(errors="ignore").splitlines() if ln.strip()]
+        name_lines = [ln.split("\t") for ln in out_name.decode(errors="ignore").splitlines() if ln.strip()]
+
+        files: list[dict] = []
+        for i, nums in enumerate(num_lines):
+            if len(nums) < 3:
+                continue
+            additions, deletions, path = nums[0], nums[1], nums[2]
+            status = name_lines[i][0][:1] if i < len(name_lines) else "M"
+            entry = {
+                "path": path.split(" => ")[-1] if " => " in path else path,
+                "status": status,
+                "additions": 0 if additions == "-" else int(additions),
+                "deletions": 0 if deletions == "-" else int(deletions),
+            }
+            # R 重命名:name-status 行为 R100\told\tnew(tab 分隔两个路径)
+            if status == "R" and i < len(name_lines) and len(name_lines[i]) >= 3:
+                entry["old_path"] = name_lines[i][1]
+            files.append(entry)
+        return files
+
     def iter_events(self) -> Any:
         """阻塞迭代 Docker events(只关注容器 start/die/oom)"""
         for event in self.client.events(decode=True):
             if event.get("Type") == "container" and event.get("Action") in ("start", "die", "oom"):
                 yield event
+
+
+def _parse_unified_diff(text: str) -> list[dict]:
+    """unified diff 文本 → 逐文件 [{path, status, diff}](R11 Diff 视图)"""
+    files: list[dict] = []
+    current: dict | None = None
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("--- a/") or line.startswith("--- /dev/"):
+            # 新文件块开始(+++ 在下一行)
+            old = line[6:] if line.startswith("--- a/") else ""
+            new_line = lines[i + 1] if i + 1 < len(lines) else ""
+            new = new_line[6:] if new_line.startswith("+++ b/") else ("/dev/null" if new_line.startswith("+++ /dev/") else "")
+            path = new if new not in ("", "/dev/null") else old
+            status = "deleted" if new == "/dev/null" else ("added" if old == "" else "modified")
+            current = {"path": path, "status": status, "diff": ""}
+            files.append(current)
+            i += 2
+            continue
+        if current is not None:
+            current["diff"] += line + "\n"
+        i += 1
+    return files
 
 
 def _cpu_limit_to_nano_cpus(cpu_limit: str) -> int:

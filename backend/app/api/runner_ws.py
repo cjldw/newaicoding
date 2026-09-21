@@ -152,6 +152,22 @@ async def runner_ws(websocket: WebSocket):
                     )
                     await db.commit()
 
+            elif mtype == "result":
+                # R11 请求-响应结算(文件操作等)
+                runner_service.resolve_request(
+                    msg.get("req_id", ""), bool(msg.get("ok")),
+                    data=msg.get("data"), error=msg.get("error", ""),
+                )
+
+            elif mtype in ("file_changed", "file_deleted"):
+                # R11 文件 watcher → 前端任务频道
+                from app.services.file_service import file_watcher_registry
+
+                await file_watcher_registry.broadcast(msg.get("task_id", ""), {
+                    "type": mtype,
+                    "path": msg.get("path", ""),
+                })
+
             else:
                 logger.warning("Runner 未知消息类型 runner=%s type=%s", runner.runner_id, mtype)
 
