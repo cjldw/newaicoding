@@ -72,6 +72,9 @@ class ErrCode:
     PLATFORM_CONTAINER_LIMIT = 8002 # 平台总容器数超限
     NO_RUNNER_AVAILABLE = 8003      # 无可用 Runner(离线/角色不匹配)
 
+    # R16 Runner
+    RUNNER_HAS_CONTAINERS = 16001  # Runner 上有运行中容器,不可删除
+
     # 权限
     NOT_SUPERADMIN = 19002            # 非平台超级管理员
     NO_PROJECT_PERMISSION = 1901      # 无项目操作权限(非 owner)

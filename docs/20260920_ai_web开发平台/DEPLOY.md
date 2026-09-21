@@ -254,3 +254,37 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **影响范围**:R8 平台调度/回报处理;R4 任务执行将调用 `container_service.schedule_and_start`;网关(R15)直连 `runner_host:mapped_port`
 - **上线动作**:① 构建镜像 `platform/devbox:v1`(docker/devbox/Dockerfile)推仓库;② Runner 机器部署 runner/ 并配置 PLATFORM_URL/RUNNER_TOKEN/RUNNER_ID/RUNNER_ROLE/RUNNER_HOST
 - **回滚方案**:`DROP TABLE containers;`;Runner 停进程即可(平台标记 Runner offline)
+
+## 2026-09-22 R16 Runner 管理(分布式容器执行)
+
+- **类型**:数据库(alembic revision `a9c1e5f7b2d4`,down_revision `f6b9d2e4a1c3`)+ 配置变更
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `runners` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `runner_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `name` VARCHAR(64) NOT NULL COMMENT 'Runner 名',
+    `role` ENUM('worker','deploy') NOT NULL DEFAULT 'worker' COMMENT '角色',
+    `token_hash` VARCHAR(255) NOT NULL COMMENT 'Runner token bcrypt hash(不存明文)',
+    `status` ENUM('online','offline','disabled') NOT NULL DEFAULT 'offline' COMMENT '状态',
+    `last_heartbeat_at` DATETIME NULL COMMENT '最后心跳时间',
+    `machine_info` JSON NULL COMMENT '{os,arch,cpu_count,mem_total_gb,docker_version}',
+    `current_containers` INT NOT NULL DEFAULT 0 COMMENT '当前运行容器数',
+    `max_containers` INT NOT NULL DEFAULT 10 COMMENT '最大容器数',
+    `public_ip` VARCHAR(64) NULL COMMENT 'deploy Runner 公网 IP',
+    `created_by` CHAR(36) NOT NULL COMMENT '创建者超管 user_id',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_runners_runner_id` (`runner_id`),
+    UNIQUE KEY `uq_runners_name` (`name`),
+    KEY `ix_runners_role` (`role`),
+    KEY `ix_runners_status` (`status`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runner 注册表';
+  ```
+
+- **配置变更**:`RUNNER_TOKEN` 共享密钥已废弃(R8 过渡方案)——改为超管在 Runner 管理页创建 per-runner token(plt-runner-*,bcrypt 存储,仅显示一次);部署 Runner 时使用新流程
+- **镜像**:`docker/runner/Dockerfile` 构建 `platform/runner:v1`
+- **影响范围**:R8 调度切换为 DB 注册表(pick_runner_db);WS /ws/runner 注册协议升级(token+machine_info 注册/心跳时间戳/恢复对账 sync);main.py 增加每 60s 心跳超时巡检任务
+- **回滚方案**:`DROP TABLE runners;` + 回退 R8 版 WS 鉴权代码

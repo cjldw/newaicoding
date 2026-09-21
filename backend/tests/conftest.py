@@ -66,6 +66,7 @@ async def engine():
     from app.models.model_config import ModelConfig  # noqa: F401 — R13 表注册
     from app.models.skill import Skill, ProjectSkill  # noqa: F401 — R17 表注册
     from app.models.container import Container  # noqa: F401 — R8 表注册
+    from app.models.runner import Runner  # noqa: F401 — R16 表注册
 
     # 确保表存在(create_all 是幂等的,已存在则跳过)
     async with app_engine.begin() as conn:
@@ -92,6 +93,7 @@ async def db_session(engine):
     from app.models.model_config import ModelConfig
     from app.models.skill import Skill, ProjectSkill
     from app.models.container import Container
+    from app.models.runner import Runner
     from app.database import async_session_factory
 
     # 使用 app 的 session factory 创建 session
@@ -107,6 +109,7 @@ async def db_session(engine):
         await session.execute(delete(ProjectRepo))
         await session.execute(delete(Project))
         await session.execute(delete(Container))
+        await session.execute(delete(Runner))
         await session.execute(User.__table__.delete())
         await session.commit()
 

@@ -92,19 +92,23 @@ async def schedule_and_start(
     # ---- 配额 ----
     await check_quotas(db, owner_user_id)
 
-    # ---- 调度 ----
-    conn = runner_registry.pick_runner(required_role)
-    if conn is None:
+    # ---- 调度(R16:DB 注册表;最少负载 + role 匹配) ----
+    runner = await runner_service.pick_runner_db(db, required_role)
+    if runner is None:
         raise BizError(
             ErrCode.NO_RUNNER_AVAILABLE,
             "无可用 Runner" if required_role == "general" else "无可用部署 Runner",
         )
+    conn = runner_registry.get(runner.runner_id)
+    if conn is None:
+        # DB 在线但连接不在(Runner 刚断开):按无可用处理
+        raise BizError(ErrCode.NO_RUNNER_AVAILABLE, "无可用 Runner")
 
     # ---- 登记 ----
     container = Container(
         container_id=f"pending-{task_id or project_id}-{id(conn)}",
         task_id=task_id,
-        runner_id=conn.runner_id,
+        runner_id=runner.runner_id,
         project_id=project_id,
         status="creating",
         image=image,
@@ -133,11 +137,14 @@ async def schedule_and_start(
         container.status = "failed"
         container.destroyed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await db.flush()
-        logger.warning("start_container 下发失败 runner=%s: %s", conn.runner_id, e)
+        logger.warning("start_container 下发失败 runner=%s: %s", runner.runner_id, e)
         raise BizError(ErrCode.NO_RUNNER_AVAILABLE, "Runner 指令下发失败")
 
-    conn.load += 1
-    logger.info("容器指令已下发 container=%s runner=%s", container.container_id, conn.runner_id)
+    # 调度占用:+1(DB);stopped/die→failed 时 -1
+    runner.current_containers = (runner.current_containers or 0) + 1
+    conn.load = runner.current_containers
+    await db.flush()
+    logger.info("容器指令已下发 container=%s runner=%s", container.container_id, runner.runner_id)
     return container
 
 
@@ -214,6 +221,8 @@ async def handle_container_stopped(db: AsyncSession, docker_container_id: str) -
     container.destroyed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.flush()
 
+    # 调度占用:-1(DB + 内存)
+    await runner_service.adjust_container_count(db, container.runner_id, -1)
     conn = runner_registry.get(container.runner_id)
     if conn is not None and conn.load > 0:
         conn.load -= 1
@@ -243,4 +252,6 @@ async def handle_container_event(
         container.status = "failed"
         if exit_code is not None:
             logger.warning("容器异常退出 container=%s exit=%s", docker_container_id, exit_code)
+        # 调度占用释放(die→failed 不再占用;重启场景由 Runner 重新回报 started 补偿)
+        await runner_service.adjust_container_count(db, container.runner_id, -1)
     await db.flush()

@@ -1,20 +1,21 @@
-"""Runner WebSocket 端点 - R8(/ws/runner)
+"""Runner WebSocket 端点 - R16(/ws/runner)
 
-鉴权(R8 最小版):连接时 query/header 携带共享 token(settings.RUNNER_TOKEN);
-R16 升级为 per-runner 注册 token 与 runners 表。
+鉴权:连接开放后首条 register 携带一次性 token,平台 bcrypt 比对 runners.token_hash
+(R8 的共享 RUNNER_TOKEN 已废弃);disabled/无匹配 → 关闭连接。
 
-消息流:首条必须 register {runner_id, role?};后续 heartbeat /
-container_started / container_stopped / container_event。
+消息流:register(token, machine_info) → register_success(runner_id)
+后续:heartbeat(timestamp,±30s 容忍/>5min 拒绝) / sync(容器列表对账) /
+container_started / container_stopped / container_event /
+docker_daemon_unavailable(Runner 标 offline)。
 """
 
 import logging
 import time
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.config import settings
 from app.database import async_session_factory
-from app.services import container_service
+from app.services import container_service, runner_service
 from app.services.runner_service import runner_registry
 
 logger = logging.getLogger(__name__)
@@ -22,36 +23,37 @@ router = APIRouter()
 
 
 @router.websocket("/ws/runner")
-async def runner_ws(
-    websocket: WebSocket,
-    token: str = Query(default=""),
-):
-    # ---- 鉴权(共享密钥;失败直接关闭) ----
-    if token != settings.RUNNER_TOKEN:
-        logger.warning("Runner 鉴权失败 token=%s…", token[:6])
-        await websocket.close(code=4001)
-        return
-
+async def runner_ws(websocket: WebSocket):
     await websocket.accept()
 
-    # ---- 首条 register ----
+    # ---- 首条 register(token + machine_info) ----
     try:
         first = await websocket.receive_json()
     except WebSocketDisconnect:
         return
-    if first.get("type") != "register" or not first.get("runner_id"):
+    if first.get("type") != "register":
         await websocket.close(code=4002)
         return
 
-    host = first.get("host") or (websocket.client.host if websocket.client else "")
+    async with async_session_factory() as db:
+        runner = await runner_service.handle_register(
+            db, first.get("token", ""), first.get("machine_info")
+        )
+        await db.commit()
+
+    if runner is None:
+        await websocket.send_json({"type": "register_failed", "error": "token 无效或 Runner 已禁用"})
+        await websocket.close(code=4001)
+        return
+
     conn = runner_registry.register(
-        runner_id=first["runner_id"],
-        role=first.get("role", "general"),
+        runner_id=runner.runner_id,
+        role=runner.role,
         websocket=websocket,
-        host=host,
+        host=first.get("host") or (websocket.client.host if websocket.client else ""),
     )
     conn.last_heartbeat_ts = time.time()
-    await websocket.send_json({"type": "register_ack", "ok": True})
+    await websocket.send_json({"type": "register_success", "runner_id": runner.runner_id})
 
     # ---- 消息循环 ----
     try:
@@ -60,7 +62,21 @@ async def runner_ws(
             mtype = msg.get("type")
 
             if mtype == "heartbeat":
+                async with async_session_factory() as db:
+                    fresh = await runner_service.get_runner_or_404(db, runner.runner_id)
+                    ok = await runner_service.handle_heartbeat(db, fresh, msg.get("timestamp"))
+                    await db.commit()
                 conn.last_heartbeat_ts = time.time()
+                if not ok:
+                    await websocket.close(code=4006)  # 时钟漂移 > 5min
+                    break
+
+            elif mtype == "sync":
+                # Runner 恢复后对账(以 Runner 上报为准)
+                async with async_session_factory() as db:
+                    fresh = await runner_service.get_runner_or_404(db, runner.runner_id)
+                    await runner_service.handle_sync(db, fresh, msg.get("containers") or [])
+                    await db.commit()
 
             elif mtype == "container_started":
                 async with async_session_factory() as db:
@@ -80,6 +96,15 @@ async def runner_ws(
                     await db.commit()
 
             elif mtype == "container_event":
+                # docker_daemon_unavailable → Runner 置 offline(不再调度)
+                if msg.get("event") == "docker_daemon_unavailable":
+                    async with async_session_factory() as db:
+                        fresh = await runner_service.get_runner_or_404(db, runner.runner_id)
+                        fresh.status = "offline"
+                        await db.commit()
+                    runner_registry.unregister(runner.runner_id)
+                    logger.warning("Runner docker daemon 不可用 → offline runner=%s", runner.runner_id)
+                    continue
                 async with async_session_factory() as db:
                     await container_service.handle_container_event(
                         db,
@@ -90,11 +115,11 @@ async def runner_ws(
                     await db.commit()
 
             else:
-                logger.warning("Runner 未知消息类型 runner=%s type=%s", conn.runner_id, mtype)
+                logger.warning("Runner 未知消息类型 runner=%s type=%s", runner.runner_id, mtype)
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        logger.exception("Runner 连接异常 runner=%s: %s", conn.runner_id, e)
+        logger.exception("Runner 连接异常 runner=%s: %s", runner.runner_id, e)
     finally:
-        runner_registry.unregister(conn.runner_id)
+        runner_registry.unregister(runner.runner_id)

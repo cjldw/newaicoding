@@ -26,6 +26,7 @@ import { ProjectCreate } from '@/pages/projects/ProjectCreate'
 import { ProjectDetail } from '@/pages/projects/ProjectDetail'
 import { PlatformSettings } from '@/pages/admin/PlatformSettings'
 import { SkillsMarket } from '@/pages/admin/SkillsMarket'
+import { RunnerManagement } from '@/pages/admin/RunnerManagement'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -53,5 +54,6 @@ export const router = createBrowserRouter([
   },
   { path: '/admin/platform-settings', element: <PlatformSettings /> },
   { path: '/admin/skills', element: <SkillsMarket /> },
+  { path: '/admin/runners', element: <RunnerManagement /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ])

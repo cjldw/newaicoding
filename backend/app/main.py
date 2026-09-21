@@ -1,5 +1,6 @@
 """旗程后端 FastAPI 应用入口"""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from enum import Enum
@@ -65,6 +66,7 @@ from app.api.admin.platform_settings import router as platform_settings_router
 from app.api.skills import router as skills_router
 from app.api.admin.skills import router as admin_skills_router
 from app.api.runner_ws import router as runner_ws_router
+from app.api.admin.runners import router as admin_runners_router
 
 # 配置日志
 logging.basicConfig(
@@ -85,11 +87,36 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("数据库连接池初始化完成")
 
+    # Runner 心跳超时巡检(R16):每 60s 一轮,>60s 无心跳 → offline
+    sweep_task = asyncio.create_task(_runner_offline_sweep())
+
     yield
 
-    # 关闭：释放数据库连接
+    # 关闭：释放资源
+    sweep_task.cancel()
     await close_db()
     logger.info("旗程后端已关闭")
+
+
+async def _runner_offline_sweep():
+    """每 60s 扫描一次 Runner 心跳,超时标 offline(R16)"""
+    import asyncio as _asyncio
+
+    from app.database import async_session_factory
+    from app.services import runner_service
+
+    while True:
+        try:
+            await _asyncio.sleep(60)
+            async with async_session_factory() as db:
+                count = await runner_service.sweep_offline(db)
+                await db.commit()
+                if count:
+                    logger.info("Runner 心跳巡检:%d 个转 offline", count)
+        except _asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Runner 心跳巡检异常(下一轮继续)")
 
 
 # -------------------------------------------------------------------
@@ -133,6 +160,7 @@ app.include_router(platform_settings_router)
 app.include_router(skills_router)
 app.include_router(admin_skills_router)
 app.include_router(runner_ws_router)
+app.include_router(admin_runners_router)
 
 
 # -------------------------------------------------------------------

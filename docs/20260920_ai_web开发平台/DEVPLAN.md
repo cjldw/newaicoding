@@ -448,7 +448,7 @@ docker run -d \
 
 ## 当前进度
 
-**当前进度: 7/22 (32%) - R8 已完成并提交;下一个 R16**
+**当前进度: 8/22 (36%) - R16 已完成并提交;下一个 R9**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
@@ -458,7 +458,7 @@ docker run -d \
 | R13 | 模型接入 | M3 | ✅ | ./DEVPLAN/R13.md |
 | R17 | MCP server 与 Skills 管理 | M3 | ✅ | ./DEVPLAN/R17.md |
 | R8 | 任务级容器 | M5 | ✅ | ./DEVPLAN/R8.md |
-| R16 | Runner 管理 | M5 | ⬜ | ./DEVPLAN/R16.md |
+| R16 | Runner 管理 | M5 | ✅ | ./DEVPLAN/R16.md |
 | R9 | Web 终端 | M5 | ⬜ | ./DEVPLAN/R9.md |
 | R10 | 实时预览 | M5 | ⬜ | ./DEVPLAN/R10.md |
 | R11 | 在线编辑器 | M5 | ⬜ | ./DEVPLAN/R11.md |

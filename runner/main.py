@@ -1,23 +1,26 @@
-"""Runner 主进程 - R8(WebSocket 客户端,连接平台;D13/R8 协议)
+"""Runner 主进程 - R8/R16(WebSocket 客户端,连接平台)
 
 启动:
     PLATFORM_URL=wss://platform.example.com/ws/runner \
-    RUNNER_TOKEN=xxx \
+    RUNNER_TOKEN=plt-runner-xxx \
     RUNNER_ID=runner-01 \
-    RUNNER_ROLE=general \
+    RUNNER_ROLE=worker \
     RUNNER_HOST=1.2.3.4 \
     python3 main.py
 
-职责:
-- 连接平台 → register → 30s 心跳
-- 收 start_container / stop_container 指令 → ContainerManager 执行 → 回报
-- 监听 Docker events → 回报 container_event(崩溃自动重启 ≤3 次在 manager 内)
+协议(R16):
+- register:{type, token, machine_info, host} → register_success(runner_id)
+- heartbeat:{type, timestamp}(30s;平台 >5min 漂移拒绝、60s 无心跳判 offline)
+- sync:连接后上报本地容器列表,平台对账(状态以 Runner 为准)
+- start_container / stop_container 指令处理;Docker events 回报
 - 断线自动重连(指数退避)
 """
 
 import asyncio
 import logging
 import os
+import platform as py_platform
+import time
 from typing import Any
 
 import websockets
@@ -29,8 +32,8 @@ logger = logging.getLogger("runner")
 
 PLATFORM_URL = os.environ.get("PLATFORM_URL", "ws://localhost:8000/ws/runner")
 RUNNER_TOKEN = os.environ.get("RUNNER_TOKEN", "")
-RUNNER_ID = os.environ.get("RUNNER_ID", "runner-local")
-RUNNER_ROLE = os.environ.get("RUNNER_ROLE", "general")
+RUNNER_ID = os.environ.get("RUNNER_ID", "runner-local")       # 仅日志标识;身份由 token 决定
+RUNNER_ROLE = os.environ.get("RUNNER_ROLE", "worker")
 RUNNER_HOST = os.environ.get("RUNNER_HOST", "")
 HEARTBEAT_INTERVAL = 30  # 秒(D13:30s 心跳;平台 60s 未收到判 offline)
 
@@ -40,14 +43,45 @@ manager = ContainerManager()
 running_repos: dict[str, list[dict]] = {}
 
 
+def collect_machine_info() -> dict:
+    """机器信息(注册上报;docker 版本取不到时留空)"""
+    docker_version = ""
+    try:
+        import docker
+
+        docker_version = docker.from_env().version()["Version"]
+    except Exception:
+        pass
+    try:
+        mem_gb = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3, 1)
+    except (AttributeError, ValueError, OSError):
+        mem_gb = 0
+    return {
+        "os": py_platform.system().lower(),
+        "arch": py_platform.machine(),
+        "cpu_count": os.cpu_count() or 0,
+        "mem_total_gb": mem_gb,
+        "docker_version": docker_version,
+    }
+
+
+def local_container_states() -> list[dict]:
+    """本地实际运行的容器列表(恢复对账用)"""
+    try:
+        containers = manager.client.containers.list(filters={"label": "qicheng.managed=true"})
+        return [
+            {"container_id": c.short_id, "status": "running" if c.status == "running" else "stopped"}
+            for c in containers
+        ]
+    except Exception:
+        logger.exception("读取本地容器列表失败(对账跳过)")
+        return []
+
+
 async def send(ws: Any, payload: dict) -> None:
-    await ws.send(json_dumps(payload))
-
-
-def json_dumps(payload: dict) -> str:
     import json
 
-    return json.dumps(payload, ensure_ascii=False)
+    await ws.send(json.dumps(payload, ensure_ascii=False))
 
 
 async def handle_message(ws: Any, msg: dict) -> None:
@@ -96,7 +130,7 @@ async def heartbeat(ws: Any) -> None:
     while True:
         await asyncio.sleep(HEARTBEAT_INTERVAL)
         try:
-            await send(ws, {"type": "heartbeat", "runner_id": RUNNER_ID})
+            await send(ws, {"type": "heartbeat", "timestamp": time.time()})
         except Exception:
             return
 
@@ -107,6 +141,7 @@ async def event_listener(ws: Any) -> None:
         try:
             yield from manager.iter_events()
         except Exception:
+            # Docker daemon 挂了:上报平台,平台标记 offline 不再调度(R16)
             logger.exception("Docker events 监听异常")
 
     for event in _iterate():
@@ -129,18 +164,37 @@ async def event_listener(ws: Any) -> None:
             await send(ws, {"type": "container_event", "event": action, "container_id": container_id})
 
 
+async def _receive_loop(ws: Any) -> None:
+    async for raw in ws:
+        import json
+
+        try:
+            await handle_message(ws, json.loads(raw))
+        except Exception:
+            logger.exception("处理消息失败: %s", raw[:200])
+
+
 async def session() -> None:
-    """单次连接会话:register → 并发(收消息 / 心跳 / 事件监听)"""
-    url = f"{PLATFORM_URL}?token={RUNNER_TOKEN}"
+    """单次连接会话:register(token+machine_info) → sync 对账 → 并发(收消息/心跳/事件)"""
+    url = f"{PLATFORM_URL}"
     async with websockets.connect(url) as ws:
         await send(ws, {
             "type": "register",
-            "runner_id": RUNNER_ID,
-            "role": RUNNER_ROLE,
+            "token": RUNNER_TOKEN,
+            "machine_info": collect_machine_info(),
             "host": RUNNER_HOST,
         })
-        ack = await ws.recv()
-        logger.info("平台注册确认: %s", ack)
+        import json
+
+        ack = json.loads(await ws.recv())
+        if ack.get("type") != "register_success":
+            raise RuntimeError(f"注册被拒绝: {ack}")
+        logger.info("注册成功 runner_id=%s", ack.get("runner_id"))
+
+        # 恢复对账:上报本地实际容器(R16)
+        states = local_container_states()
+        if states:
+            await send(ws, {"type": "sync", "containers": states})
 
         receive_task = asyncio.create_task(_receive_loop(ws))
         beat_task = asyncio.create_task(heartbeat(ws))
@@ -150,16 +204,6 @@ async def session() -> None:
         )
         for task in pending:
             task.cancel()
-
-
-async def _receive_loop(ws: Any) -> None:
-    async for raw in ws:
-        import json
-
-        try:
-            await handle_message(ws, json.loads(raw))
-        except Exception:
-            logger.exception("处理消息失败: %s", raw[:200])
 
 
 async def main() -> None:

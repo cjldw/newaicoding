@@ -4,7 +4,7 @@
  */
 
 import { NavLink, Outlet } from 'react-router-dom'
-import { LayoutDashboard, FolderKanban, Settings, Sparkles } from 'lucide-react'
+import { LayoutDashboard, FolderKanban, Settings, Sparkles, Server } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 
 const navItems = [
@@ -55,6 +55,19 @@ export function MainLayout() {
               >
                 <Sparkles className="w-4 h-4" />
                 Skills 市场
+              </NavLink>
+              <NavLink
+                to="/admin/runners"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                    isActive
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-text-muted hover:bg-surface-strong hover:text-text'
+                  }`
+                }
+              >
+                <Server className="w-4 h-4" />
+                Runner 管理
               </NavLink>
               <NavLink
                 to="/admin/platform-settings"
