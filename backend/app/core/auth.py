@@ -65,3 +65,13 @@ async def get_current_user(
         raise BizError(ErrCode.ACCOUNT_DISABLED, "账号已被禁用")
 
     return user
+
+
+async def require_superadmin(user: User = Depends(get_current_user)) -> User:
+    """
+    平台级超管 Guard(R19 双层 Guard 的平台层,最小版先随 R2 落地):
+    users.role == 'superadmin' 才放行;否则 403 code=19002。
+    """
+    if user.role != "superadmin":
+        raise BizError(ErrCode.NOT_SUPERADMIN, "需要平台超级管理员权限", status_code=403)
+    return user

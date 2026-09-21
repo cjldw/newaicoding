@@ -1,7 +1,8 @@
 import * as React from 'react'
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'default' | 'primary'
+  variant?: 'default' | 'primary' | 'ghost' | 'outline'
+  size?: 'default' | 'sm' | 'lg'
 }
 
 /**
@@ -11,11 +12,19 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
  * - 支持 disabled、loading 态
  */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className = '', variant = 'default', children, disabled, ...props }, ref) => {
-    const baseClass = variant === 'primary' ? 'btn btn--primary' : 'btn'
+  ({ className = '', variant = 'default', size = 'default', children, disabled, ...props }, ref) => {
+    const variantClass =
+      variant === 'primary' ? 'btn btn--primary'
+      : variant === 'ghost' ? 'btn btn--ghost'
+      : variant === 'outline' ? 'btn btn--outline'
+      : 'btn'
+    const sizeClass =
+      size === 'sm' ? 'btn--sm'
+      : size === 'lg' ? 'btn--lg'
+      : ''
     return (
       <button
-        className={`${baseClass} ${className}`}
+        className={`${variantClass} ${sizeClass} ${className}`.trim()}
         ref={ref}
         disabled={disabled}
         {...props}

@@ -7,7 +7,8 @@
  * - /settings → 设置页布局(左侧导航 + 右侧内容区)
  *   - /settings/profile → 个人资料设置
  *   - /settings/gitlab-token → GitLab token 设置
- * - / → Dashboard(R21 占位)
+ * - / (MainLayout) → 工作台 / 项目 / 平台设置(superadmin)
+ * - /admin/platform-settings → 平台设置(superadmin)
  */
 
 import { createBrowserRouter, Navigate } from 'react-router-dom'
@@ -19,6 +20,11 @@ import { ProfileSettings } from '@/pages/settings/ProfileSettings'
 import { GitLabTokenSettings } from '@/pages/settings/GitLabTokenSettings'
 import { Dashboard } from '@/pages/Dashboard'
 import { SettingsLayout } from '@/components/layout/SettingsLayout'
+import { MainLayout } from '@/components/layout/MainLayout'
+import { ProjectList } from '@/pages/projects/ProjectList'
+import { ProjectCreate } from '@/pages/projects/ProjectCreate'
+import { ProjectDetail } from '@/pages/projects/ProjectDetail'
+import { PlatformSettings } from '@/pages/admin/PlatformSettings'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -34,6 +40,16 @@ export const router = createBrowserRouter([
       { path: 'gitlab-token', element: <GitLabTokenSettings /> },
     ],
   },
-  { path: '/', element: <Dashboard /> },
+  {
+    path: '/',
+    element: <MainLayout />,
+    children: [
+      { index: true, element: <Dashboard /> },
+      { path: 'projects', element: <ProjectList /> },
+      { path: 'projects/create', element: <ProjectCreate /> },
+      { path: 'projects/:projectId', element: <ProjectDetail /> },
+    ],
+  },
+  { path: '/admin/platform-settings', element: <PlatformSettings /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ])

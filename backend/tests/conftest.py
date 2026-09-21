@@ -61,6 +61,7 @@ async def engine():
     """
     from app.database import engine as app_engine, Base
     from app.models.user import User  # noqa: F401 — 确保 model 注册到 Base
+    from app.models.project import Project, ProjectRepo, PlatformSetting  # noqa: F401 — R2 表注册
 
     # 确保表存在(create_all 是幂等的,已存在则跳过)
     async with app_engine.begin() as conn:
@@ -76,17 +77,23 @@ async def engine():
 @pytest_asyncio.fixture
 async def db_session(engine):
     """
-    每个测试独立的数据库 session,测试结束后 truncate users 表。
-    保证测试间数据隔离。
+    每个测试独立的数据库 session,测试结束后清理 R1/R2 全部业务表。
+    保证测试间数据隔离(users/projects/project_repos/platform_settings)。
     """
     from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy import delete
     from app.models.user import User
+    from app.models.project import Project, ProjectRepo, PlatformSetting
     from app.database import async_session_factory
 
     # 使用 app 的 session factory 创建 session
     async with async_session_factory() as session:
         yield session
-        # truncate users 表(测试隔离)
+        # truncate 全部业务表(测试隔离;platform_settings 必须清,否则
+        # 前序测试写入的 bot token 会污染后续 2001 未配置场景)
+        await session.execute(delete(PlatformSetting))
+        await session.execute(delete(ProjectRepo))
+        await session.execute(delete(Project))
         await session.execute(User.__table__.delete())
         await session.commit()
 
@@ -158,6 +165,65 @@ async def auth_headers(client, registered_user):
     data = resp.json()
     assert data["code"] == 0
     access_token = data["data"]["access_token"]
+    return {"Authorization": f"Bearer {access_token}"}
+
+
+@pytest_asyncio.fixture
+async def superadmin_headers(client, db_session):
+    """
+    注册一个用户并将其 role 提升为 superadmin,然后登录返回 Authorization header dict。
+    User 模型的 role 列是 SAEnum("superadmin", "user"),不是布尔 is_superadmin。
+    """
+    import uuid
+    from sqlalchemy import text
+    from app.models.user import User
+
+    phone = f"139{str(uuid.uuid4().int)[:8]}"
+    password = "Admin1234"
+    resp = await client.post("/api/auth/register", json={
+        "phone": phone,
+        "password": password,
+    })
+    assert resp.status_code == 200
+    reg_data = resp.json()
+    assert reg_data["code"] == 0
+    user_id = reg_data["data"]["user_id"]
+
+    # 直接通过 SQL 将 role 设为 superadmin(绕过 ORM 枚举校验)
+    await db_session.execute(
+        text("UPDATE users SET role = 'superadmin' WHERE user_id = :uid"),
+        {"uid": user_id},
+    )
+    await db_session.commit()
+
+    # 登录获取 token
+    resp = await client.post("/api/auth/login", json={
+        "phone": phone,
+        "password": password,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["code"] == 0
+    access_token = data["data"]["access_token"]
+    return {"Authorization": f"Bearer {access_token}"}
+
+
+@pytest_asyncio.fixture
+async def second_user_headers(client):
+    """
+    第二个注册用户的 Authorization header。
+    注意:R1 注册逻辑是"首个注册用户 = superadmin"(bootstrap),
+    所以非超管场景必须用第二个注册用户(role=user)。
+    """
+    import uuid
+    phone = f"137{str(uuid.uuid4().int)[:8]}"
+    password = "Test1234"
+    resp = await client.post("/api/auth/register", json={"phone": phone, "password": password})
+    assert resp.status_code == 200
+    assert resp.json()["code"] == 0
+    resp = await client.post("/api/auth/login", json={"phone": phone, "password": password})
+    assert resp.status_code == 200
+    access_token = resp.json()["data"]["access_token"]
     return {"Authorization": f"Bearer {access_token}"}
 
 

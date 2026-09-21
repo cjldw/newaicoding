@@ -40,6 +40,19 @@ class ErrCode:
     GITLAB_TOKEN_INVALID = 1012  # GitLab token 无效
     GITLAB_SCOPE_INSUFFICIENT = 1013  # GitLab token scope 不足
 
+    # R2 项目管理
+    BOT_TOKEN_NOT_CONFIGURED = 2001   # 平台 GitLab bot token 未配置
+    REPO_URL_INVALID = 2002           # GitLab repo URL 无效或 bot 无权限
+    PROJECT_LIMIT_EXCEEDED = 2003     # 单用户项目数超限(>50)
+    REPO_ALREADY_BOUND = 2004         # 同一 repo 已绑定到该项目
+    REPO_LIMIT_EXCEEDED = 2005        # 单项目绑定 repo 数超限(>10)
+    MAIN_REPO_UNBINDABLE = 2006       # main repo 不可解绑
+    PLATFORM_SETTING_INVALID = 2007   # 非法配置值(域名格式非法/数值越界/未知配置键)
+
+    # 权限
+    NOT_SUPERADMIN = 19002            # 非平台超级管理员
+    NO_PROJECT_PERMISSION = 1901      # 无项目操作权限(非 owner)
+
 
 # ---------------------------------------------------------------------------
 # 统一响应构造

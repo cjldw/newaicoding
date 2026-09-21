@@ -448,12 +448,12 @@ docker run -d \
 
 ## 当前进度
 
-**当前进度: 1/22 (5%) - R1 已完成待提交;下一个 R2**
+**当前进度: 3/22 (14%) - R2 已完成并提交;下一个 R12**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
 | R1 | 用户与账号体系 | M1 | ✅ | ./DEVPLAN/R1.md |
-| R2 | 项目管理(多仓库) | M1 | ⬜ | ./DEVPLAN/R2.md |
+| R2 | 项目管理(多仓库) | M1 | ✅ | ./DEVPLAN/R2.md |
 | R12 | 项目成员与协作 | M1 | ⬜ | ./DEVPLAN/R12.md |
 | R13 | 模型接入 | M3 | ⬜ | ./DEVPLAN/R13.md |
 | R17 | MCP server 与 Skills 管理 | M3 | ⬜ | ./DEVPLAN/R17.md |
@@ -548,3 +548,5 @@ docker run -d \
 | 2026-09-21 | **增量2:品牌定名「旗程」(仅中文名,用户否决英文标识 FLAGWAY)+ 域名策略 Q28/Q29(PRD 已确认)**:① 视觉原型 `vp/index.html` 品牌更名(标题/favicon/侧栏/登录页),Logo 为"三段升旗"(打磨→开发→发布,纯 SVG,rd-dev 可直接复用 `LOGO` 常量);② **Q28**:预览/部署根域名(`preview_base_domain` / `deploy_base_domain`)入平台设置——R2 分片补实 `platform_settings` 单例表 + `GET/PUT /api/admin/platform-settings` 契约(M2 不再隐含);③ **Q29**:R7 发布任务新增 `deploy_host` 字段(默认 `{slug}.{deploy_base_domain}` 预填可改,合法主机名 + 全平台唯一,错误码 7003;仅 HTTP,DNS 自行解析不阻塞创建),R15 按 Host 精确匹配路由;④ 联动:R10 预览 host 改 `{preview_base_domain}` 拼接、R19 权限矩阵与审计枚举补 `platform_settings.update`、PRD R7/R15/概念模型/范围外同步修订 | 用户拍板:"1. 叫旗程;2. 域名在发布时候可以设置";随后补充:"不要 FLAGWAY 这个标识" |
 | 2026-09-21 | R1 启动,开发环境基线确认:① 中间件——MySQL(120.27.217.194:3306/aicoding,charset utf8mb4)与 Redis(121.43.42.203:6379)写入后端 `.env`(不入库,仓库只留 `.env.example` 占位);**Redis R1 仅做配置占位,不建任何功能**(计划中无 Redis 依赖,留作后续缓存/会话扩展);② **文件上传策略**:上传文件落容器目录、任务结束随容器丢弃,平台不存副本(R4 落地依据);③ **UI 实施轨**:所有前端需求点以视觉原型 `vp/index.html` 为轨1样板页(布局/交互/文案对照原型;色值字号仍以 DEVPLAN 设计规范 token 为准);④ 组件策略:shadcn 风格组件手写(Button/Input/Card 等无 Radix 依赖的),避免 CLI 脚手架依赖,需要 Radix 的组件在对应需求点引入 | 用户提供基础中间件信息与 UI 实现要求 |
 | 2026-09-21 | **R1 完成闭环**:后端(20 文件:models/schemas/api/services/core + alembic 两笔迁移,users 表含 role/token_version/login_fail_count/locked_until;编译零错误;冒烟 /health /docs /openapi.json 9 路径)→ QA 套件 64 用例经三轮红绿迭代全绿(修复:登录锁定 1006+remaining_seconds、GitLab mock 注入机制、scope 1013 AND 校验、锁定字段迁移)→ 前端(Vite+React18+TS+Tailwind3.4 token 照抄,7 路由独立页面 + SettingsLayout,build 零错误,ui-check 66/67✅ + 1 项 V2 占位)→ 审计通过(无阻塞项)。**决策留痕**:① 本机 Python 3.10(规格 3.12,代码兼容;pyproject requires >=3.10);② FastAPI 0.104 + Pydantic 2.5.3 的 OpenAPI enum_schema 缺失用 main.py 兼容补丁(pip 网络受限无法升级);③ bcrypt 锁定 4.x(passlib 1.7.4 与 5.x 不兼容);④ 登录锁定用 DB 字段(login_fail_count/locked_until)而非 Redis;⑤ GitLab mock 注入:gitlab_service 模块级 _test_transport + conftest autouse patch MockTransport.__enter__/__exit__;⑥ 收口审计采用审计 subagent 覆盖核查(code-review skill 需 git 基线,绿地无基线;rd-check 阶段做全量兜底);⑦ DEPLOY.md 记录 users DDL 全文与环境变量(真实密钥只在 backend/.env,不入库) | 多角色 tdd 闭环(QA/API Tester + Backend Architect + Frontend Developer + Code Reviewer) |
+| 2026-09-21 | **R1/R2 待提交工作落地**:计划文档增量与 R1 实现分两笔提交(d7fd2a3 / a452549);.gitignore 补会话产物(.playwright-mcp/.scratch/dash.png) | 用户授权"按建议确认"后进入连续模式 |
+| 2026-09-21 | **R2 完成闭环 + subagent 基础设施降级决策**:① **subagent 8 派 7 死**(QA/后端/前端/审计均反复 autocompact 超限,重派加纪律仍死),后端与收口审计降级为**主 agent 直接实现/直审**,多角色意图部分保留(QA 红测文件由首轮 QA agent 产出、前端由第三次重派的 frontend agent 完成,ui-check 46/46);依赖 rd-check 全量审查兜底;② 后端:三表(models/project.py 修正前序 agent 遗留的 (project_id,role) 全列唯一错误约束 → main 唯一改服务层保证 + 组合唯一硬保证同 repo 重复)+ alembic a7d21c9e5f40 + 8 项目接口 + 3 平台设置接口(敏感项 AES-GCM/打码/白名单/2007/19002,test-connection 为分片"测试连接"按钮的自定契约 POST /api/admin/platform-settings/test-connection)+ require_superadmin 最小 Guard;③ 测试 110 全绿(64 存量 + 46 新增)。**修复记录**:QA 红测缺陷(假 project_id 断言成功→直插 DB 造数据;GitLab 用例补 _seed_gitlab_settings);R1 bootstrap"首个用户=superadmin"致非超管用例失效→conftest 增 second_user_headers;conftest 清理扩至 4 表(platform_settings 残留会污染 2001 场景);PATCH 后 onupdate 字段 MissingGreenlet→显式 await db.refresh;projects 表补 deleted_at(行为规格要求,模型节遗漏);④ 前端:api/projects.ts + 4 项目页面(route-as-modal 创建对话框 max-w-lg)+ 平台设置页 + MainLayout 侧栏(项目/超管平台设置入口),ui-check 46/46(审计发现报告 #28-34 期望项标签笔误,实现代码正确,已修正留注);⑤ DEPLOY.md 记录三表 DDL + 上线配置动作 | 用户指示"完成剩下的所有任务,都按你建议来确认";连续模式第 2 点(R2) |

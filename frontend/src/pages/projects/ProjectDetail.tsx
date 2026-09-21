@@ -1,0 +1,166 @@
+/**
+ * ProjectDetail — 项目详情页
+ * 页头(名称+状态徽章+设置/归档/删除)+ Tab 导航
+ * 本阶段仅"仓库"Tab 可用,其余 disabled
+ */
+
+import { useState } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { Settings, Archive, Trash2, MoreHorizontal } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  DialogFooter,
+} from '@/components/ui/Dialog'
+import { useProjectDetail, useDeleteProject, useArchiveProject } from '@/api/projects'
+import { RepoManagement } from './RepoManagement'
+
+const statusMap: Record<string, { label: string; variant: 'success' | 'default' | 'error' }> = {
+  active: { label: '活跃', variant: 'success' },
+  archived: { label: '已归档', variant: 'default' },
+  deleted: { label: '已删除', variant: 'error' },
+}
+
+const tabs = [
+  { key: 'requirements', label: '需求', disabled: true },
+  { key: 'tasks', label: '任务', disabled: true },
+  { key: 'repos', label: '仓库', disabled: false },
+  { key: 'members', label: '成员', disabled: true },
+  { key: 'settings', label: '设置', disabled: true },
+]
+
+export function ProjectDetail() {
+  const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const { data: project, isLoading } = useProjectDetail(projectId ?? '')
+  const deleteProject = useDeleteProject()
+  const archiveProject = useArchiveProject()
+
+  const [actionMenu, setActionMenu] = useState(false)
+  const [confirmDialog, setConfirmDialog] = useState<'delete' | 'archive' | null>(null)
+
+  const activeTab = searchParams.get('tab') ?? 'repos'
+  const st = project ? (statusMap[project.status] ?? statusMap.active) : statusMap.active
+
+  function handleConfirm() {
+    if (!projectId || !confirmDialog) return
+    if (confirmDialog === 'delete') {
+      deleteProject.mutate(projectId, { onSuccess: () => navigate('/projects') })
+    } else {
+      archiveProject.mutate(projectId)
+    }
+    setConfirmDialog(null)
+  }
+
+  if (isLoading) {
+    return <div className="container mx-auto px-4 py-6 text-text-muted">加载中...</div>
+  }
+  if (!project) {
+    return <div className="container mx-auto px-4 py-6 text-text-muted">项目不存在</div>
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-6">
+      {/* 页头 */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold text-text">{project.name}</h1>
+          <Badge variant={st.variant}>{st.label}</Badge>
+        </div>
+        <div className="relative">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setActionMenu(!actionMenu)}
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </Button>
+          {actionMenu && (
+            <div className="absolute right-0 top-full mt-1 w-32 bg-surface border border-border rounded-md shadow-lg z-10">
+              <button
+                className="flex items-center w-full px-3 py-2 text-sm hover:bg-surface-strong text-text"
+                onClick={() => { setActionMenu(false); /* 设置 tab disabled 暂不可用 */ }}
+              >
+                <Settings className="w-4 h-4 mr-2" />
+                设置
+              </button>
+              <button
+                className="flex items-center w-full px-3 py-2 text-sm hover:bg-surface-strong text-text"
+                onClick={() => { setActionMenu(false); setConfirmDialog('archive') }}
+              >
+                <Archive className="w-4 h-4 mr-2" />
+                归档
+              </button>
+              <button
+                className="flex items-center w-full px-3 py-2 text-sm hover:bg-surface-strong text-error"
+                onClick={() => { setActionMenu(false); setConfirmDialog('delete') }}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                删除
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Tab 导航 */}
+      <div className="border-b border-border mb-6">
+        <nav className="flex gap-6">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              disabled={tab.disabled}
+              className={`pb-2 text-sm font-medium border-b-2 transition-colors ${
+                tab.disabled
+                  ? 'text-text-muted/50 cursor-not-allowed border-transparent'
+                  : activeTab === tab.key
+                    ? 'text-primary border-primary'
+                    : 'text-text-muted border-transparent hover:text-text'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Tab 内容 */}
+      {activeTab === 'repos' && <RepoManagement projectId={project.project_id} />}
+      {activeTab !== 'repos' && (
+        <div className="text-center py-12 text-text-muted">
+          该功能暂未开放
+        </div>
+      )}
+
+      {/* 确认对话框 */}
+      <Dialog open={!!confirmDialog} onOpenChange={() => setConfirmDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirmDialog === 'archive' ? '归档项目' : '删除项目'}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmDialog === 'archive'
+                ? `确定要归档项目「${project.name}」吗?归档后项目将不再活跃显示。`
+                : `确定要删除项目「${project.name}」吗?此操作不可恢复。`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmDialog(null)}>
+              取消
+            </Button>
+            <Button
+              variant={confirmDialog === 'delete' ? 'primary' : 'default'}
+              className={confirmDialog === 'delete' ? 'bg-error hover:bg-error/90' : ''}
+              onClick={handleConfirm}
+            >
+              {confirmDialog === 'delete' ? '删除' : '归档'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

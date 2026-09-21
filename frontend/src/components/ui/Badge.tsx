@@ -1,7 +1,7 @@
 import * as React from 'react'
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  variant?: 'default' | 'success' | 'error' | 'warning'
+  variant?: 'default' | 'success' | 'error' | 'warning' | 'primary' | 'secondary' | 'outline'
 }
 
 const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(
@@ -11,6 +11,10 @@ const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(
       success: 'bg-green-100 border-green-200 text-green-800',
       error: 'bg-red-100 border-red-200 text-red-800',
       warning: 'bg-yellow-100 border-yellow-200 text-yellow-800',
+      // R2: 角色徽章变体
+      primary: 'bg-primary/10 border-primary/20 text-primary',
+      secondary: 'bg-accent/10 border-accent/20 text-accent',
+      outline: 'bg-transparent border-border text-text-muted',
     }
 
     return (

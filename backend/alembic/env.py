@@ -17,6 +17,7 @@ from app.config import settings  # noqa: E402
 from app.database import Base  # noqa: E402
 # 导入所有模型,确保 metadata 包含完整表定义
 from app.models.user import User  # noqa: E402, F401
+from app.models.project import Project, ProjectRepo, PlatformSetting  # noqa: E402, F401
 
 # Alembic Config 对象
 config = context.config
