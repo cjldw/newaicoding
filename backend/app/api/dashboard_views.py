@@ -72,6 +72,8 @@ async def list_my_requirements(
     return success(data={
         "items": [
             {
+                # BUG-014:前端 DimensionItem 契约为 key(列表渲染 key.slice),补齐字段
+                "key": r.req_id,
                 "req_id": r.req_id,
                 "title": r.title,
                 "status": r.status,
@@ -123,6 +125,8 @@ async def list_my_tasks(
     return success(data={
         "items": [
             {
+                # BUG-014:前端 DimensionItem 契约为 key(列表渲染 key.slice),补齐字段
+                "key": t.task_id,
                 "task_id": t.task_id,
                 "type": t.type,
                 "title": t.title,
