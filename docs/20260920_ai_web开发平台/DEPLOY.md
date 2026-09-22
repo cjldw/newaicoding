@@ -610,3 +610,54 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **影响范围**:R20 知识库空间全链路(建库/导入同步[后台任务]/页面 CRUD/搜索);repo_import 写操作含超管一律 403 20002
 - **通知依赖**:R18 站内信未落地,当前导入结果仅 logger 钩子(_notify_import_done)
 - **回滚方案**:`DROP TABLE knowledge_docs; DROP TABLE knowledge_bases;`
+
+## 2026-09-22 R18 站内信与通知
+
+- **类型**:数据库(alembic revision `c4b1d7e9f2a6`,down_revision `b5d9e1f4a7c3`;projects 表加钉钉字段)
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `notifications` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `notification_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `recipient_id` CHAR(36) NOT NULL COMMENT '接收人 user_id',
+    `type` ENUM('deploy_failed','runner_offline','task_failed','push_failed','review_approved','review_rejected','invited_to_project','task_done','deployed') NOT NULL COMMENT '通知类型',
+    `level` ENUM('critical','normal','info') NOT NULL DEFAULT 'normal' COMMENT '级别',
+    `title` VARCHAR(255) NOT NULL COMMENT '标题',
+    `content` TEXT NOT NULL COMMENT '内容(Markdown)',
+    `link` VARCHAR(255) NULL COMMENT '跳转链接',
+    `project_id` CHAR(36) NULL COMMENT '关联项目 id',
+    `task_id` CHAR(36) NULL COMMENT '关联任务 id',
+    `read_at` DATETIME NULL COMMENT '已读时间',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_notifications_notification_id` (`notification_id`),
+    KEY `ix_notifications_recipient_id` (`recipient_id`),
+    KEY `ix_notifications_type` (`type`),
+    KEY `ix_notifications_level` (`level`),
+    KEY `ix_notifications_project_id` (`project_id`),
+    KEY `ix_notifications_task_id` (`task_id`),
+    KEY `ix_notifications_read_at` (`read_at`),
+    KEY `ix_notifications_created_at` (`created_at`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站内通知表';
+
+  CREATE TABLE IF NOT EXISTS `user_notification_settings` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id` CHAR(36) NOT NULL COMMENT '用户 id',
+    `dingtalk_webhook` VARCHAR(255) NULL COMMENT '钉钉 webhook URL',
+    `dingtalk_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '启用钉钉',
+    `realtime_toast_enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '实时 toast',
+    `dingtalk_fail_count` INT NOT NULL DEFAULT 0 COMMENT '连续失败次数',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_user_notification_settings_user` (`user_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户通知设置表';
+
+  ALTER TABLE `projects`
+    ADD COLUMN `dingtalk_webhook` VARCHAR(255) NULL COMMENT '项目钉钉群 webhook' AFTER `mcp_config_encrypted`,
+    ADD COLUMN `dingtalk_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '启用项目钉钉通知' AFTER `dingtalk_webhook`;
+  ```
+
+- **影响范围**:R18 通知全链路(发送/钉钉/WebSocket 推送);R20 导入完成通知钩子(_notify_import_done)
+- **回滚方案**:先还原 projects 列:`ALTER TABLE projects DROP COLUMN dingtalk_enabled, DROP COLUMN dingtalk_webhook;` 再 `DROP TABLE user_notification_settings; DROP TABLE notifications;`

@@ -5,6 +5,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     Enum,
@@ -38,6 +39,8 @@ class Project(Base):
                     default="active", nullable=False, server_default="active", index=True, comment="状态")
     mcp_config_encrypted = Column(Text, nullable=True, comment="AES-GCM 加密的项目级 MCP 配置(R17 用)")
     deleted_at = Column(DateTime, nullable=True, comment="软删时间(7 天后物理删除定时任务用)")
+    dingtalk_webhook = Column(String(255), nullable=True, comment="项目钉钉群 webhook URL(R18)")
+    dingtalk_enabled = Column(Boolean, nullable=False, default=False, server_default="0", comment="启用项目钉钉通知(R18)")
     created_at = Column(DateTime, default=func.now(), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, default=func.now(), server_default=func.now(), onupdate=func.now(), nullable=False)
 
