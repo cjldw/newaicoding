@@ -349,6 +349,8 @@ async def start_task(db: AsyncSession, task: Task, project: Project, requirement
         "REQ_ID": requirement.req_id,
     }
 
+    # R7:发布任务固定在 deploy Runner(R16 role=deploy)
+    required_role = "deploy" if task.type == "release" else "worker"
     await container_service.schedule_and_start(
         db,
         project_id=project.project_id,
@@ -356,6 +358,7 @@ async def start_task(db: AsyncSession, task: Task, project: Project, requirement
         owner_user_id=requirement.created_by,
         env=env,
         repos=repos,
+        required_role=required_role,
     )
 
     # R6:test 任务容器拉起后先进"用例审阅"(AI 生成用例 → 用户确认后才 running)
@@ -628,3 +631,229 @@ async def accept_failure(db: AsyncSession, task: Task, operator: User, reason: s
     await db.flush()
     await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": "passed"})
     logger.info("测试失败豁免 task=%s by=%s", task.task_id, operator.user_id)
+
+
+# ---------------------------------------------------------------------------
+# R7:发布任务(type=release)
+# ---------------------------------------------------------------------------
+_HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63}(?<!-))+$")
+DEPLOY_PORT_RANGE = (10000, 10099)
+MAX_CONCURRENT_DEPLOYS = 5       # 单项目同时部署数 ≤ 5
+
+
+async def create_release_task(
+    db: AsyncSession, requirement: Requirement, project: Project, operator: User,
+    title: str, description: str,
+    deploy_port: int, deploy_host: Optional[str] = None, deploy_script: Optional[str] = None,
+) -> tuple[Task, Optional[str]]:
+    """
+    创建发布任务(R7):
+    - 前置:需求下至少一个 test 任务 passed(4001)
+    - deploy_port:10000-10099 且全平台唯一(7001)
+    - deploy_host:合法主机名 + 全平台唯一(7003);默认 {slug}.{deploy_base_domain}(Q28 实时读)
+    - 单项目同时部署数 ≤5(7002)
+    返回 (task, dns_hint)——自定义域名未解析不阻塞创建。
+    """
+    passed_test = (await db.execute(
+        select(func.count(Task.id)).where(
+            Task.req_id == requirement.req_id,
+            Task.type == "test",
+            Task.status == "passed",
+        )
+    )).scalar() or 0
+    if passed_test == 0:
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "需求状态不允许创建该类型任务")
+
+    if not (DEPLOY_PORT_RANGE[0] <= deploy_port <= DEPLOY_PORT_RANGE[1]):
+        raise BizError(ErrCode.DEPLOY_PORT_CONFLICT, "端口已被占用")
+
+    from app.services.platform_settings_service import get_setting
+
+    base_domain = await get_setting(db, "deploy_base_domain") or "coding-console.zhanqitv.com.cn"
+    host = (deploy_host or f"{project.slug}.{base_domain}").strip().lower()
+    if not _HOSTNAME_RE.match(host):
+        raise BizError(ErrCode.DEPLOY_HOST_INVALID, "域名格式不合法(不含协议与路径)")
+
+    dup_host = (await db.execute(
+        select(Task.task_id).where(
+            Task.type == "release",
+            Task.status.notin_(["cancelled", "failed"]),
+            func.json_unquote(func.json_extract(Task.extended_attributes, "$.deploy_host")) == host,
+        ).limit(1)
+    )).scalar()
+    if dup_host:
+        raise BizError(ErrCode.DEPLOY_HOST_INVALID, "该域名已被其他部署占用")
+
+    dup_port = (await db.execute(
+        select(Task.task_id).where(
+            Task.type == "release",
+            Task.status.notin_(["cancelled", "failed", "timeout"]),
+            func.json_unquote(func.json_extract(Task.extended_attributes, "$.deploy_port")) == str(deploy_port),
+        ).limit(1)
+    )).scalar()
+    if dup_port:
+        raise BizError(ErrCode.DEPLOY_PORT_CONFLICT, "端口已被占用")
+
+    deploys = (await db.execute(
+        select(func.count(Task.id)).where(
+            Task.project_id == project.project_id,
+            Task.type == "release",
+            Task.status.notin_(["cancelled", "failed", "timeout"]),
+            func.json_unquote(func.json_extract(Task.extended_attributes, "$.deploy_phase")).in_(["deploying", "deployed"]),
+        )
+    )).scalar() or 0
+    if deploys >= MAX_CONCURRENT_DEPLOYS:
+        raise BizError(ErrCode.DEPLOY_LIMIT_EXCEEDED, "项目同时部署数已达上限(5个)")
+
+    dns_hint = "请先将域名 A 记录解析到网关" if deploy_host else None
+
+    task = Task(
+        req_id=requirement.req_id,
+        project_id=project.project_id,
+        type="release",
+        title=title,
+        description=description,
+        base_branch="master",
+        work_branch="master",
+        status="pending",
+        created_by=operator.user_id,
+        extended_attributes={
+            "target_env": "subdomain",
+            "deploy_host": host,
+            "deploy_port": deploy_port,
+            "deploy_script": deploy_script or "",
+            "deploy_log_path": build_report_path(requirement.title, str(uuid.uuid4())).replace("report.md", "deploy-log.txt"),
+            "deploy_phase": "deploying",
+        },
+    )
+    db.add(task)
+    await db.flush()
+    logger.info("发布任务已创建 task=%s host=%s port=%s hint=%s", task.task_id, host, deploy_port, dns_hint)
+    return task, dns_hint
+
+
+async def run_release(db: AsyncSession, task: Task, project: Project, requirement: Requirement) -> None:
+    """
+    发布执行(容器内,经 Runner):
+    1. merge req_branch → master
+    2. 执行部署脚本(默认:在容器内启动服务)
+    3. 健康检查 localhost:{deploy_port}
+    4. 注册网关路由(host={deploy_host}:{deploy_port},公开)→ deploy_phase=deployed
+    失败 → deploy_phase=failed + task failed。
+    """
+    container = (await db.execute(
+        select(Container).where(
+            # creating 亦视为可发布:容器已调度(start_container 已下发),
+            # container_started 回报仅补记端口映射
+            Container.task_id == task.task_id, Container.status.in_(["running", "creating"])
+        ).order_by(Container.id.desc()).limit(1)
+    )).scalars().first()
+    runner_conn = runner_registry.get(container.runner_id) if container else None
+    if container is None or runner_conn is None:
+        ext = dict(task.extended_attributes or {})
+        ext["deploy_phase"] = "failed"
+        task.extended_attributes = ext
+        task.status = "failed"
+        task.error_message = "Runner offline,无法执行发布"
+        await db.flush()
+        return
+
+    ext = dict(task.extended_attributes or {})
+    deploy_port = int(ext.get("deploy_port", 0))
+    script = ext.get("deploy_script") or f"echo 'no deploy script; service expected on port {deploy_port}'"
+
+    try:
+        await runner_service.request_runner(runner_conn, {
+            "type": "git_merge",
+            "container_id": container.container_id,
+            "repo_path": "/workspace/main",
+            "source_branch": requirement.req_branch,
+            "target_branch": "master",
+        }, timeout=120.0)
+
+        result = await runner_service.request_runner(runner_conn, {
+            "type": "deploy_run",
+            "container_id": container.container_id,
+            "script": script,
+            "health_port": deploy_port,
+            "health_path": "/",
+        }, timeout=300.0)
+        if not result.get("ok"):
+            raise RuntimeError(result.get("error") or "部署脚本执行失败")
+
+        from app.services import route_service
+
+        host_with_port = "{}:{}".format(ext.get("deploy_host"), deploy_port)
+        mapped = container.runner_host_port_8000 or container.runner_host_port_5173 or 0
+        conn_info = runner_registry.get(container.runner_id)
+        upstream = "http://{}:{}".format(conn_info.host if conn_info else "", mapped)
+        await route_service.register_deploy_route(
+            db,
+            project_id=task.project_id, task_id=task.task_id,
+            container_id=container.container_id, runner_id=container.runner_id,
+            deploy_host=ext.get("deploy_host"), deploy_port=deploy_port,
+            upstream=upstream,
+        )
+
+        ext = dict(task.extended_attributes or {})
+        ext["deploy_phase"] = "deployed"
+        task.extended_attributes = ext
+        task.status = "done"  # 发布任务执行完成;容器保留(R7 例外)
+        await db.flush()
+        await _maybe_complete_requirement(db, requirement)
+        await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": "deployed"})
+        logger.info("发布完成 task=%s host=%s", task.task_id, ext.get("deploy_host"))
+    except Exception as e:
+        ext = dict(task.extended_attributes or {})
+        ext["deploy_phase"] = "failed"
+        ext["deploy_error"] = str(e)[:500]
+        task.extended_attributes = ext
+        task.status = "failed"
+        task.error_message = "发布失败:{}".format(e)
+        await db.flush()
+        await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": "failed"})
+        logger.warning("发布失败 task=%s: %s", task.task_id, e)
+
+
+async def _maybe_complete_requirement(db: AsyncSession, requirement: Requirement) -> None:
+    """需求下所有发布任务 deployed(无 failed/pending)→ 需求 done(R7 状态推进)"""
+    if requirement.status not in ("approved", "in_progress"):
+        return
+    total = (await db.execute(
+        select(func.count(Task.id)).where(Task.req_id == requirement.req_id, Task.type == "release")
+    )).scalar() or 0
+    finished = 0
+    for t in (await db.execute(
+        select(Task).where(Task.req_id == requirement.req_id, Task.type == "release")
+    )).scalars().all():
+        phase = (t.extended_attributes or {}).get("deploy_phase")
+        if t.status == "done" and phase == "deployed":
+            finished += 1
+    if total > 0 and finished == total:
+        requirement.status = "done"
+        await db.flush()
+        logger.info("需求全部部署完成 → done req=%s", requirement.req_id)
+
+
+async def offline_deploy(db: AsyncSession, task: Task) -> None:
+    """下线:摘除路由 + 销毁容器 + deploy_phase=undeployed"""
+    from app.services import route_service
+
+    ext = task.extended_attributes or {}
+    host_with_port = "{}:{}".format(ext.get("deploy_host"), ext.get("deploy_port"))
+    await route_service.set_route_status(db, host_with_port, "inactive")
+    await route_service.set_route_status(db, ext.get("deploy_host") or "", "inactive")
+
+    ext = dict(ext)
+    ext["deploy_phase"] = "undeployed"
+    task.extended_attributes = ext
+
+    container = (await db.execute(
+        select(Container).where(
+            Container.task_id == task.task_id, Container.status.in_(["running", "creating"])
+        ).order_by(Container.id.desc()).limit(1)
+    )).scalars().first()
+    if container is not None:
+        await container_service.request_stop(db, container)
+    await db.flush()
+    logger.info("部署已下线 task=%s", task.task_id)

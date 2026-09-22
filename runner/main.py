@@ -217,6 +217,25 @@ async def handle_message(ws: Any, msg: dict) -> None:
         except Exception as e:
             await send_result(ws, req_id, False, error=str(e))
 
+    elif mtype in ("git_merge", "deploy_run"):
+        # R7 发布执行(merge / 部署脚本+健康检查)
+        req_id = msg.get("req_id", "")
+        try:
+            if mtype == "git_merge":
+                manager.merge_branch(
+                    msg.get("container_id", ""), msg.get("repo_path", "/workspace/main"),
+                    msg.get("source_branch", ""), msg.get("target_branch", "master"),
+                )
+                await send_result(ws, req_id, True, {})
+            else:
+                data = manager.run_deploy(
+                    msg.get("container_id", ""), msg.get("script", ""),
+                    int(msg.get("health_port", 0)), msg.get("health_path", "/"),
+                )
+                await send_result(ws, req_id, True, data)
+        except Exception as e:
+            await send_result(ws, req_id, False, error=str(e))
+
     elif mtype == "git_commit":
         # R3 评审通过:PRD commit + push(评审人个人 token)
         try:

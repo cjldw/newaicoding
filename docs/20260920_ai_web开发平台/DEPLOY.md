@@ -511,3 +511,15 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **影响范围**:R6 测试任务全链路(创建前置 dev-done/确认用例/接受失败豁免/驳回回开发回环);新状态 cases_review(用例审阅)与 passed(通过,含豁免标记入 extended_attributes)
 - **开发库同步说明**:开发库表结构历史由 create_all 维护,本次以 `alembic stamp head` 对齐版本号(f2a7c9e4b8d1)并手工执行等价 ALTER;上线库走标准 alembic upgrade
 - **回滚方案**:先 `UPDATE tasks SET status='pending' WHERE status='cases_review'; UPDATE tasks SET status='done' WHERE status='passed';` 再执行 downgrade ALTER
+
+## 2026-09-22 R7 发布任务(type=release)
+
+- **类型**:纯代码(无 DB 变更——deploy_host/deploy_port/deploy_phase 等存 tasks.extended_attributes;路由复用 R10 routes 表)
+- **影响范围**:
+  - POST /api/requirements/{req_id}/tasks(type=release):前置 test passed(4001)、deploy_port 10000-10099 全平台唯一(7001)、deploy_host 合法主机名+唯一(7003)、同时部署 ≤5(7002)
+  - POST /api/tasks/{task_id}/run-release:merge→脚本→健康检查→路由注册→需求 done 推进
+  - POST /api/tasks/{task_id}/offline:路由摘除+容器销毁
+  - GET /api/tasks/check-port:端口冲突实时检测
+  - Runner 新增 git_merge / deploy_run 消息处理
+- **部署语义**:release 容器不销毁持续对外服务;发布任务固定调度在 role=deploy Runner;URL 端口为路由标识,V1 网关监听 80(端口直连形态由网关侧扩展)
+- **回滚方案**:随代码回滚;路由摘除即下线

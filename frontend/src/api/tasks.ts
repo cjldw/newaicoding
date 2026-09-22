@@ -65,6 +65,8 @@ export interface CreateTaskPayload {
   description: string
   base_branch?: string
   work_branch?: string
+  deploy_port?: number
+  deploy_host?: string
 }
 
 export interface TaskMessageFileRef {

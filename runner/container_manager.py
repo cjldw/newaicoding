@@ -359,6 +359,48 @@ class ContainerManager:
         except _json.JSONDecodeError:
             return {"result": text, "tokens_in": 0, "tokens_out": 0}
 
+    def merge_branch(self, container_id: str, repo_path: str,
+                     source_branch: str, target_branch: str) -> None:
+        """
+        R7 发布 merge:checkout target → merge source。
+        冲突(非快进失败)抛错 → 平台标 failed 提示人工(R7:AI 解决能力由任务对话承载)。
+        """
+        code, out = self.exec_capture(
+            container_id,
+            f"git checkout {target_branch} && git merge {source_branch} "
+            f"|| (git merge --abort; exit 1)",
+            workdir=repo_path,
+        )
+        if code != 0:
+            raise RuntimeError(
+                f"merge 冲突或失败({code}): {out.decode(errors='ignore')[:300]}"
+            )
+
+    def run_deploy(self, container_id: str, script: str,
+                   health_port: int, health_path: str = "/",
+                   health_timeout: int = 10) -> dict:
+        """
+        R7 部署执行:后台启动部署脚本 → 健康检查轮询(10s)。
+        返回 {"ok": True, "log": ...};健康检查失败抛错。
+        """
+        # 后台启动(nohup),避免阻塞
+        code, out = self.exec_capture(
+            container_id, f"nohup bash -lc '{script}' > /tmp/deploy.out 2>&1 &", workdir="/workspace/main",
+        )
+        # 健康检查轮询
+        import time as _time
+
+        deadline = _time.time() + health_timeout
+        while _time.time() < deadline:
+            hcode, _ = self.exec_capture(
+                container_id,
+                f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{health_port}{health_path}",
+            )
+            if hcode == 0:
+                return {"ok": True}
+            _time.sleep(1)
+        raise RuntimeError(f"健康检查失败:localhost:{health_port} 在 {health_timeout}s 内未就绪")
+
     def iter_events(self) -> Any:
         """阻塞迭代 Docker events(只关注容器 start/die/oom)"""
         for event in self.client.events(decode=True):

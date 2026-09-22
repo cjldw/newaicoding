@@ -6,6 +6,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Play, Send, CheckCircle, XCircle, FileText } from 'lucide-react'
+import { TaskCreateDialog } from '@/pages/tasks/TaskCreateDialog'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Textarea } from '@/components/ui/Textarea'
@@ -60,6 +61,7 @@ export function RequirementDetail() {
 
   const [rejectDialog, setRejectDialog] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [releaseDialog, setReleaseDialog] = useState(false)
   const [cancelDialog, setCancelDialog] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [error, setError] = useState('')
@@ -202,7 +204,7 @@ export function RequirementDetail() {
             </Button>
           )}
           {requirement.status === 'in_progress' && hasTestTaskPassed && (
-            <Button variant="primary" onClick={() => navigate('/tasks/create?type=release')}>
+            <Button variant="primary" onClick={() => setReleaseDialog(true)}>
               <FileText className="w-4 h-4 mr-2" />
               创建发布任务
             </Button>
@@ -384,6 +386,15 @@ export function RequirementDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {releaseDialog && (
+        <TaskCreateDialog
+          reqId={reqId ?? ''}
+          type="release"
+          open={releaseDialog}
+          onClose={() => setReleaseDialog(false)}
+          onSuccess={(taskId) => { setReleaseDialog(false); navigate(`/tasks/${taskId}/deploy`) }}
+        />
+      )}
     </div>
   )
 }

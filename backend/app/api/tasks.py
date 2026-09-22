@@ -54,6 +54,10 @@ class CreateTaskRequest(BaseModel):
     description: str = Field(min_length=1)
     base_branch: str = Field(default=None, max_length=64)
     work_branch: str = Field(default=None, max_length=64)
+    # R7 发布任务扩展字段(创建后并入 extended_attributes)
+    deploy_port: int = Field(default=None)
+    deploy_host: str = Field(default=None, max_length=253)
+    deploy_script: str = Field(default=None)
 
 
 @router.post("/requirements/{req_id}/tasks")
@@ -75,8 +79,16 @@ async def create_task(
     await project_member_service.require_project_role(db, project, current_user, "editor")
 
     # test 类型走专用创建(dev-done 前置 + test 仓库清单 + 报告路径;R6)
+    # release 类型走专用创建(test passed 前置 + 端口/域名唯一 + 部署数限额;R7)
     hint = None
-    if req.type == "test":
+    if req.type == "release":
+        task, hint = await task_service.create_release_task(
+            db, requirement, project, current_user,
+            title=req.title, description=req.description,
+            deploy_port=req.deploy_port, deploy_host=req.deploy_host,
+            deploy_script=req.deploy_script,
+        )
+    elif req.type == "test":
         task, hint = await task_service.create_test_task(
             db, requirement, project, current_user,
             title=req.title, description=req.description,
@@ -98,10 +110,77 @@ async def create_task(
             raise
         logger.info("无可用 Runner,任务排队 task=%s", task.task_id)
 
+    # R7:发布任务创建即执行发布(merge/脚本/健康检查/路由注册)
+    if req.type == "release":
+        await task_service.run_release(db, task, project, requirement)
+
     return success(
         data={"task_id": task.task_id, **({"hint": hint} if hint else {})},
         message="任务已创建",
     )
+
+
+# ---------------------------------------------------------------------------
+# R7:发布执行 / 下线 / 端口检测
+# ---------------------------------------------------------------------------
+@router.post("/tasks/{task_id}/run-release")
+async def run_release(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """发布执行(merge/脚本/健康检查/路由注册);由创建流程调用,亦可手动重跑"""
+    task = await task_service.get_task_or_404(db, task_id)
+    if task.type != "release":
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "仅发布任务可执行发布")
+    requirement = (await db.execute(
+        select(Requirement).where(Requirement.req_id == task.req_id)
+    )).scalars().first()
+    project = (await db.execute(
+        select(Project).where(Project.project_id == task.project_id)
+    )).scalars().first()
+    await task_service.run_release(db, task, project, requirement)
+    ext = task.extended_attributes or {}
+    return success(data={
+        "deploy_phase": ext.get("deploy_phase"),
+        "deploy_url": "http://{}:{}".format(ext.get("deploy_host"), ext.get("deploy_port")),
+    })
+
+
+@router.post("/tasks/{task_id}/offline")
+async def offline_deploy(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """下线:摘除路由 + 销毁容器(URL 不可访问)"""
+    task = await task_service.get_task_or_404(db, task_id)
+    if task.type != "release":
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "仅发布任务可下线")
+    await task_service.offline_deploy(db, task)
+    return success(message="已下线")
+
+
+@router.get("/tasks/check-port")
+async def check_port(
+    port: int = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """部署端口冲突实时检测(前端失焦轮询;创建时后端仍强校验 7001)"""
+    from sqlalchemy import func as _func
+
+    dup = (await db.execute(
+        sqlalchemy.select(_func.count(Task.id)).where(
+            Task.type == "release",
+            sqlalchemy.func.json_unquote(
+                sqlalchemy.func.json_extract(Task.extended_attributes, "$.deploy_port")
+            ) == str(port),
+            Task.status.notin_(["cancelled", "failed", "timeout"]),
+        )
+    )).scalar() or 0
+    in_range = 10000 <= port <= 10099
+    return success(data={"occupied": dup > 0 or not in_range})
 
 
 # ---------------------------------------------------------------------------

@@ -76,6 +76,11 @@ class ErrCode:
     TERMINAL_UNAVAILABLE = 9001    # 终端不可用(Runner 离线/容器非 running)
     TERMINAL_NOT_FOUND = 9002      # 会话不存在或无权访问
 
+    # R7 发布
+    DEPLOY_PORT_CONFLICT = 7001     # deploy_port 全平台唯一,冲突拒绝
+    DEPLOY_LIMIT_EXCEEDED = 7002    # 单项目同时部署数超限(>5)
+    DEPLOY_HOST_INVALID = 7003      # deploy_host 非法/冲突
+
     # R4 任务
     TASK_REQ_STATUS_INVALID = 4001   # 需求状态不合法(如 dev 要求 approved)
     TASK_NO_GITLAB_TOKEN = 4002      # 用户未绑定 GitLab token

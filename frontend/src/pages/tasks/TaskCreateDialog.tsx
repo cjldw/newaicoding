@@ -1,11 +1,12 @@
 /**
  * TaskCreateDialog — 创建任务对话框
- * props: reqId, type, open, onClose, onSuccess
+ * props: reqId, type, open, onClose, onSuccess, initialDeployHost
  * 标题根据 type 变化:
  *   dev → 创建开发任务
  *   test → 创建测试任务
  *   release → 创建发布任务
  * 表单: title / description("本次要让 AI 做什么?") / base_branch(可选) / work_branch(可选)
+ * release 类型额外字段: deploy_port(10000-10099) / deploy_host(默认 {slug}.{deploy_base_domain})
  * 按钮: 取消 / 创建
  */
 
@@ -14,10 +15,12 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/Dialog'
 import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { useCreateTask, getTaskErrorMessage } from '@/api/tasks'
 import type { CreateTaskPayload, TaskType } from '@/api/tasks'
 import { ApiError } from '@/api/client'
+import { useCheckPort, isValidHostname } from '@/api/deploy'
 
 interface TaskCreateDialogProps {
   reqId: string
@@ -25,6 +28,7 @@ interface TaskCreateDialogProps {
   open: boolean
   onClose: () => void
   onSuccess: (taskId: string) => void
+  initialDeployHost?: string
 }
 
 const titleMap: Record<string, string> = {
@@ -34,7 +38,7 @@ const titleMap: Record<string, string> = {
 }
 
 export function TaskCreateDialog({
-  reqId, type, open, onClose, onSuccess,
+  reqId, type, open, onClose, onSuccess, initialDeployHost,
 }: TaskCreateDialogProps) {
   const createTask = useCreateTask(reqId)
   const [title, setTitle] = useState('')
@@ -42,6 +46,14 @@ export function TaskCreateDialog({
   const [baseBranch, setBaseBranch] = useState('')
   const [workBranch, setWorkBranch] = useState('')
   const [error, setError] = useState('')
+
+  // release 类型额外字段
+  const [deployPort, setDeployPort] = useState('')
+  const [deployHost, setDeployHost] = useState('')
+  const [portError, setPortError] = useState('')
+  const [hostError, setHostError] = useState('')
+  const [portToCheck, setPortToCheck] = useState<number | null>(null)
+  const portQuery = useCheckPort(portToCheck)
 
   // 打开时重置表单
   useEffect(() => {
@@ -51,8 +63,20 @@ export function TaskCreateDialog({
       setBaseBranch('')
       setWorkBranch('')
       setError('')
+      setDeployPort('')
+      setDeployHost(initialDeployHost ?? '')
+      setPortError('')
+      setHostError('')
+      setPortToCheck(null)
     }
-  }, [open])
+  }, [open, initialDeployHost])
+
+  // 端口冲突检查结果
+  useEffect(() => {
+    if (portQuery.data?.occupied) {
+      setPortError('端口已被占用')
+    }
+  }, [portQuery.data])
 
   const handleCreate = () => {
     if (!title.trim()) {
@@ -71,6 +95,10 @@ export function TaskCreateDialog({
     }
     if (baseBranch.trim()) payload.base_branch = baseBranch.trim()
     if (workBranch.trim()) payload.work_branch = workBranch.trim()
+    if (type === 'release') {
+      if (deployPort) payload.deploy_port = Number(deployPort)
+      if (deployHost.trim()) payload.deploy_host = deployHost.trim()
+    }
 
     createTask.mutate(payload, {
       onSuccess: (data) => {
@@ -153,6 +181,59 @@ export function TaskCreateDialog({
               className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary font-mono"
             />
           </div>
+
+          {/* release 类型: deploy_port + deploy_host */}
+          {type === 'release' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-text mb-1.5">
+                  部署端口 <span className="text-text-muted text-xs">(10000-10099)</span>
+                </label>
+                <Input
+                  type="number"
+                  value={deployPort}
+                  onChange={(e) => {
+                    setDeployPort(e.target.value)
+                    setPortError('')
+                  }}
+                  onBlur={() => {
+                    const n = Number(deployPort)
+                    if (deployPort && (n < 10000 || n > 10099)) {
+                      setPortError('端口范围 10000-10099')
+                    } else if (deployPort) {
+                      setPortToCheck(n)
+                    }
+                  }}
+                  placeholder="10000-10099"
+                />
+                {portError && (
+                  <p className="text-xs text-error mt-1">{portError}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-text mb-1.5">
+                  部署域名
+                </label>
+                <Input
+                  type="text"
+                  value={deployHost}
+                  onChange={(e) => {
+                    setDeployHost(e.target.value)
+                    setHostError('')
+                  }}
+                  onBlur={() => {
+                    if (deployHost.trim() && !isValidHostname(deployHost.trim())) {
+                      setHostError('域名格式不合法(不含协议与路径)')
+                    }
+                  }}
+                  placeholder={`默认 {slug}.{部署根域名}(平台设置),可自定义;仅 HTTP,需将域名解析到网关`}
+                />
+                {hostError && (
+                  <p className="text-xs text-error mt-1">{hostError}</p>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <DialogFooter>
