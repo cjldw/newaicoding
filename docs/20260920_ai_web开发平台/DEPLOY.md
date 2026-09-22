@@ -523,3 +523,37 @@ CREATE TABLE IF NOT EXISTS `users` (
   - Runner 新增 git_merge / deploy_run 消息处理
 - **部署语义**:release 容器不销毁持续对外服务;发布任务固定调度在 role=deploy Runner;URL 端口为路由标识,V1 网关监听 80(端口直连形态由网关侧扩展)
 - **回滚方案**:随代码回滚;路由摘除即下线
+
+## 2026-09-22 R14 归档与知识库
+
+- **类型**:数据库(alembic revision `a3c8e7f2b9d4`,down_revision `f2a7c9e4b8d1`)
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `knowledge_entries` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `entry_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `project_id` CHAR(36) NULL COMMENT '项目 id(null=平台级)',
+    `req_id` CHAR(36) NOT NULL COMMENT '来源需求 id',
+    `type` ENUM('code_snippet','pattern','pitfall','doc') NOT NULL COMMENT '类型',
+    `title` VARCHAR(128) NOT NULL COMMENT '标题',
+    `content` TEXT NOT NULL COMMENT '内容(Markdown)',
+    `tags` JSON NULL COMMENT '标签数组',
+    `source_links` JSON NULL COMMENT '关联链接',
+    `created_by` ENUM('ai','human') NOT NULL DEFAULT 'ai' COMMENT '创建者类型',
+    `status` ENUM('draft','published') NOT NULL DEFAULT 'draft' COMMENT '状态',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_knowledge_entries_entry_id` (`entry_id`),
+    KEY `ix_knowledge_entries_project_id` (`project_id`),
+    KEY `ix_knowledge_entries_req_id` (`req_id`),
+    KEY `ix_knowledge_entries_type` (`type`),
+    KEY `ix_knowledge_entries_status` (`status`),
+    KEY `ix_knowledge_project_status` (`project_id`,`status`),
+    FULLTEXT KEY `ft_knowledge_title_content` (`title`,`content`) WITH PARSER ngram
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识条目表';
+  ```
+
+- **影响范围**:R14 归档(时间线/总结路径/自动归档 done→archived)+ 知识库(项目/平台两级,FULLTEXT 检索,发布/提升);R7 完成链自动触发归档
+- **回滚方案**:`DROP TABLE knowledge_entries;`(先 DROP FULLTEXT 索引或直接 DROP TABLE)

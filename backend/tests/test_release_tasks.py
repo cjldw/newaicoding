@@ -119,9 +119,9 @@ async def test_create_release_task_success(client, auth_headers, db_session, reg
     assert route.auth_required is False
     assert route.host == f"{ext['deploy_host']}:10080"
 
-    # 需求推进 done(全部发布完成)
+    # 需求推进 done(全部发布完成);R14 自动归档钩子随后置 archived
     await db_session.refresh(req)
-    assert req.status == "done"
+    assert req.status in ("done", "archived")
     runner_registry.unregister(runner.runner_id)
 
 

@@ -833,6 +833,14 @@ async def _maybe_complete_requirement(db: AsyncSession, requirement: Requirement
         requirement.status = "done"
         await db.flush()
         logger.info("需求全部部署完成 → done req=%s", requirement.req_id)
+        # R14:自动归档(done → archived;时间线/总结/知识条目 draft)
+        project_row = (await db.execute(
+            select(Project).where(Project.project_id == requirement.project_id)
+        )).scalars().first()
+        if project_row is not None:
+            from app.services import archive_service
+
+            await archive_service.archive_requirement(db, requirement, project_row)
 
 
 async def offline_deploy(db: AsyncSession, task: Task) -> None:

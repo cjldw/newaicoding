@@ -27,6 +27,7 @@ from app.models.terminal import TerminalSession  # noqa: E402, F401
 from app.models.route import Route  # noqa: E402, F401
 from app.models.requirement import Requirement  # noqa: E402, F401
 from app.models.task import Task, TaskUploadedFile, TaskMessage  # noqa: E402, F401
+from app.models.knowledge_entry import KnowledgeEntry  # noqa: E402, F401
 
 # Alembic Config 对象
 config = context.config
