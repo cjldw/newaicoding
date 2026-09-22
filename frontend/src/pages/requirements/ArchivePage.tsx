@@ -51,7 +51,7 @@ export default function ArchivePage() {
   const { requirement, timeline, summary_file_path, knowledge_entries } = archive
 
   return (
-    <div className="page">
+    <div className="page wide">
       {/* 页面标题 */}
       <div className="page-head">
         <h1 className="text-2xl font-semibold text-text">需求归档</h1>

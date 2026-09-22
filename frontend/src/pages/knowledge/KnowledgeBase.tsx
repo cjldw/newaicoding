@@ -142,7 +142,7 @@ export default function KnowledgeBase() {
     : '知识条目'
 
   return (
-    <div className="page">
+    <div className="page wide">
       {/* 页面标题(vp:icon + 标题 + 换行 + 说明;仅全局 /knowledge 生效,项目空间保持原结构) */}
       <div className="page-head">
         <div>

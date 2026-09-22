@@ -76,7 +76,7 @@ export default function TestReport() {
   }
 
   return (
-    <div className="page">
+    <div className="page wide">
       <div className="page-head">
         <h1 className="text-2xl font-semibold text-text">测试报告</h1>
         <p className="text-sm text-text-muted mt-1">任务:{task.title}</p>

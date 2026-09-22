@@ -59,11 +59,11 @@ export default function DeployStatus() {
   }
 
   if (!task) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">加载中...</div>
+    return <div className="page wide text-text-muted">加载中...</div>
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-4xl">
+    <div className="page wide">
       {toast && (
         <Alert variant="success" className="mb-4" onClose={() => setToast('')}>
           {toast}

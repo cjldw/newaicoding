@@ -145,7 +145,7 @@ export function PlatformSettings() {
   }
 
   return (
-    <div className="page">
+    <div className="page wide">
       <div className="page-head">
         {/* vp 无独立平台设置页(L810 演示 toast),页头按 vp 页头语言补 icon+说明,文案自拟留痕 */}
         <div>

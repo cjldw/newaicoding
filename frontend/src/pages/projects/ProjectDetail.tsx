@@ -61,14 +61,14 @@ export function ProjectDetail() {
   }
 
   if (isLoading) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">加载中...</div>
+    return <div className="page wide text-text-muted">加载中...</div>
   }
   if (!project) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">项目不存在</div>
+    return <div className="page wide text-text-muted">项目不存在</div>
   }
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="page wide">
       {/* 页头 */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">

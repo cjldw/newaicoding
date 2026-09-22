@@ -95,7 +95,7 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
   }
 
   return (
-    <div className="page wide">
+    <div>
       {/* 页头 */}
       <div className="page-head">
         <div>

@@ -108,7 +108,7 @@ export function RequirementList() {
   }
 
   return (
-    <div className="page wide">
+    <div>
       {/* 页头 */}
       <div className="page-head">
         <h1 className="text-2xl font-semibold text-text">需求</h1>

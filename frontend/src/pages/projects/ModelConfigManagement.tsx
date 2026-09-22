@@ -177,7 +177,7 @@ export function ModelConfigManagement({ projectId }: ModelConfigManagementProps)
   if (isLoading) return <div className="text-text-muted py-8">加载中...</div>
 
   return (
-    <div className="page wide">
+    <div>
       {/* 页头 */}
       <div className="page-head">
         <div>

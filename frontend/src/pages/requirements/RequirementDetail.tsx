@@ -145,7 +145,7 @@ export function RequirementDetail() {
   const hasTestTaskPassed = requirement.tasks.some(t => t.type === 'test' && t.status === 'passed')
 
   return (
-    <div className="page">
+    <div className="page wide">
       {/* 返回按钮 */}
       <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-4">
         <ArrowLeft className="w-4 h-4 mr-2" />

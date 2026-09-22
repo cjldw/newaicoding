@@ -163,7 +163,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
   if (isLoading) return <div className="text-text-muted py-8">加载中...</div>
 
   return (
-    <div className="page wide">
+    <div>
       {/* 页头(对齐 vp:icon + 标题 + sub) */}
       <div className="page-head">
         <div>

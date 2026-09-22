@@ -94,7 +94,7 @@ export default function TaskDetail() {
   }
 
   if (!task) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">加载中...</div>
+    return <div className="page wide text-text-muted">加载中...</div>
   }
 
   return (

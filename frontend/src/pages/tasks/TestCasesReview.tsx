@@ -88,7 +88,7 @@ export default function TestCasesReview() {
   }
 
   return (
-    <div className="page">
+    <div className="page wide">
       <div className="page-head">
         <h1 className="text-2xl font-semibold text-text">测试用例审阅</h1>
         <p className="text-sm text-text-muted mt-1">任务:{task.title}</p>
