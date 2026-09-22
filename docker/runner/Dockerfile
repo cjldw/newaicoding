@@ -4,7 +4,7 @@ FROM python:3.12-slim
 
 RUN pip3 install --no-cache-dir fastapi uvicorn websockets docker
 
-COPY main.py container_manager.py /app/
+COPY main.py container_manager.py terminal_manager.py file_watcher.py /app/
 
 WORKDIR /app
 CMD ["python3", "main.py"]
