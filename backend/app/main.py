@@ -74,6 +74,8 @@ from app.api.requirements import router as requirements_router
 from app.api.tasks import router as tasks_router
 from app.api.knowledge import router as knowledge_router
 from app.api.knowledge_bases import router as knowledge_bases_router
+from app.api.dashboard import router as dashboard_router
+from app.api.dashboard_views import router as dashboard_views_router
 from app.api.notifications import router as notifications_router
 from app.api.admin.users_admin import router as users_admin_router
 
@@ -183,6 +185,8 @@ app.include_router(requirements_router)
 app.include_router(tasks_router)
 app.include_router(knowledge_router)
 app.include_router(knowledge_bases_router)
+app.include_router(dashboard_router)
+app.include_router(dashboard_views_router)
 app.include_router(notifications_router)
 app.include_router(users_admin_router)
 
