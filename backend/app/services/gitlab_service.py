@@ -57,7 +57,8 @@ class GitlabService:
         返回 {"username": str, "scopes": list[str]}
         失败时抛出 BizError
         """
-        headers = {"Authorization": f"Bearer {gitlab_token}"}
+        # BUG-012:GitLab PAT 仅认 PRIVATE-TOKEN 头(Bearer 仅适用于 OAuth token)
+        headers = {"PRIVATE-TOKEN": gitlab_token}
 
         client = _get_client()
         try:
@@ -109,8 +110,15 @@ ACCESS_LEVEL_MAINTAINER = 40
 
 
 def _bot_headers(bot_token: str) -> dict:
-    """平台 bot token 请求头"""
-    return {"Authorization": f"Bearer {bot_token}"}
+    """平台 bot token 请求头
+
+    BUG-012:GitLab PAT 仅认 PRIVATE-TOKEN 头;Authorization: Bearer 仅适用于
+    OAuth2 access token,用于 PAT 会恒 401(curl 实证 2026-09-22)。
+    """
+    return {"PRIVATE-TOKEN": bot_token}
+
+
+_VIS_ORDER = {"private": 0, "internal": 1, "public": 2}
 
 
 async def bot_create_repo(
@@ -124,9 +132,27 @@ async def bot_create_repo(
     """
     平台 bot 建仓库:POST /api/v4/projects
     返回 GitLab project JSON(id/http_url_to_repo/...);非 2xx 抛 BizError(2002)。
+
+    BUG-013:GitLab 规则"仓库可见性 ≤ 组可见性"(private<internal<public)——
+    私有组内建 internal/public 仓库会被拒("internal is not allowed in a private
+    group.");建仓前读 group 可见性,请求超出时自动降级。
     """
     client = _get_client()
     try:
+        # 读目标 group 可见性,请求超出则降级(读失败不阻断,交给建仓报错兜底)
+        try:
+            g = await client.get(
+                f"{gitlab_url.rstrip('/')}/api/v4/groups/{namespace_id}",
+                headers=_bot_headers(bot_token),
+            )
+            if g.status_code == 200:
+                gv = (g.json() or {}).get("visibility", "private")
+                if _VIS_ORDER.get(visibility, 0) > _VIS_ORDER.get(gv, 0):
+                    logger.info("GitLab 建仓可见性降级 %s -> %s(namespace %s)", visibility, gv, namespace_id)
+                    visibility = gv
+        except httpx.HTTPError as e:
+            logger.warning("读取 GitLab group 可见性失败(忽略,按原 visibility 建仓): %s", e)
+
         resp = await client.post(
             f"{gitlab_url.rstrip('/')}/api/v4/projects",
             headers=_bot_headers(bot_token),
