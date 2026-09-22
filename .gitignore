@@ -72,3 +72,8 @@ output/
 .playwright-mcp/
 .scratch/
 dash.png
+
+# ===== 会话产物(2026-09-22 rd-fix) =====
+/*.png
+*.stackdump
+resp.json
