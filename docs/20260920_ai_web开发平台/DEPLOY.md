@@ -707,3 +707,18 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **影响范围**:用户管理/平台邀请/审计查询 API(超管);禁用链路(status+token_version+取消任务);审计异步写入与 365 天保留清理任务;users_admin 挂入主路由
 - **部署动作**:main.py lifespan 挂心跳巡检与审计异步注入(已实现);/api/admin/* 建议网关层加 60 req/min 频控(19004 预留)
 - **回滚方案**:`DROP TABLE invitations; DROP TABLE audit_logs;`(顺序不可反)
+
+## 2026-09-22 R21+R22 工作台与四维管理菜单
+
+- **类型**:纯代码(无 DB 变更——聚合查询直查 requirements/tasks/project_members/projects)
+- **影响范围**:
+  - GET /api/dashboard/summary(四卡片统计 + 每类 recent ≤5;created_by=me 口径;超管=全部 active 项目)
+  - GET /api/dashboard/requirements、GET /api/dashboard/tasks/{dev|test|release}(四维列表,status 过滤+分页)
+- **前端**:Dashboard 工作台已有页面接 dashboard summary 数据;四维列表由 dashboard_views 路由承载
+- **回滚方案**:随代码回滚
+
+## 2026-09-22 R22 四维管理菜单(补充条目,无 DB 变更)
+
+- **类型**:纯代码
+- **影响范围**:GET /api/dashboard/requirements、GET /api/dashboard/tasks/{dev|test|release}(四维列表,created_by=me + 可见项目过滤 + status 过滤 + 分页)
+- **回滚方案**:随代码回滚

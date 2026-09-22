@@ -472,8 +472,8 @@ docker run -d \
 | R20 | 项目知识库管理 | M7 | ✅ | ./DEVPLAN/R20.md |
 | R18 | 站内信与通知 | M8 | ✅ | ./DEVPLAN/R18.md |
 | R19 | 平台角色与权限体系 | M9 | ✅ | ./DEVPLAN/R19.md |
-| R21 | 全局 Dashboard | M10 | ⬜ | ./DEVPLAN/R21.md |
-| R22 | 四维管理菜单 | M10 | ⬜ | ./DEVPLAN/R22.md |
+| R21 | 全局 Dashboard | M10 | ✅ | ./DEVPLAN/R21.md |
+| R22 | 四维管理菜单 | M10 | ✅ | ./DEVPLAN/R22.md |
 
 (状态:⬜ 未开始 / 🔄 进行中 / ✅ 完成 / ⚠️ 有问题。这张表是**全流程唯一的续接入口**——清上下文后只读它定位,再按需读详情文件,不全量重读)
 
