@@ -107,14 +107,16 @@ export function SkillsMarket() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-4">
+    <div className="page">
       {/* 操作栏 */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-text">Skills 市场</h1>
-        <Button size="sm" onClick={handleCreate}>
-          <Plus className="w-4 h-4 mr-2" />
-          新建 Skill
-        </Button>
+      <div className="page-head">
+        <h1>Skills 市场</h1>
+        <div className="acts">
+          <Button variant="primary" onClick={handleCreate}>
+            <Plus className="w-4 h-4 mr-1" />
+            新建 Skill
+          </Button>
+        </div>
       </div>
 
       {message && (
@@ -125,7 +127,7 @@ export function SkillsMarket() {
       {isLoading ? (
         <div className="text-text-muted py-8">加载中...</div>
       ) : (
-        <Table>
+        <Table className="tbl">
           <TableHeader>
             <TableRow>
               <TableHead>名称</TableHead>
@@ -153,12 +155,11 @@ export function SkillsMarket() {
                       编辑
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="danger"
                       size="sm"
                       onClick={() => setDeleteTarget(skill)}
-                      className="text-error hover:text-error"
                     >
-                      <Trash2 className="w-4 h-4 mr-1" />
+                      <Trash2 className="w-3.5 h-3.5 mr-1" />
                       删除
                     </Button>
                   </div>
@@ -243,8 +244,7 @@ export function SkillsMarket() {
             </Button>
             <Button
               size="sm"
-              variant="primary"
-              className="bg-error hover:bg-error/90"
+              variant="danger"
               onClick={handleDelete}
               disabled={deleteSkill.isPending}
             >

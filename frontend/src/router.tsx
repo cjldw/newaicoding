@@ -36,6 +36,7 @@ import ArchivePage from '@/pages/requirements/ArchivePage'
 import KnowledgeBase from '@/pages/knowledge/KnowledgeBase'
 import KnowledgeBaseList from '@/pages/knowledge/KnowledgeBaseList'
 import KnowledgeBaseView from '@/pages/knowledge/KnowledgeBaseView'
+import { RequirementsManage, TasksManage, TestsManage, ReleasesManage } from '@/pages/manage/ManagePages'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -69,6 +70,10 @@ export const router = createBrowserRouter([
       { path: 'projects/:projectId/knowledge-bases', element: <KnowledgeBaseList /> },
       { path: 'projects/:projectId/knowledge-bases/:kbId', element: <KnowledgeBaseView /> },
       { path: 'knowledge', element: <KnowledgeBase /> },
+      { path: 'manage/requirements', element: <RequirementsManage /> },
+      { path: 'manage/tasks', element: <TasksManage /> },
+      { path: 'manage/tests', element: <TestsManage /> },
+      { path: 'manage/releases', element: <ReleasesManage /> },
     ],
   },
   { path: '/admin/platform-settings', element: <PlatformSettings /> },

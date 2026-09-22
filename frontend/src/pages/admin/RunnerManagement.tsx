@@ -116,14 +116,16 @@ export function RunnerManagement() {
   platform/runner:v1`
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-text">Runner 管理</h1>
-        <Button variant="primary" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />新建 Runner</Button>
+    <div className="page">
+      <div className="page-head">
+        <h1>Runner 管理</h1>
+        <div className="acts">
+          <Button variant="primary" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />新建 Runner</Button>
+        </div>
       </div>
       {msg && <Alert variant={msg.type} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       <div className="border border-border rounded-lg overflow-hidden">
-        <Table>
+        <Table className="tbl">
           <TableHeader>
             <TableRow>
               <TableHead>名称</TableHead><TableHead>角色</TableHead><TableHead>状态</TableHead>
@@ -146,7 +148,7 @@ export function RunnerManagement() {
                   <TableCell className="text-right space-x-2">
                     <Button variant="ghost" size="sm" onClick={() => { setResetTarget(r); setResetOpen(true) }}><RefreshCcw className="w-3.5 h-3.5 mr-1" />重置 token</Button>
                     <Button variant="ghost" size="sm" onClick={() => handleDisable(r)}><Ban className="w-3.5 h-3.5 mr-1" />禁用</Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(r)}><Trash2 className="w-3.5 h-3.5 mr-1" />删除</Button>
+                    <Button variant="danger" size="sm" onClick={() => handleDelete(r)}><Trash2 className="w-3.5 h-3.5 mr-1" />删除</Button>
                   </TableCell>
                 </TableRow>
               )

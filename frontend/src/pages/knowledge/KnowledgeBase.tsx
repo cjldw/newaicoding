@@ -141,22 +141,27 @@ export default function KnowledgeBase() {
     : '知识库'
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-7xl">
+    <div className="page">
       {/* 页面标题 */}
-      <h1 className="text-2xl font-semibold text-text mb-6">{title}</h1>
+      <div className="page-head">
+        <h1>{title}</h1>
+        {isProjectScope && (
+          <div className="acts">
+            <Button variant="primary" onClick={openCreate}>
+              新建条目
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* Tab(仅项目级) */}
       {isProjectScope && (
-        <div className="flex gap-1 border-b border-border mb-5">
+        <div className="tabs">
           {(['project', 'platform'] as TabKey[]).map((k) => (
             <button
               key={k}
               onClick={() => setTab(k)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                tab === k
-                  ? 'text-primary border-primary'
-                  : 'text-text-muted border-transparent hover:text-text'
-              }`}
+              className={`tab${tab === k ? ' active' : ''}`}
             >
               {k === 'project' ? '项目知识库' : '平台知识库'}
             </button>
@@ -178,12 +183,6 @@ export default function KnowledgeBase() {
           onChange={(e) => setTypeFilter(e.target.value as KnowledgeType | '')}
           className="w-[140px]"
         />
-        <div className="flex-1" />
-        {isProjectScope && (
-          <Button variant="primary" onClick={openCreate}>
-            新建条目
-          </Button>
-        )}
       </div>
 
       {/* 卡片网格 */}
@@ -192,7 +191,7 @@ export default function KnowledgeBase() {
           const tb = typeBadgeMap[entry.type] ?? typeBadgeMap.doc
           const sb = statusBadgeMap[entry.status] ?? statusBadgeMap.draft
           return (
-            <Card key={entry.entry_id} className="p-4 flex flex-col gap-2 hover:border-primary transition-colors">
+            <Card key={entry.entry_id} className="card p-4 flex flex-col gap-2 hover:border-primary transition-colors">
               <div className="flex items-center justify-between">
                 <Badge variant={tb.variant}>{tb.label}</Badge>
                 <Badge variant={sb.variant}>{sb.label}</Badge>

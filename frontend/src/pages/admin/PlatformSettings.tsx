@@ -126,19 +126,22 @@ export function PlatformSettings() {
   }
 
   if (loading) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">加载中...</div>
+    return <div className="page text-text-muted">加载中...</div>
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-3xl">
-      <h1 className="text-2xl font-semibold text-text mb-6">平台设置</h1>
+    <div className="page">
+      <div className="page-head">
+        <h1>平台设置</h1>
+      </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
         {/* Section 1: GitLab 集成 */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-medium text-text border-b border-border pb-2">
-            GitLab 集成
-          </h2>
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">GitLab 集成</div>
+          </div>
+          <div className="card-body space-y-4">
 
           <div className="space-y-1">
             <label className="text-sm font-medium text-text">GitLab URL</label>
@@ -206,13 +209,15 @@ export function PlatformSettings() {
               </span>
             )}
           </div>
+          </div>
         </section>
 
         {/* Section 2: 域名配置 */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-medium text-text border-b border-border pb-2">
-            域名配置
-          </h2>
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">域名配置</div>
+          </div>
+          <div className="card-body space-y-4">
 
           <div className="space-y-1">
             <label className="text-sm font-medium text-text">预览环境基础域名</label>
@@ -229,13 +234,15 @@ export function PlatformSettings() {
               {...register('deploy_base_domain')}
             />
           </div>
+          </div>
         </section>
 
         {/* Section 3: 全局参数 */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-medium text-text border-b border-border pb-2">
-            全局参数
-          </h2>
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">全局参数</div>
+          </div>
+          <div className="card-body space-y-4">
 
           <div className="space-y-1">
             <label className="text-sm font-medium text-text">最大容器总数</label>
@@ -268,6 +275,7 @@ export function PlatformSettings() {
             {errors.kb_max_file_mb && (
               <p className="text-xs text-error">{errors.kb_max_file_mb.message}</p>
             )}
+          </div>
           </div>
         </section>
 

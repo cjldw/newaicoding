@@ -1,28 +1,44 @@
 /**
  * ProjectList — 项目列表页
- * 标题"我的项目" + 主按钮"新建项目" + 表格 + 分页 + 空态
+ * 视觉对齐 vp 原型 pageProjects: page-head(h1+sub+acts) + pcards 卡片网格
+ * 保留 react-query 数据、新建项目对话框、删除/归档逻辑
  */
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, MoreHorizontal, Archive, Trash2, Settings } from 'lucide-react'
+import {
+  Plus,
+  Folder,
+  GitBranch,
+  FileText,
+  Key,
+  Archive,
+  Trash2,
+  Settings,
+  MoreHorizontal,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
 import {
-  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
-} from '@/components/ui/Table'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/Dialog'
 import { useProjectList, useDeleteProject, useArchiveProject } from '@/api/projects'
 import type { ProjectListItem } from '@/api/projects'
 
-// 状态徽章映射
-const statusMap: Record<string, { label: string; variant: 'success' | 'default' | 'error' }> = {
-  active: { label: '活跃', variant: 'success' },
-  archived: { label: '已归档', variant: 'default' },
-  deleted: { label: '已删除', variant: 'error' },
+// 状态徽章颜色映射
+const badgeClass: Record<string, string> = {
+  active: 'bdg b-green',
+  archived: 'bdg b-zinc',
+  deleted: 'bdg b-red',
+}
+const badgeLabel: Record<string, string> = {
+  active: '活跃',
+  archived: '已归档',
+  deleted: '已删除',
 }
 
 export function ProjectList() {
@@ -52,128 +68,199 @@ export function ProjectList() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="page">
       {/* 页头 */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-text">我的项目</h1>
-        <Link to="/projects/create">
-          <Button variant="primary">
-            <Plus className="w-4 h-4 mr-2" />
-            新建项目
-          </Button>
-        </Link>
+      <div className="page-head">
+        <div>
+          <h1>项目</h1>
+          <div className="sub">
+            项目 = 流程与资源的顶层容器,绑定 GitLab 仓库(1 主仓 + N 辅仓)
+          </div>
+        </div>
+        <div className="acts">
+          <Link to="/projects/create">
+            <button className="btn btn-pri">
+              <Plus className="w-4 h-4" />
+              新建项目
+            </button>
+          </Link>
+        </div>
       </div>
 
-      {/* 表格 */}
+      {/* 内容 */}
       {isLoading ? (
-        <div className="text-center py-12 text-text-muted">加载中...</div>
+        <div className="empty">加载中...</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-text-muted mb-4">还没有项目</p>
+        <div className="empty">
+          <p>还没有项目</p>
           <Link to="/projects/create">
-            <Button variant="primary">
-              <Plus className="w-4 h-4 mr-2" />
+            <button className="btn btn-pri" style={{ marginTop: 12 }}>
+              <Plus className="w-4 h-4" />
               新建项目
-            </Button>
+            </button>
           </Link>
         </div>
       ) : (
         <>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>项目名称</TableHead>
-                <TableHead>描述</TableHead>
-                <TableHead>仓库数</TableHead>
-                <TableHead>创建时间</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead className="w-[80px]">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => {
-                const st = statusMap[item.status] ?? statusMap.active
-                return (
-                  <TableRow key={item.project_id}>
-                    <TableCell>
-                      <Link
-                        to={`/projects/${item.project_id}`}
-                        className="font-medium text-primary hover:underline"
-                      >
-                        {item.name}
-                      </Link>
-                      <div className="text-xs text-text-muted">{item.slug}</div>
-                    </TableCell>
-                    <TableCell className="text-text-muted">
-                      {item.description || '—'}
-                    </TableCell>
-                    <TableCell>{item.repo_count}</TableCell>
-                    <TableCell className="text-text-muted">
-                      {new Date(item.created_at).toLocaleDateString('zh-CN')}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={st.variant}>{st.label}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="relative">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setActionMenu(actionMenu === item.project_id ? null : item.project_id)}
-                        >
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                        {actionMenu === item.project_id && (
-                          <div className="absolute right-0 top-full mt-1 w-32 bg-surface border border-border rounded-md shadow-lg z-10">
-                            <Link
-                              to={`/projects/${item.project_id}?tab=settings`}
-                              className="flex items-center px-3 py-2 text-sm hover:bg-surface-strong text-text"
-                            >
-                              <Settings className="w-4 h-4 mr-2" />
-                              设置
-                            </Link>
-                            <button
-                              className="flex items-center w-full px-3 py-2 text-sm hover:bg-surface-strong text-text"
-                              onClick={() => {
-                                setConfirmDialog({ type: 'archive', project: item })
-                                setActionMenu(null)
-                              }}
-                            >
-                              <Archive className="w-4 h-4 mr-2" />
-                              归档
-                            </button>
-                            <button
-                              className="flex items-center w-full px-3 py-2 text-sm hover:bg-surface-strong text-error"
-                              onClick={() => {
-                                setConfirmDialog({ type: 'delete', project: item })
-                                setActionMenu(null)
-                              }}
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              删除
-                            </button>
-                          </div>
-                        )}
+          {/* 卡片网格 */}
+          <div className="pcards">
+            {items.map((item) => {
+              const st = badgeClass[item.status] ?? badgeClass.active
+              const stLabel = badgeLabel[item.status] ?? badgeLabel.active
+              return (
+                <div
+                  key={item.project_id}
+                  className="pcard"
+                  onClick={() => (window.location.hash = `#/projects/${item.project_id}`)}
+                  role="link"
+                  tabIndex={0}
+                >
+                  <h3>
+                    <Folder className="w-[17px] h-[17px]" />
+                    {item.name}
+                    <span className="chip">{item.slug}</span>
+                  </h3>
+                  <p>{item.description || '—'}</p>
+                  <div className="meta">
+                    <span>
+                      <GitBranch className="w-[13px] h-[13px]" />
+                      {item.repo_count} 个仓库
+                    </span>
+                    <span>
+                      <FileText className="w-[13px] h-[13px]" />
+                      0 个需求
+                    </span>
+                  </div>
+                  <div className="foot">
+                    <div className="av-stack">
+                      <div className="av" style={{ background: '#6366f1' }}>
+                        罗
                       </div>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+                      <div className="av" style={{ background: '#ec4899' }}>
+                        王
+                      </div>
+                      <div className="av" style={{ background: '#f59e0b' }}>
+                        李
+                      </div>
+                    </div>
+                    <span
+                      className={`${st} small`}
+                      style={{ marginLeft: 'auto' }}
+                    >
+                      <Key className="w-3 h-3" />
+                      {stLabel}
+                    </span>
+                    {/* 操作菜单 */}
+                    <div style={{ position: 'relative', marginLeft: 8 }}>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setActionMenu(
+                            actionMenu === item.project_id ? null : item.project_id,
+                          )
+                        }}
+                      >
+                        <MoreHorizontal className="w-4 h-4" />
+                      </button>
+                      {actionMenu === item.project_id && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            right: 0,
+                            top: '100%',
+                            marginTop: 4,
+                            width: 140,
+                            background: 'var(--surface)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 8,
+                            boxShadow: 'var(--shadow-md)',
+                            zIndex: 10,
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Link
+                            to={`/projects/${item.project_id}?tab=settings`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '8px 12px',
+                              fontSize: 13,
+                              color: 'var(--text)',
+                              textDecoration: 'none',
+                            }}
+                          >
+                            <Settings className="w-4 h-4" style={{ marginRight: 8 }} />
+                            设置
+                          </Link>
+                          <button
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              width: '100%',
+                              padding: '8px 12px',
+                              fontSize: 13,
+                              color: 'var(--text)',
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                            }}
+                            onClick={() => {
+                              setConfirmDialog({ type: 'archive', project: item })
+                              setActionMenu(null)
+                            }}
+                          >
+                            <Archive className="w-4 h-4" style={{ marginRight: 8 }} />
+                            归档
+                          </button>
+                          <button
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              width: '100%',
+                              padding: '8px 12px',
+                              fontSize: 13,
+                              color: 'var(--error, #b91c1c)',
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                            }}
+                            onClick={() => {
+                              setConfirmDialog({ type: 'delete', project: item })
+                              setActionMenu(null)
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" style={{ marginRight: 8 }} />
+                            删除
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
 
           {/* 分页 */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <span className="text-sm text-text-muted">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: 16,
+              }}
+            >
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>
                 共 {total} 个项目,第 {page}/{totalPages} 页
               </span>
-              <div className="flex gap-2">
+              <div style={{ display: 'flex', gap: 8 }}>
                 <Button
                   variant="ghost"
                   size="sm"
                   disabled={page <= 1}
-                  onClick={() => setPage(p => p - 1)}
+                  onClick={() => setPage((p) => p - 1)}
                 >
                   上一页
                 </Button>
@@ -181,7 +268,7 @@ export function ProjectList() {
                   variant="ghost"
                   size="sm"
                   disabled={page >= totalPages}
-                  onClick={() => setPage(p => p + 1)}
+                  onClick={() => setPage((p) => p + 1)}
                 >
                   下一页
                 </Button>

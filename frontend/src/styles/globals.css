@@ -61,6 +61,30 @@
     /* signature move: two-layer focus ring */
     --ring-offset: 0 0 0 2px var(--color-bg);
     --ring: 0 0 0 4px color-mix(in srgb, var(--color-ring) 35%, transparent);
+
+    /* vp 原型扩展变量(组件类依赖;命名对齐 DESIGN.md 语义色) */
+    --bg: #ffffff; --surface-2: #f4f4f5; --surface-3: #ececee;
+    --color-blue-bg: #eff6ff; --color-blue-fg: #1d4ed8; --color-blue-border: #bfdbfe;
+    --color-green-bg: #f0fdf4; --color-green-fg: #15803d; --color-green-border: #bbf7d0;
+    --color-amber-bg: #fffbeb; --color-amber-fg: #b45309; --color-amber-border: #fde68a;
+    --color-red-bg: #fef2f2; --color-red-fg: #b91c1c; --color-red-border: #fecaca;
+    --color-violet-bg: #f5f3ff; --color-violet-fg: #6d28d9; --color-violet-border: #ddd6fe;
+    --color-zinc-bg: #f4f4f5; --color-zinc-fg: #3f3f46; --color-zinc-border: #e4e4e7;
+    --color-term-bg: #0e1116; --color-term-border: #1e2530; --color-term-tx: #c9d4e3; --color-term-dim: #7d8899;
+    --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --border-strong: #d4d4d8;
+    --muted: #71717a; --faint: #a1a1aa;
+    --primary-hi: #27272a; --accent-tx: #1d4ed8;
+    --blue-bg: #eff6ff; --blue-tx: #1d4ed8; --blue-bd: #bfdbfe;
+    --green-bg: #f0fdf4; --green-tx: #15803d; --green-bd: #bbf7d0;
+    --amber-bg: #fffbeb; --amber-tx: #b45309; --amber-bd: #fde68a;
+    --red-bg: #fef2f2; --red-tx: #b91c1c; --red-bd: #fecaca;
+    --violet-bg: #f5f3ff; --violet-tx: #6d28d9; --violet-bd: #ddd6fe;
+    --zinc-bg: #f4f4f5; --zinc-tx: #3f3f46; --zinc-bd: #e4e4e7;
+    --term-bg: #0e1116; --term-bd: #1e2530; --term-tx: #c9d4e3; --term-dim: #7d8899;
+    --vp-radius: 10px; --vp-radius-sm: 8px;
+    --sans: 'Geist', -apple-system, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    --mono-2: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   }
 }
 
@@ -87,7 +111,28 @@
 }
 
 @layer base {
-  body { @apply m-0 text-text font-sans bg-bg; }
+  /* vp 原型基础排版:14px/1.55 基准(整体视觉密度与原型一致) */
+  body {
+    margin: 0;
+    font: 14px/1.55 var(--font-sans);
+    color: var(--color-text);
+    background: var(--color-bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  table { font: inherit; border-collapse: collapse; }
+  button { font: inherit; color: inherit; }
+  img, svg { vertical-align: middle; }
+  a { color: var(--color-accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px; }
+  h1, h2, h3, h4 { margin: 0; font-weight: 600; text-wrap: balance; }
+  .mono { font-family: var(--font-mono); }
+  .muted { color: var(--color-text-muted); }
+  .faint { color: var(--faint, #a1a1aa); }
+  .small { font-size: 12px; }
+  .nowrap { white-space: nowrap; }
+  [hidden] { display: none !important; }
+  body { @apply bg-bg; }
 
   @media (prefers-reduced-motion: reduce) {
     .btn { @apply transition-none; }
@@ -95,6 +140,7 @@
 }
 
 
+@layer components {
 /* ===================================================================
    VP 原型设计系统(rd-dev UI 对齐迭代:自 docs/vp/index.html 移植)
    语义色三件套:--blue-bg/--blue-tx/--blue-bd 等;组件类 .card、.tbl、.bdg、.btn 系列、.tabs、.tl、.term、.toast、.pcard、.act、.kv、.empty、.login 系列(原型原值移植)
@@ -553,3 +599,4 @@ select.input{cursor:pointer}
 .shell{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
 .main{min-width:0;display:flex;flex-direction:column}
 .topbar{display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(255,255,255,.92);backdrop-filter:blur(6px);z-index:20;min-height:50px}
+}

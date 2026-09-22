@@ -12,15 +12,16 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 
-const LOGO_MARK = (
-  <svg width="17" height="17" viewBox="0 0 32 32" aria-hidden>
-    <rect width="32" height="32" rx="7" fill="#18181b" />
-    <rect x="7.2" y="6" width="2.6" height="21" rx="1.3" fill="#ffffff" />
-    <path d="M10.4 7.6 24 13.2 10.4 13.2Z" fill="#3b82f6" />
-    <path d="M10.4 13.2H24l-7 2.9h-6.6Z" fill="#d4d4d8" />
-    <path d="M10.4 16.1h6.6L10.4 19Z" fill="#a1a1aa" />
-  </svg>
-)
+function LogoMark({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden style={{ display: 'block' }}>
+      <rect x="7.2" y="6" width="2.6" height="21" rx="1.3" fill="#ffffff" />
+      <path d="M10.4 7.6 24 13.2 10.4 13.2Z" fill="#3b82f6" />
+      <path d="M10.4 13.2H24l-7 2.9h-6.6Z" fill="#d4d4d8" />
+      <path d="M10.4 16.1h6.6L10.4 19Z" fill="#a1a1aa" />
+    </svg>
+  )
+}
 
 interface NavItem {
   to: string
@@ -90,7 +91,7 @@ export function MainLayout() {
     <div className="shell">
       <aside className="sidebar">
         <div className="logo">
-          <span className="logo-mark">{LOGO_MARK}</span>
+          <span className="logo-mark"><LogoMark size={17} /></span>
           <span>
             <b>旗程</b>
             <span>AI 研发流程平台</span>
