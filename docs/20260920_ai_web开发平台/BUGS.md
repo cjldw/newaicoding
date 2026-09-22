@@ -8,6 +8,7 @@
 |---|---|---|---|---|---|
 | BUG-007 | fixed | R16(波及 R9/R11 产物) | 部署阻塞 | rd-ship 发布检查 | docker/runner/Dockerfile 缺 terminal_manager.py / file_watcher.py,Runner 镜像启动即 ImportError |
 | BUG-UI-002 | 已核实:与稿一致,不修 | admin-audit-logs | UI 偏差 | Playwright 核对 2026-09-22 | 核对时审计表为空,`totalPages>1` 不成立 → 分页整体不渲染;代码中 `.card-foot` 包裹存在(AuditLogsPage.tsx:257),与 vp"审计页无分页脚注"一致 |
+| BUG-014 | fixed → 已 verified 迁移 ISSUES.md(R22.F1;四维页浏览器实测不崩) | — | — | — | — |
 
 ## BUG-007
 

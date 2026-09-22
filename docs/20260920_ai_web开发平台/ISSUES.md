@@ -23,6 +23,7 @@
 | BUG-013 | verified | R2.F6 | 代码 bug(接口契约) | 冒烟实测 2026-09-22 | 私有 group 内建 internal 仓库被 GitLab 拒 → 建仓可见性未按组降级 |
 | BUG-011 | verified | R17.F1 | 代码 bug(入口断链) | 用户报告 2026-09-22 | MCP/Skills 管理实现齐全但入口断链:项目详情"设置"按钮空 onClick;侧栏无 Skills 市场入口(均已接线,浏览器实测通过) |
 | BUG-009 | verified | R2.F5+R2.F6 | 功能/权限(BUG-012/013 连带) | 用户实测 2026-09-22 | 建项目拉取/操作代码无权限——根因除后全链路实证:建仓/clone/push 全通 |
+| BUG-014 | verified | R22.F1 | 代码 bug(接口契约) | 用户报告 2026-09-22(运行时崩溃) | 四维管理页 item.key.slice 崩溃:后端返回 req_id/task_id 与前端契约 key 不一致,有数据即白屏 |
 
 > 已接受偏差(不修):R19 分片文件结构中的 `AdminNav.tsx` 未单独建文件,导航项内联在 MainLayout.tsx——行为与规格一致(仅超管渲染)。
 
@@ -148,3 +149,10 @@
 - **状态**:verified | **修复点**:R2.F5(鉴权头)+ R2.F6(可见性降级) | **来源**:用户实测;真根因即 BUG-012/013
 - **全链路实证(2026-09-22 冒烟)**:创建项目 `rd-fix smoke test` → code=0,auto 建仓成功(GitLab repo 680 `http://47.111.69.64/pda/rd-fix-smoke-test.git`,平台 repos 绑定 main/auto)→ `git clone` 成功(含初始化 README)→ commit + `git push origin master` 成功
 - **备注**:冒烟项目/GitLab 仓库保留给用户查验,可随时删除
+
+## BUG-014 四维管理页 item.key.slice 白屏崩溃
+
+- **状态**:verified | **修复点**:R22.F1 | **来源**:用户报告(应用崩溃栈)
+- **根因**:`dashboard_views.py` 需求端点返回 `req_id`、任务端点返回 `task_id`,前端 `DimensionItem` 契约为 `key` → `item.key` 永远 undefined,`key.slice(0, 8)` 崩溃。此前列表恒空未触发,有真实项目/需求数据即白屏
+- **修复**:后端两端点 items 补 `"key"` 字段(保留原字段兼容),前端契约零改动
+- **回归证据(2026-09-22 实测)**:pytest dashboard 8/8;`GET /dashboard/requirements` items 含 key;浏览器实测 /manage/requirements 渲染 2 行不崩(含用户此前触发崩溃的数据),tasks/tests/releases 三维同验不崩;截图 fix-dimension-page.png
