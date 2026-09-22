@@ -93,6 +93,9 @@ class ErrCode:
     POLISH_ALREADY_RUNNING = 3001  # 已有打磨任务进行中
     NOT_IN_POLISHING = 3002        # 需求状态不是 polishing
 
+    # R20 知识库空间
+    KB_IMPORT_READONLY = 20002     # repo_import 只读(写操作一律 403,含超管)
+
     # R15 网关
     DEPLOY_HOST_CONFLICT = 15001   # deploy_host 全平台唯一,冲突拒绝
 

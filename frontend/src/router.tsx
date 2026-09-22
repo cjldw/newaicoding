@@ -34,6 +34,8 @@ import TestCasesReview from '@/pages/tasks/TestCasesReview'
 import TestReport from '@/pages/tasks/TestReport'
 import ArchivePage from '@/pages/requirements/ArchivePage'
 import KnowledgeBase from '@/pages/knowledge/KnowledgeBase'
+import KnowledgeBaseList from '@/pages/knowledge/KnowledgeBaseList'
+import KnowledgeBaseView from '@/pages/knowledge/KnowledgeBaseView'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -64,6 +66,8 @@ export const router = createBrowserRouter([
       { path: 'tasks/:taskId/report', element: <TestReport /> },
       { path: 'requirements/:reqId/archive', element: <ArchivePage /> },
       { path: 'projects/:projectId/knowledge', element: <KnowledgeBase /> },
+      { path: 'projects/:projectId/knowledge-bases', element: <KnowledgeBaseList /> },
+      { path: 'projects/:projectId/knowledge-bases/:kbId', element: <KnowledgeBaseView /> },
       { path: 'knowledge', element: <KnowledgeBase /> },
     ],
   },

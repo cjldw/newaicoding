@@ -557,3 +557,56 @@ CREATE TABLE IF NOT EXISTS `users` (
 
 - **影响范围**:R14 归档(时间线/总结路径/自动归档 done→archived)+ 知识库(项目/平台两级,FULLTEXT 检索,发布/提升);R7 完成链自动触发归档
 - **回滚方案**:`DROP TABLE knowledge_entries;`(先 DROP FULLTEXT 索引或直接 DROP TABLE)
+
+## 2026-09-22 R20 项目知识库管理
+
+- **类型**:数据库(alembic revision `b5d9e1f4a7c3`,down_revision `a3c8e7f2b9d4`)
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `knowledge_bases` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `kb_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `project_id` CHAR(36) NOT NULL COMMENT '项目 id',
+    `name` VARCHAR(64) NOT NULL COMMENT '显示名(同项目唯一)',
+    `description` VARCHAR(255) NULL DEFAULT '' COMMENT '描述',
+    `source_type` ENUM('blank','repo_import') NOT NULL DEFAULT 'blank' COMMENT '类型',
+    `source_config` JSON NULL COMMENT '{repo_id,branch,paths}',
+    `import_status` ENUM('idle','importing','done','failed') NOT NULL DEFAULT 'idle' COMMENT '导入状态',
+    `import_error` VARCHAR(255) NULL COMMENT '最近失败原因',
+    `last_synced_at` DATETIME NULL COMMENT '最近导入/同步时间',
+    `created_by` CHAR(36) NOT NULL COMMENT '创建者',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_knowledge_bases_kb_id` (`kb_id`),
+    UNIQUE KEY `uq_kb_project_name` (`project_id`,`name`),
+    KEY `ix_knowledge_bases_project_id` (`project_id`),
+    KEY `ix_knowledge_bases_import_status` (`import_status`),
+    KEY `ix_knowledge_bases_created_by` (`created_by`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目知识库空间表';
+
+  CREATE TABLE IF NOT EXISTS `knowledge_docs` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `doc_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `kb_id` CHAR(36) NOT NULL COMMENT '所属知识库',
+    `title` VARCHAR(128) NOT NULL COMMENT '页面标题',
+    `path` VARCHAR(255) NOT NULL COMMENT '树形路径(同库唯一)',
+    `content` TEXT NOT NULL COMMENT 'Markdown 正文',
+    `sort_order` INT NOT NULL DEFAULT 0 COMMENT '同级排序',
+    `source_file_path` VARCHAR(255) NULL COMMENT '导入来源路径',
+    `created_by` CHAR(36) NOT NULL COMMENT '创建者',
+    `updated_by` CHAR(36) NOT NULL COMMENT '更新者',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_knowledge_docs_doc_id` (`doc_id`),
+    UNIQUE KEY `uq_kb_doc_path` (`kb_id`,`path`),
+    KEY `ix_knowledge_docs_kb_id` (`kb_id`),
+    FULLTEXT KEY `ft_kb_docs_title_content` (`title`,`content`) WITH PARSER ngram
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库页面表';
+  ```
+
+- **影响范围**:R20 知识库空间全链路(建库/导入同步[后台任务]/页面 CRUD/搜索);repo_import 写操作含超管一律 403 20002
+- **通知依赖**:R18 站内信未落地,当前导入结果仅 logger 钩子(_notify_import_done)
+- **回滚方案**:`DROP TABLE knowledge_docs; DROP TABLE knowledge_bases;`

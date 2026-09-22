@@ -73,6 +73,7 @@ from app.api.files import router as files_router
 from app.api.requirements import router as requirements_router
 from app.api.tasks import router as tasks_router
 from app.api.knowledge import router as knowledge_router
+from app.api.knowledge_bases import router as knowledge_bases_router
 
 # 配置日志
 logging.basicConfig(
@@ -173,6 +174,7 @@ app.include_router(files_router)
 app.include_router(requirements_router)
 app.include_router(tasks_router)
 app.include_router(knowledge_router)
+app.include_router(knowledge_bases_router)
 
 
 # -------------------------------------------------------------------
