@@ -74,6 +74,7 @@ async def engine():
     from app.models.knowledge_entry import KnowledgeEntry  # noqa: F401 — R14 表注册
     from app.models.knowledge_base import KnowledgeBase, KnowledgeDoc  # noqa: F401 — R20 表注册
     from app.models.notification import Notification, UserNotificationSettings  # noqa: F401 — R18 表注册
+    from app.models.audit_log import AuditLog, Invitation  # noqa: F401 — R19 表注册
 
     # 确保表存在(create_all 是幂等的,已存在则跳过)
     async with app_engine.begin() as conn:
@@ -108,6 +109,7 @@ async def db_session(engine):
     from app.models.knowledge_entry import KnowledgeEntry
     from app.models.knowledge_base import KnowledgeBase, KnowledgeDoc
     from app.models.notification import Notification, UserNotificationSettings
+    from app.models.audit_log import AuditLog, Invitation
     from app.database import async_session_factory
 
     # 使用 app 的 session factory 创建 session
@@ -122,6 +124,8 @@ async def db_session(engine):
         await session.execute(delete(KnowledgeBase))
         await session.execute(delete(Notification))
         await session.execute(delete(UserNotificationSettings))
+        await session.execute(delete(AuditLog))
+        await session.execute(delete(Invitation))
         await session.execute(delete(TaskMessage))
         await session.execute(delete(TaskUploadedFile))
         await session.execute(delete(Task))

@@ -75,6 +75,7 @@ from app.api.tasks import router as tasks_router
 from app.api.knowledge import router as knowledge_router
 from app.api.knowledge_bases import router as knowledge_bases_router
 from app.api.notifications import router as notifications_router
+from app.api.admin.users_admin import router as users_admin_router
 
 # 配置日志
 logging.basicConfig(
@@ -97,6 +98,12 @@ async def lifespan(app: FastAPI):
 
     # Runner 心跳超时巡检(R16):每 60s 一轮,>60s 无心跳 → offline
     sweep_task = asyncio.create_task(_runner_offline_sweep())
+
+    # R19:审计异步写入的会话工厂注入
+    from app.database import async_session_factory as _asf
+    from app.api.admin import users_admin as _users_admin
+
+    _users_admin.set_audit_session_factory(_asf)
 
     yield
 
@@ -177,6 +184,7 @@ app.include_router(tasks_router)
 app.include_router(knowledge_router)
 app.include_router(knowledge_bases_router)
 app.include_router(notifications_router)
+app.include_router(users_admin_router)
 
 
 # -------------------------------------------------------------------

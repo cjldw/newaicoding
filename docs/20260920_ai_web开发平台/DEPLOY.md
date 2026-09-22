@@ -661,3 +661,49 @@ CREATE TABLE IF NOT EXISTS `users` (
 
 - **影响范围**:R18 通知全链路(发送/钉钉/WebSocket 推送);R20 导入完成通知钩子(_notify_import_done)
 - **回滚方案**:先还原 projects 列:`ALTER TABLE projects DROP COLUMN dingtalk_enabled, DROP COLUMN dingtalk_webhook;` 再 `DROP TABLE user_notification_settings; DROP TABLE notifications;`
+
+## 2026-09-22 R19 平台角色与权限体系
+
+- **类型**:数据库(alembic revision `d6e3f9a1c8b5`,down_revision `c4b1d7e9f2a6`)
+- **数据库**:
+
+  ```sql
+  CREATE TABLE IF NOT EXISTS `audit_logs` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `log_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `user_id` CHAR(36) NOT NULL COMMENT '操作者 user_id',
+    `operator_role` VARCHAR(20) NOT NULL COMMENT '操作时平台角色快照',
+    `action_type` VARCHAR(64) NOT NULL COMMENT '操作类型',
+    `project_id` CHAR(36) NULL COMMENT '关联项目',
+    `target_type` VARCHAR(64) NULL COMMENT '目标类型',
+    `target_id` VARCHAR(64) NULL COMMENT '目标 id',
+    `detail` JSON NULL COMMENT '变更详情',
+    `ip` VARCHAR(45) NULL COMMENT '操作来源 IP',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_audit_logs_log_id` (`log_id`),
+    KEY `ix_audit_logs_user_id` (`user_id`),
+    KEY `ix_audit_logs_action_type` (`action_type`),
+    KEY `ix_audit_logs_project_id` (`project_id`),
+    KEY `ix_audit_logs_created_at` (`created_at`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='审计日志表(只读追加,保留 1 年)';
+
+  CREATE TABLE IF NOT EXISTS `invitations` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `invitation_id` CHAR(36) NOT NULL COMMENT '对外UUID',
+    `token_hash` VARCHAR(255) NOT NULL COMMENT '邀请 token 哈希(明文仅返回一次)',
+    `invited_phone` VARCHAR(11) NULL COMMENT '被邀请人手机号(可空)',
+    `status` ENUM('pending','used','revoked') NOT NULL DEFAULT 'pending' COMMENT '状态',
+    `expires_at` DATETIME NOT NULL COMMENT '过期时间(7 天)',
+    `used_by` CHAR(36) NULL COMMENT '使用者 user_id',
+    `created_by` CHAR(36) NOT NULL COMMENT '邀请人超管 user_id',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_invitations_invitation_id` (`invitation_id`),
+    KEY `ix_invitations_status` (`status`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台注册邀请表';
+  ```
+
+- **影响范围**:用户管理/平台邀请/审计查询 API(超管);禁用链路(status+token_version+取消任务);审计异步写入与 365 天保留清理任务;users_admin 挂入主路由
+- **部署动作**:main.py lifespan 挂心跳巡检与审计异步注入(已实现);/api/admin/* 建议网关层加 60 req/min 频控(19004 预留)
+- **回滚方案**:`DROP TABLE invitations; DROP TABLE audit_logs;`(顺序不可反)

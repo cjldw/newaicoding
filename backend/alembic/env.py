@@ -30,6 +30,7 @@ from app.models.task import Task, TaskUploadedFile, TaskMessage  # noqa: E402, F
 from app.models.knowledge_entry import KnowledgeEntry  # noqa: E402, F401
 from app.models.knowledge_base import KnowledgeBase, KnowledgeDoc  # noqa: E402, F401
 from app.models.notification import Notification, UserNotificationSettings  # noqa: E402, F401
+from app.models.audit_log import AuditLog, Invitation  # noqa: E402, F401
 
 # Alembic Config 对象
 config = context.config
