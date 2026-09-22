@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 import {
   Plus,
   Folder,
+  FolderKanban,
   GitBranch,
   FileText,
   Key,
@@ -68,11 +69,11 @@ export function ProjectList() {
   }
 
   return (
-    <div className="page">
+    <div className="page wide">
       {/* 页头 */}
       <div className="page-head">
         <div>
-          <h1>项目</h1>
+          <h1 className="flex items-center gap-2"><FolderKanban size={18} /> 项目</h1>
           <div className="sub">
             项目 = 流程与资源的顶层容器,绑定 GitLab 仓库(1 主仓 + N 辅仓)
           </div>
@@ -93,12 +94,8 @@ export function ProjectList() {
       ) : items.length === 0 ? (
         <div className="empty">
           <p>还没有项目</p>
-          <Link to="/projects/create">
-            <button className="btn btn-pri" style={{ marginTop: 12 }}>
-              <Plus className="w-4 h-4" />
-              新建项目
-            </button>
-          </Link>
+          {/* 用户指令:只保留页头右上角的「新建项目」按钮,空态不再重复放按钮 */}
+          <p className="faint" style={{ marginTop: 8 }}>请点击右上角「新建项目」创建第一个项目</p>
         </div>
       ) : (
         <>

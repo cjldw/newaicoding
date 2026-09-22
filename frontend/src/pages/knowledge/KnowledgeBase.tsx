@@ -1,13 +1,14 @@
 /**
  * KnowledgeBase — 知识库页
  * - /projects/:projectId/knowledge(项目级,带 Tab 切换 项目知识库 / 平台知识库)
- * - /knowledge(平台级,无 Tab,标题"平台知识库")
+ * - /knowledge(平台级,无 Tab,标题"知识条目",对齐 vp L1544:icon + 标题 + 说明)
  * 工具栏:搜索(300ms 防抖)+ 类型筛选 + "新建条目"
  * 卡片网格:xl=3 / md=2 / sm=1,每张卡=类型徽章+标题+前 100 字+标签+状态徽章+创建时间
  * 分页 + 新建条目 Dialog
  */
 import { useState, useMemo, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
+import { BookOpen } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -138,13 +139,21 @@ export default function KnowledgeBase() {
 
   const title = isProjectScope
     ? (tab === 'project' ? '项目知识库' : '平台知识库')
-    : '知识库'
+    : '知识条目'
 
   return (
     <div className="page">
-      {/* 页面标题 */}
+      {/* 页面标题(vp:icon + 标题 + 换行 + 说明;仅全局 /knowledge 生效,项目空间保持原结构) */}
       <div className="page-head">
-        <h1>{title}</h1>
+        <div>
+          <h1 className="flex items-center gap-2">
+            {!isProjectScope && <BookOpen size={18} />}
+            {title}
+          </h1>
+          {!isProjectScope && (
+            <div className="sub">需求归档时 AI 自动提取的可复用知识(条目级,R14);与项目内「知识库」(文档空间 wiki,R20)并存、命名隔离</div>
+          )}
+        </div>
         {isProjectScope && (
           <div className="acts">
             <Button variant="primary" onClick={openCreate}>

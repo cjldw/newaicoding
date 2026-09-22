@@ -18,7 +18,7 @@ import { RadioGroup } from '@/components/ui/RadioGroup'
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from '@/components/ui/Dialog'
-import { Loader2, Trash2 } from 'lucide-react'
+import { Loader2, Trash2, BookOpen } from 'lucide-react'
 import {
   useKnowledgeBases,
   useCreateKnowledgeBase,
@@ -103,11 +103,16 @@ export default function KnowledgeBaseList() {
   const updatePath = (i: number, v: string) => setPaths(paths.map((p, idx) => idx === i ? v : p))
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-7xl">
-      {/* 标题栏 */}
-      <div className="flex items-center justify-between py-4">
-        <h1 className="text-2xl font-semibold text-text">知识库</h1>
-        <Button variant="primary" onClick={openCreate}>新建知识库</Button>
+    <div className="page wide">
+      {/* 页头 */}
+      <div className="page-head">
+        <div>
+          <h1 className="flex items-center gap-2"><BookOpen size={18} /> 知识库</h1>
+          <div className="sub">项目关联的知识库:文档索引与同步管理</div>
+        </div>
+        <div className="acts">
+          <Button variant="primary" onClick={openCreate}>新建知识库</Button>
+        </div>
       </div>
 
       {/* 卡片网格 */}

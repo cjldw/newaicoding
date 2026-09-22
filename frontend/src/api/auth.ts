@@ -36,14 +36,15 @@ export interface ResetPasswordRequest {
 }
 
 export interface UserInfo {
-  id: number
-  user_id?: string  // 后端 login 返回的对外UUID(R13 项目内角色判定用)
+  user_id: string
   phone: string
-  nickname: string
+  nickname: string | null
   avatar_url: string | null
-  role: string
-  is_active: boolean
-  created_at: string
+  role: string  // 'superadmin' | 'user'
+  gitlab_username?: string | null
+  gitlab_token_bound?: boolean
+  gitlab_token_scopes?: string[]
+  gitlab_token_bound_at?: string | null
 }
 
 export const authApi = {

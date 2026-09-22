@@ -87,7 +87,8 @@ export function ProjectDetail() {
             <div className="absolute right-0 top-full mt-1 w-32 bg-surface border border-border rounded-md shadow-lg z-10">
               <button
                 className="flex items-center w-full px-3 py-2 text-sm hover:bg-surface-strong text-text"
-                onClick={() => { setActionMenu(false); /* 设置 tab disabled 暂不可用 */ }}
+                // BUG-011:接线设置入口(早期占位空 onClick 导致 MCP/Skills/模型配置不可达)
+                onClick={() => { setActionMenu(false); navigate('?tab=settings') }}
               >
                 <Settings className="w-4 h-4 mr-2" />
                 设置

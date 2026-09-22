@@ -95,18 +95,21 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
   }
 
   return (
-    <div className="space-y-4">
-      {/* 操作栏 */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-text">Skills 管理</h2>
+    <div className="page wide">
+      {/* 页头 */}
+      <div className="page-head">
+        <div>
+          <h1 className="flex items-center gap-2"><Store size={18} /> Skills 管理</h1>
+          <div className="sub">项目已安装的 Skills:查看、卸载与新增</div>
+        </div>
         {!isViewer && (
-          <div className="flex gap-2">
+          <div className="acts">
             <Button variant="outline" size="sm" onClick={() => setMarketOpen(true)}>
-              <Store className="w-4 h-4 mr-2" />
+              <Store className="w-4 h-4 mr-1" />
               从市场安装
             </Button>
             <Button size="sm" onClick={() => setUploadOpen(true)}>
-              <Upload className="w-4 h-4 mr-2" />
+              <Upload className="w-4 h-4 mr-1" />
               上传自定义
             </Button>
           </div>
@@ -117,7 +120,9 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
       {isLoading ? (
         <div className="text-text-muted py-8">加载中...</div>
       ) : (
-        <Table>
+        <div className="card">
+        <div className="scrollx">
+        <Table className="tbl">
           <TableHeader>
             <TableRow>
               <TableHead>Skill 名</TableHead>
@@ -174,6 +179,8 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
             )}
           </TableBody>
         </Table>
+        </div>
+        </div>
       )}
 
       {message && (

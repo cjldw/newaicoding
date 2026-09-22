@@ -4,6 +4,7 @@
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import type { LucideIcon } from 'lucide-react'
 import { useDimensionList, type DimensionItem } from '@/api/dashboard'
 
 interface StatusOption {
@@ -15,9 +16,13 @@ interface DimensionPageProps {
   dimension: 'requirements' | 'dev' | 'test' | 'release'
   title: string
   statusOptions: StatusOption[]
+  /** 页头标题图标(vp pageManage 的 conf.icn) */
+  icon?: LucideIcon
+  /** 页头标题下方说明行(vp pageManage 的 conf.desc) */
+  desc?: string
 }
 
-export function DimensionPage({ dimension, title, statusOptions }: DimensionPageProps) {
+export function DimensionPage({ dimension, title, statusOptions, icon: Icon, desc }: DimensionPageProps) {
   const navigate = useNavigate()
   const [status, setStatus] = useState<string>('')
   const [page, setPage] = useState(1)
@@ -42,9 +47,16 @@ export function DimensionPage({ dimension, title, statusOptions }: DimensionPage
   const totalPages = data ? Math.ceil(data.total / pageSize) : 1
 
   return (
-    <div className="page">
+    <div className="page wide">
       <div className="page-head">
-        <h1>{title}</h1>
+        <div>
+          {/* vp pageManage 结构:icon + 标题,换行,说明(sub) */}
+          <h1 className="flex items-center gap-2">
+            {Icon && <Icon size={18} />}
+            {title}
+          </h1>
+          {desc && <div className="sub">{desc}</div>}
+        </div>
         <div className="acts">
           <select
             className="input"
@@ -66,6 +78,7 @@ export function DimensionPage({ dimension, title, statusOptions }: DimensionPage
         <div className="empty">暂无数据</div>
       ) : (
         <>
+        <div className="card">
           <div className="scrollx">
             <table className="tbl">
               <thead>
@@ -97,7 +110,7 @@ export function DimensionPage({ dimension, title, statusOptions }: DimensionPage
             </table>
           </div>
 
-          <div className="page-foot" style={{ marginTop: '16px', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card-foot" style={{ justifyContent: 'center' }}>
             <button
               className="btn"
               disabled={page <= 1}
@@ -116,6 +129,7 @@ export function DimensionPage({ dimension, title, statusOptions }: DimensionPage
               下一页
             </button>
           </div>
+        </div>
         </>
       )}
     </div>

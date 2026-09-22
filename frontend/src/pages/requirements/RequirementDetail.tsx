@@ -145,7 +145,7 @@ export function RequirementDetail() {
   const hasTestTaskPassed = requirement.tasks.some(t => t.type === 'test' && t.status === 'passed')
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="page">
       {/* 返回按钮 */}
       <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-4">
         <ArrowLeft className="w-4 h-4 mr-2" />
@@ -153,7 +153,7 @@ export function RequirementDetail() {
       </Button>
 
       {/* 页头 */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="page-head">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-2xl font-semibold text-text">{requirement.title}</h1>
@@ -284,12 +284,13 @@ export function RequirementDetail() {
       </div>
 
       {/* 关联任务列表 */}
-      <div className="bg-surface border border-border rounded-lg p-6">
+      <div className="card">
         <h2 className="text-lg font-semibold text-text mb-4">关联任务</h2>
         {requirement.tasks.length === 0 ? (
           <div className="text-center py-8 text-text-muted">暂无关联任务</div>
         ) : (
-          <Table>
+          <div className="scrollx">
+          <Table className="tbl">
             <TableHeader>
               <TableRow>
                 <TableHead>任务类型</TableHead>
@@ -322,6 +323,7 @@ export function RequirementDetail() {
               })}
             </TableBody>
           </Table>
+          </div>
         )}
       </div>
 

@@ -1,13 +1,13 @@
 /**
  * SkillsMarket — 平台 Skills 管理(超管,R17)
  * - 标题"Skills 市场" + "新建 Skill"按钮
- * - Table:名称/描述/创建人/创建时间/操作[编辑/删除]
+ * - Table:名称(chip+plug icon)/描述/创建人/创建时间/操作[编辑/删除]
  * - 新建/编辑对话框(名称 Input + 描述 Input + 内容 Textarea)
  * - 删除确认对话框
  */
 
 import { useState } from 'react'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Plug, Blocks } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -107,10 +107,13 @@ export function SkillsMarket() {
   }
 
   return (
-    <div className="page">
-      {/* 操作栏 */}
+    <div className="page wide">
+      {/* 操作栏(vp 无独立 Skills 页,页头按 vp 页头语言补 icon+说明,文案自拟留痕) */}
       <div className="page-head">
-        <h1>Skills 市场</h1>
+        <div>
+          <h1 className="flex items-center gap-2"><Blocks size={18} /> Skills 市场</h1>
+          <div className="sub">平台级 MCP Skills 管理:注册、启停与项目授权(仅超管)</div>
+        </div>
         <div className="acts">
           <Button variant="primary" onClick={handleCreate}>
             <Plus className="w-4 h-4 mr-1" />
@@ -127,54 +130,62 @@ export function SkillsMarket() {
       {isLoading ? (
         <div className="text-text-muted py-8">加载中...</div>
       ) : (
-        <Table className="tbl">
-          <TableHeader>
-            <TableRow>
-              <TableHead>名称</TableHead>
-              <TableHead>描述</TableHead>
-              <TableHead>创建人</TableHead>
-              <TableHead>创建时间</TableHead>
-              <TableHead className="w-[150px]">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(skills ?? []).map(skill => (
-              <TableRow key={skill.skill_id}>
-                <TableCell className="font-medium text-text">{skill.name}</TableCell>
-                <TableCell className="text-text-muted">{skill.description}</TableCell>
-                <TableCell className="text-text-muted">
-                  {skill.created_by?.username ?? '-'}
-                </TableCell>
-                <TableCell className="text-text-muted">
-                  {skill.created_at ? formatDate(skill.created_at) : '-'}
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => handleEdit(skill)}>
-                      <Pencil className="w-4 h-4 mr-1" />
-                      编辑
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={() => setDeleteTarget(skill)}
-                    >
-                      <Trash2 className="w-3.5 h-3.5 mr-1" />
-                      删除
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-            {(skills ?? []).length === 0 && (
+        /* §6.4 #1:加 .card > .scrollx 包裹 */
+        <div className="card">
+        <div className="scrollx">
+          <Table className="tbl">
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-text-muted py-8">
-                  暂无平台 Skills
-                </TableCell>
+                <TableHead>名称</TableHead>
+                <TableHead>描述</TableHead>
+                <TableHead>创建人</TableHead>
+                <TableHead>创建时间</TableHead>
+                <TableHead className="w-[150px]">操作</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {(skills ?? []).map(skill => (
+                <TableRow key={skill.skill_id}>
+                  {/* §6.4 #2:名称列用 .chip + plug icon */}
+                  <TableCell className="font-medium text-text">
+                    <span className="chip"><Plug className="w-3 h-3" />{skill.name}</span>
+                  </TableCell>
+                  <TableCell className="text-text-muted">{skill.description}</TableCell>
+                  <TableCell className="text-text-muted">
+                    {skill.created_by?.username ?? '-'}
+                  </TableCell>
+                  <TableCell className="text-text-muted">
+                    {skill.created_at ? formatDate(skill.created_at) : '-'}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-2">
+                      {/* §6.4 #3:操作按钮改 .btn.btn-sm / .btn.btn-sm.btn-danger */}
+                      <button className="btn btn-sm" onClick={() => handleEdit(skill)}>
+                        <Pencil className="w-4 h-4 mr-1" />
+                        编辑
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => setDeleteTarget(skill)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1" />
+                        删除
+                      </button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {(skills ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-text-muted py-8">
+                    暂无平台 Skills
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        </div>
       )}
 
       {/* 新建/编辑对话框 */}

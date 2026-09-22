@@ -27,6 +27,8 @@ import { ProjectDetail } from '@/pages/projects/ProjectDetail'
 import { PlatformSettings } from '@/pages/admin/PlatformSettings'
 import { SkillsMarket } from '@/pages/admin/SkillsMarket'
 import { RunnerManagement } from '@/pages/admin/RunnerManagement'
+import UserManagementPage from '@/pages/admin/UserManagementPage'
+import AuditLogsPage from '@/pages/admin/AuditLogsPage'
 import { RequirementList } from '@/pages/requirements/RequirementList'
 import { RequirementDetail } from '@/pages/requirements/RequirementDetail'
 import TaskDetail from '@/pages/tasks/TaskDetail'
@@ -37,6 +39,7 @@ import KnowledgeBase from '@/pages/knowledge/KnowledgeBase'
 import KnowledgeBaseList from '@/pages/knowledge/KnowledgeBaseList'
 import KnowledgeBaseView from '@/pages/knowledge/KnowledgeBaseView'
 import { RequirementsManage, TasksManage, TestsManage, ReleasesManage } from '@/pages/manage/ManagePages'
+import { RequireRole } from '@/components/RequireRole'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -74,10 +77,48 @@ export const router = createBrowserRouter([
       { path: 'manage/tasks', element: <TasksManage /> },
       { path: 'manage/tests', element: <TestsManage /> },
       { path: 'manage/releases', element: <ReleasesManage /> },
+      // Admin routes — BUG-004: 移入 MainLayout 子路由;BUG-003: RequireRole 守卫
+      {
+        path: 'admin/platform-settings',
+        element: (
+          <RequireRole requiredRole="superadmin">
+            <PlatformSettings />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'admin/skills',
+        element: (
+          <RequireRole requiredRole="superadmin">
+            <SkillsMarket />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'admin/runners',
+        element: (
+          <RequireRole requiredRole="superadmin">
+            <RunnerManagement />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'admin/users',
+        element: (
+          <RequireRole requiredRole="superadmin">
+            <UserManagementPage />
+          </RequireRole>
+        ),
+      },
+      {
+        path: 'admin/audit-logs',
+        element: (
+          <RequireRole requiredRole="superadmin">
+            <AuditLogsPage />
+          </RequireRole>
+        ),
+      },
     ],
   },
-  { path: '/admin/platform-settings', element: <PlatformSettings /> },
-  { path: '/admin/skills', element: <SkillsMarket /> },
-  { path: '/admin/runners', element: <RunnerManagement /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ])

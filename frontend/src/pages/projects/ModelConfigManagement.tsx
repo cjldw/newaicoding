@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react'
-import { Eye, EyeOff, Plus } from 'lucide-react'
+import { Eye, EyeOff, Plus, Cpu } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
@@ -177,7 +177,23 @@ export function ModelConfigManagement({ projectId }: ModelConfigManagementProps)
   if (isLoading) return <div className="text-text-muted py-8">加载中...</div>
 
   return (
-    <div>
+    <div className="page wide">
+      {/* 页头 */}
+      <div className="page-head">
+        <div>
+          <h1 className="flex items-center gap-2"><Cpu size={18} /> 模型配置</h1>
+          <div className="sub">项目使用的 LLM 模型接入与密钥管理</div>
+        </div>
+        {!isViewer && (
+          <div className="acts">
+            <Button variant="primary" onClick={handleCreate}>
+              <Plus className="w-4 h-4 mr-1" />
+              新建配置
+            </Button>
+          </div>
+        )}
+      </div>
+
       {/* 成功提示 */}
       {success && (
         <Alert variant="success" className="mb-4">
@@ -191,18 +207,10 @@ export function ModelConfigManagement({ projectId }: ModelConfigManagementProps)
         </Alert>
       )}
 
-      {/* 操作栏 */}
-      {!isViewer && (
-        <div className="flex justify-end mb-4">
-          <Button onClick={handleCreate}>
-            <Plus className="w-4 h-4 mr-2" />
-            新建配置
-          </Button>
-        </div>
-      )}
-
       {/* 配置列表 */}
-      <Table>
+      <div className="card">
+      <div className="scrollx">
+      <Table className="tbl">
         <TableHeader>
           <TableRow>
             <TableHead>配置名</TableHead>
@@ -291,6 +299,8 @@ export function ModelConfigManagement({ projectId }: ModelConfigManagementProps)
           ))}
         </TableBody>
       </Table>
+      </div>
+      </div>
 
       {/* 新建/编辑对话框 */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

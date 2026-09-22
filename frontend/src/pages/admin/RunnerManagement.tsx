@@ -8,12 +8,11 @@
  */
 
 import { useState } from 'react'
-import { Plus, Copy, RefreshCcw, Ban, Trash2 } from 'lucide-react'
+import { Plus, Copy, RefreshCcw, Ban, Trash2, Server } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Select } from '@/components/ui/Select'
-import { Badge } from '@/components/ui/Badge'
 import { Alert } from '@/components/ui/Alert'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/Dialog'
@@ -27,14 +26,16 @@ const ROLE_OPTIONS = [
   { label: '工作节点(跑任务容器)', value: 'worker' },
   { label: '部署节点(跑部署容器,需公网 IP)', value: 'deploy' },
 ]
-const ROLE_BADGE: Record<string, { label: string; variant: 'secondary' | 'primary' }> = {
-  worker: { label: '工作节点', variant: 'secondary' },
-  deploy: { label: '部署节点', variant: 'primary' },
+// 角色徽章:worker → b-zinc,deploy → b-blue
+const ROLE_BADGE: Record<string, { label: string; cls: string }> = {
+  worker: { label: '工作节点', cls: 'bdg b-zinc' },
+  deploy: { label: '部署节点', cls: 'bdg b-blue' },
 }
-const STATUS_BADGE: Record<string, { label: string; variant: 'success' | 'secondary' | 'outline' }> = {
-  online: { label: '在线', variant: 'success' },
-  offline: { label: '离线', variant: 'secondary' },
-  disabled: { label: '禁用', variant: 'outline' },
+// 状态徽章:online → b-green,offline → b-amber,disabled → b-zinc
+const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  online: { label: '在线', cls: 'bdg b-green' },
+  offline: { label: '离线', cls: 'bdg b-amber' },
+  disabled: { label: '禁用', cls: 'bdg b-zinc' },
 }
 
 function formatTime(s: string | null) {
@@ -116,15 +117,21 @@ export function RunnerManagement() {
   platform/runner:v1`
 
   return (
-    <div className="page">
+    <div className="page wide">
       <div className="page-head">
-        <h1>Runner 管理</h1>
+        {/* vp L1569 结构:icon + 标题,换行,说明(sub) */}
+        <div>
+          <h1 className="flex items-center gap-2"><Server size={18} /> Runner 管理</h1>
+          <div className="sub">Runner 是容器执行的代理节点,主动 WebSocket 连接平台;调度策略:最少负载 · 部署任务固定 role=deploy</div>
+        </div>
         <div className="acts">
           <Button variant="primary" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />新建 Runner</Button>
         </div>
       </div>
       {msg && <Alert variant={msg.type} onClose={() => setMsg(null)}>{msg.text}</Alert>}
-      <div className="border border-border rounded-lg overflow-hidden">
+      {/* §6.3 #1:加 .card > .scrollx 包裹,对齐 /admin/users 模式 */}
+      <div className="card">
+      <div className="scrollx">
         <Table className="tbl">
           <TableHeader>
             <TableRow>
@@ -138,17 +145,21 @@ export function RunnerManagement() {
             {runners?.map(r => {
               const rb = ROLE_BADGE[r.role]; const sb = STATUS_BADGE[r.status]
               return (
-                <TableRow key={r.runner_id} className={r.status === 'offline' ? 'opacity-50' : ''}>
+                /* §6.3 #2:移除 opacity-50,改用 .b-amber 徽章区分 offline */
+                <TableRow key={r.runner_id}>
                   <TableCell className="font-medium">{r.name}</TableCell>
-                  <TableCell><Badge variant={rb.variant}>{rb.label}</Badge></TableCell>
-                  <TableCell><Badge variant={sb.variant}>{sb.label}</Badge></TableCell>
+                  <TableCell><span className={rb.cls}>{rb.label}</span></TableCell>
+                  <TableCell><span className={sb.cls}>{sb.label}</span></TableCell>
                   <TableCell>{r.current_containers}/{r.max_containers}</TableCell>
                   <TableCell className="text-text-muted">{formatMachine(r)}</TableCell>
                   <TableCell className="text-text-muted">{formatTime(r.last_heartbeat_at)}</TableCell>
-                  <TableCell className="text-right space-x-2">
-                    <Button variant="ghost" size="sm" onClick={() => { setResetTarget(r); setResetOpen(true) }}><RefreshCcw className="w-3.5 h-3.5 mr-1" />重置 token</Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDisable(r)}><Ban className="w-3.5 h-3.5 mr-1" />禁用</Button>
-                    <Button variant="danger" size="sm" onClick={() => handleDelete(r)}><Trash2 className="w-3.5 h-3.5 mr-1" />删除</Button>
+                  <TableCell className="text-right" style={{ whiteSpace: 'nowrap' }}>
+                    {/* §6.3 #3:操作按钮改 .btn.btn-sm / .btn.btn-sm.btn-danger */}
+                    <button className="btn btn-sm" onClick={() => { setResetTarget(r); setResetOpen(true) }}><RefreshCcw className="w-3.5 h-3.5 mr-1" />重置 token</button>
+                    {' '}
+                    <button className="btn btn-sm" onClick={() => handleDisable(r)}><Ban className="w-3.5 h-3.5 mr-1" />禁用</button>
+                    {' '}
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDelete(r)}><Trash2 className="w-3.5 h-3.5 mr-1" />删除</button>
                   </TableCell>
                 </TableRow>
               )
@@ -156,6 +167,7 @@ export function RunnerManagement() {
             {!isLoading && !runners?.length && <TableRow><TableCell colSpan={7} className="text-center py-8 text-text-muted">暂无 Runner</TableCell></TableRow>}
           </TableBody>
         </Table>
+      </div>
       </div>
 
       {/* 新建 Runner 对话框 */}

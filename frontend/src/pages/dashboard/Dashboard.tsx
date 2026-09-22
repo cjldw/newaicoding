@@ -7,7 +7,7 @@
  */
 
 import { useNavigate } from 'react-router-dom'
-import { FileText, Code2, FlaskConical, Rocket, Plus, FolderKanban } from 'lucide-react'
+import { FileText, Code2, FlaskConical, Rocket, Plus, FolderKanban, LayoutDashboard } from 'lucide-react'
 import { useDashboardSummary } from '@/api/dashboard'
 import { useProjectList } from '@/api/projects'
 import type { DashboardBlock } from '@/api/dashboard'
@@ -93,10 +93,10 @@ export function Dashboard() {
   })
 
   return (
-    <div className="page">
+    <div className="page wide">
       <div className="page-head">
         <div>
-          <h1>工作台</h1>
+          <h1 className="flex items-center gap-2"><LayoutDashboard size={18} /> 工作台</h1>
           <div className="sub">与我相关的四类数据 · 口径「我创建的」(created_by=me)+ 成员项目过滤,与四维管理菜单同源工具(R21)</div>
         </div>
       </div>

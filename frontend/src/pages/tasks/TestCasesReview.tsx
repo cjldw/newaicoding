@@ -88,14 +88,15 @@ export default function TestCasesReview() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-6xl">
-      <div className="mb-6">
+    <div className="page">
+      <div className="page-head">
         <h1 className="text-2xl font-semibold text-text">测试用例审阅</h1>
         <p className="text-sm text-text-muted mt-1">任务:{task.title}</p>
       </div>
 
-      <div className="border border-border rounded-lg overflow-hidden">
-        <Table>
+      <div className="card">
+      <div className="scrollx">
+        <Table className="tbl">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[200px]">用例标题</TableHead>
@@ -191,6 +192,7 @@ export default function TestCasesReview() {
             )}
           </TableBody>
         </Table>
+      </div>
       </div>
 
       <div className="flex justify-end gap-2 mt-4">

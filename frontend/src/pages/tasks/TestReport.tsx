@@ -76,8 +76,8 @@ export default function TestReport() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-6xl">
-      <div className="mb-6">
+    <div className="page">
+      <div className="page-head">
         <h1 className="text-2xl font-semibold text-text">测试报告</h1>
         <p className="text-sm text-text-muted mt-1">任务:{task.title}</p>
       </div>
@@ -103,8 +103,9 @@ export default function TestReport() {
       </div>
 
       {/* 用例列表 */}
-      <div className="border border-border rounded-lg overflow-hidden mb-6">
-        <Table>
+      <div className="card">
+      <div className="scrollx">
+        <Table className="tbl">
           <TableHeader>
             <TableRow>
               <TableHead>用例标题</TableHead>
@@ -157,6 +158,7 @@ export default function TestReport() {
             )}
           </TableBody>
         </Table>
+      </div>
       </div>
 
       {/* 失败时操作栏 */}

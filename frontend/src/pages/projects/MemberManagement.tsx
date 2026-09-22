@@ -163,7 +163,21 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
   if (isLoading) return <div className="text-text-muted py-8">加载中...</div>
 
   return (
-    <div>
+    <div className="page wide">
+      {/* 页头(对齐 vp:icon + 标题 + sub) */}
+      <div className="page-head">
+        <div>
+          <h1 className="flex items-center gap-2"><UserPlus size={18} /> 成员</h1>
+          <div className="sub">项目成员管理:邀请、角色分配与移除</div>
+        </div>
+        <div className="acts">
+          <Button variant="primary" onClick={() => { setInviteOpen(true); resetInviteDialog() }}>
+            <UserPlus className="w-4 h-4 mr-1" />
+            邀请成员
+          </Button>
+        </div>
+      </div>
+
       {/* 成功提示 */}
       {success && (
         <Alert variant="success" className="mb-4">
@@ -177,16 +191,10 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
         </Alert>
       )}
 
-      {/* 操作栏 */}
-      <div className="flex justify-end mb-4">
-        <Button onClick={() => { setInviteOpen(true); resetInviteDialog() }}>
-          <UserPlus className="w-4 h-4 mr-2" />
-          邀请成员
-        </Button>
-      </div>
-
       {/* 成员列表 */}
-      <Table>
+      <div className="card">
+      <div className="scrollx">
+      <Table className="tbl">
         <TableHeader>
           <TableRow>
             <TableHead>用户</TableHead>
@@ -254,6 +262,8 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
           })}
         </TableBody>
       </Table>
+      </div>
+      </div>
 
       {/* 邀请成员对话框 */}
       <Dialog open={inviteOpen} onOpenChange={(o) => { setInviteOpen(o); if (!o) resetInviteDialog() }}>

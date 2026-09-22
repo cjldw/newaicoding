@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { AlertCircle, CheckCircle2, Loader2, Wifi } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, Wifi, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { api, ApiError } from '@/api/client'
@@ -97,7 +97,20 @@ export function PlatformSettings() {
     setError(null)
     setSuccess(null)
     try {
-      await api.put('/admin/platform-settings', values)
+      // BUG-008/009: group_id 后端要求 int;前端 Input 产出字符串,提交前强转
+      // 空串按"未填"处理(不随 payload 发送,避免后端 2007)
+      const payload: Record<string, unknown> = { ...values }
+      const rawGroupId = (values.gitlab_bot_group_id ?? '').toString().trim()
+      if (rawGroupId === '') {
+        delete payload.gitlab_bot_group_id
+      } else {
+        const parsed = Number(rawGroupId)
+        if (Number.isFinite(parsed) && Number.isInteger(parsed)) {
+          payload.gitlab_bot_group_id = parsed
+        }
+        // 非数字:仍按原字符串发送,后端会返回 2007,前端表单校验兜底
+      }
+      await api.put('/admin/platform-settings', payload)
       setSuccess('保存成功')
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
@@ -114,7 +127,9 @@ export function PlatformSettings() {
       const res = await api.post<{ ok: boolean; message: string }>(
         '/admin/platform-settings/test-connection',
       )
-      setTestResult({ ok: true, message: res.data?.message ?? '连接成功' })
+      // BUG-010:以接口返回的 ok 为准——GitLab 侧连通失败(如 401)时 data.ok=false,
+      // 不得误标成功样式;message 保持后端原文(含"GitLab 返回 401,请检查 token 与地址"等透传文案)
+      setTestResult({ ok: res.data?.ok === true, message: res.data?.message ?? (res.data?.ok ? '连接成功' : '测试失败') })
     } catch (err) {
       setTestResult({
         ok: false,
@@ -132,7 +147,11 @@ export function PlatformSettings() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>平台设置</h1>
+        {/* vp 无独立平台设置页(L810 演示 toast),页头按 vp 页头语言补 icon+说明,文案自拟留痕 */}
+        <div>
+          <h1 className="flex items-center gap-2"><SlidersHorizontal size={18} /> 平台设置</h1>
+          <div className="sub">平台级全局配置:GitLab 实例与 Bot token / group、预览与部署根域名、容器配额(仅超管)</div>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
@@ -295,13 +314,13 @@ export function PlatformSettings() {
 
         {/* 保存按钮 */}
         <div className="flex justify-end">
-          <Button
+          <button
             type="submit"
-            variant="primary"
+            className="btn btn-pri"
             disabled={saving || !isDirty}
           >
             {saving ? '保存中...' : '保存配置'}
-          </Button>
+          </button>
         </div>
       </form>
     </div>

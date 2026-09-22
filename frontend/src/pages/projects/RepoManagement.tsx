@@ -9,7 +9,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Unlink, AlertCircle } from 'lucide-react'
+import { Plus, Unlink, AlertCircle, GitBranch } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
@@ -107,13 +107,19 @@ export function RepoManagement({ projectId }: RepoManagementProps) {
   }
 
   return (
-    <div>
-      {/* 添加仓库按钮 */}
-      <div className="flex justify-end mb-4">
-        <Button variant="primary" onClick={() => setAddDialogOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          添加仓库
-        </Button>
+    <div className="page wide">
+      {/* 页头(对齐 vp:icon + 标题 + sub) */}
+      <div className="page-head">
+        <div>
+          <h1 className="flex items-center gap-2"><GitBranch size={18} /> 仓库</h1>
+          <div className="sub">项目关联的 GitLab 仓库:主仓库/测试/文档</div>
+        </div>
+        <div className="acts">
+          <Button variant="primary" onClick={() => setAddDialogOpen(true)}>
+            <Plus className="w-4 h-4 mr-1" />
+            添加仓库
+          </Button>
+        </div>
       </div>
 
       {/* 仓库列表 */}
@@ -122,7 +128,9 @@ export function RepoManagement({ projectId }: RepoManagementProps) {
           暂无仓库,请添加
         </div>
       ) : (
-        <Table>
+        <div className="card">
+        <div className="scrollx">
+        <Table className="tbl">
           <TableHeader>
             <TableRow>
               <TableHead>角色</TableHead>
@@ -168,6 +176,8 @@ export function RepoManagement({ projectId }: RepoManagementProps) {
             })}
           </TableBody>
         </Table>
+        </div>
+        </div>
       )}
 
       {/* 添加仓库对话框 */}

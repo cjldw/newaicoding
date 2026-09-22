@@ -51,9 +51,11 @@ export default function ArchivePage() {
   const { requirement, timeline, summary_file_path, knowledge_entries } = archive
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-6xl">
+    <div className="page">
       {/* 页面标题 */}
-      <h1 className="text-2xl font-semibold text-text mb-6">需求归档</h1>
+      <div className="page-head">
+        <h1 className="text-2xl font-semibold text-text">需求归档</h1>
+      </div>
 
       {/* 需求信息卡片 */}
       <Card className="p-5 mb-6">
@@ -110,10 +112,10 @@ export default function ArchivePage() {
       </Card>
 
       {/* 关联知识条目列表 */}
-      <Card className="p-5">
+      <div className="card">
         <h3 className="text-base font-semibold text-text mb-4">关联知识条目</h3>
-        <div className="border border-border rounded-lg overflow-hidden">
-          <Table>
+        <div className="scrollx">
+          <Table className="tbl">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[100px]">类型</TableHead>
@@ -168,7 +170,7 @@ export default function ArchivePage() {
             </TableBody>
           </Table>
         </div>
-      </Card>
+      </div>
     </div>
   )
 }

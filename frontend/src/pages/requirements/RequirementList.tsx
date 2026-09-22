@@ -108,9 +108,9 @@ export function RequirementList() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="page wide">
       {/* 页头 */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="page-head">
         <h1 className="text-2xl font-semibold text-text">需求</h1>
         <Button variant="primary" onClick={() => setShowCreateDialog(true)}>
           <Plus className="w-4 h-4 mr-2" />
@@ -131,7 +131,9 @@ export function RequirementList() {
         </div>
       ) : (
         <>
-          <Table>
+          <div className="card">
+          <div className="scrollx">
+          <Table className="tbl">
             <TableHeader>
               <TableRow>
                 <TableHead>标题</TableHead>
@@ -177,6 +179,8 @@ export function RequirementList() {
               })}
             </TableBody>
           </Table>
+          </div>
+          </div>
 
           {/* 分页 */}
           {totalPages > 1 && (
