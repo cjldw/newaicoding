@@ -722,3 +722,141 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **类型**:纯代码
 - **影响范围**:GET /api/dashboard/requirements、GET /api/dashboard/tasks/{dev|test|release}(四维列表,created_by=me + 可见项目过滤 + status 过滤 + 分页)
 - **回滚方案**:随代码回滚
+
+---
+
+# 发布检查单 2026-09-22
+
+> 生成:/rd-ship | 目标库:aicoding(120.27.217.194:3306,即当前唯一库,开发=目标同库)
+> 发布方式:**手动部署**(全仓无 .gitlab-ci.yml;若后续建 CI,以新 pipeline 为准更新本节)
+
+## 0. 阻塞项(发布前必须处理)
+
+- [x] **⚠️ 阻塞(已修复 2026-09-22 rd-fix/R16.F1,BUG-007 fixed)**:~~docker/runner/Dockerfile 缺文件~~ COPY 已补齐 4 文件;**首次 `docker build platform/runner:v1` 成功后 BUG-007 置 verified**(本机引擎未运行,构建冒烟留待部署机)
+- [ ] UI 原型对齐迭代未完成(DESIGNLOG.md 页面进度表存在 pending 项)——不影响功能,影响视觉一致性;用户知情接受带此遗留上线,后续 `/rd-ui` 续做
+
+## 1. 前置检查
+
+- [x] DEVPLAN.md 进度表 22/22 需求点 ✅
+- [x] BUGS.md 无活跃问题(6 个 rd-fix 问题全部 verified,移入 ISSUES.md)
+- [ ] CI 可触发:**不适用(无 CI)**;手动部署路径见 §4
+- [ ] 生产密钥重新生成:`PLATFORM_SECRET_KEY` / `JWT_SECRET_KEY` 均为开发随机值,**生产 .env 必须换新**(64 位 hex;换 JWT_SECRET_KEY 会使所有现有登录态失效,属预期)
+
+## 2. 数据库变更(按执行顺序)
+
+**目标库现状(2026-09-22 只读核对,已通过)**:
+- 23 张业务表全部存在(users/projects/project_repos/platform_settings/project_members/model_configs/skills/project_skills/containers/runners/terminal_sessions/routes/requirements/tasks/task_uploaded_files/task_messages/knowledge_entries/knowledge_bases/knowledge_docs/notifications/user_notification_settings/audit_logs/invitations)+ alembic_version
+- `alembic_version.version_num = d6e3f9a1c8b5`(= head,R19)✅
+- 关键列抽查 ✅:`tasks.status` 已含 `cases_review/passed`(R6 ALTER);`projects.dingtalk_webhook/dingtalk_enabled` 已存在(R18);`users.role/token_version` 已存在(R1)
+- 数据量:users=2,runners=1,其余业务表 0 行(准新库,无存量数据迁移问题)
+
+- [x] **当前目标库(aicoding)无需再执行任何 DDL**——开发期已通过 create_all + alembic 全链应用并核对(上方现状核对即证据)
+- [ ] **若部署全新环境**,按以下顺序执行(全文见上文各需求点条目;每步先 `SHOW CREATE TABLE` 核对前一步成功):
+  1. R1 建表 `users` → 2. R2 建表 `projects`/`project_repos`/`platform_settings` → 3. R12 建表 `project_members` → 4. R13 建表 `model_configs` → 5. R17 建表 `skills`/`project_skills` → 6. R8 建表 `containers` → 7. R16 建表 `runners` → 8. R9 建表 `terminal_sessions` → 9. R10 建表 `routes` → 10. R3 建表 `requirements` → 11. R4 建表 `tasks`/`task_uploaded_files`/`task_messages` → 12. R6 ALTER `tasks.status` 枚举扩展(必须在 R4 之后) → 13. R14 建表 `knowledge_entries`(FULLTEXT ngram) → 14. R20 建表 `knowledge_bases`/`knowledge_docs` → 15. R18 建表 `notifications`/`user_notification_settings` + ALTER `projects` 加钉钉两列 → 16. R19 建表 `audit_logs`/`invitations`
+  17. `INSERT INTO aicoding.alembic_version(version_num) VALUES('d6e3f9a1c8b5')`(或直接 `alembic upgrade head` 替代 1-16 全部步骤,推荐)
+
+## 3. 配置 / 环境变量变更
+
+- [ ] **backend/.env**(部署机,不入库;仓库仅 .env.example):
+  - `DATABASE_URL`(生产凭据;密码含特殊字符需 URL 编码)
+  - `PLATFORM_SECRET_KEY` / `JWT_SECRET_KEY` → **新随机 64 位 hex(生产必须换)**
+  - `REDIS_URL`(R1 仅占位,可不配)
+  - `ENVIRONMENT=production`
+- [ ] **gateway 进程**:`DATABASE_URL`(实时查 routes 表)、`GATEWAY_PORT=80`
+- [ ] **前端**:`vite build` 产物指向后端 API 地址(按部署形态配 nginx/静态托管反代 `/api` 与 `/ws`)
+- [ ] **Runner(见 §5)**:`PLATFORM_URL` / `RUNNER_TOKEN` / `RUNNER_ROLE` / `RUNNER_HOST`
+- [ ] **DNS**:泛域名 `*.{preview_base_domain}` 与 `*.{deploy_base_domain}` A 记录 → 网关机器 IP
+
+## 4. 代码发布(手动,无 CI)
+
+- [ ] **后端**:`backend/` 部署 → `alembic upgrade head`(幂等,当前已在 head 则无操作)→ 启动 `uvicorn app.main:app`(main.py lifespan 自动挂 Runner 心跳巡检 + 审计异步写入)
+- [ ] **前端**:`frontend/` → `npm run build` → 产物部署静态托管(反代 `/api`、`/ws` 到后端)
+- [ ] **网关**:`gateway/` → `GATEWAY_PORT=80 python3 gateway/main.py`(依赖 backend app 代码,与后端同机或同代码部署)
+- [ ] **Runner 机器**:见 §5
+- [ ] **镜像**(Docker 任一可联网机器构建后推送/导入目标机器):
+  - [ ] `docker build -t platform/devbox:v1 -f docker/devbox/Dockerfile .`(**注意 build context 为仓库根**,Dockerfile 内 `COPY skills/` 相对根)
+  - [ ] `docker build -t platform/runner:v1 -f docker/runner/Dockerfile runner/`(**先完成 §0 Dockerfile 修复**)
+
+## 5. Runner 部署专项(每台 Runner 机器执行)
+
+**架构**:Runner 主动 WebSocket 出站连接平台 `/ws/runner`(无需平台入站 Runner);Runner 本机调 Docker SDK 拉起任务容器;网关直连 `runner_host:mapped_port`。
+
+**前置(每台机器)**:
+- [ ] 已安装 Docker Engine 且当前用户可访问 `/var/run/docker.sock`(或容器方式挂载该 sock)
+- [ ] 网络连通:机器 → 平台 `PLATFORM_URL` 出站可达;网关 → 本机 `20000-29999` 入站可达(preview);deploy 角色另需公网 IP 真实可达 + `10000-10099` 入站放行
+- [ ] 平台侧:超管登录 → 平台管理 → Runner 管理 → 创建 Runner(worker/deploy 角色)→ **复制一次性 token `plt-runner-*`(仅显示一次,库中只存 bcrypt hash)**
+
+**方式 A:容器化部署(推荐)**
+```bash
+# 构建(任一机器,先完成 §0 Dockerfile 修复)
+docker build -t platform/runner:v1 -f docker/runner/Dockerfile runner/
+
+# 目标 Runner 机器运行(worker 角色示例)
+docker run -d --name runner-01 --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e PLATFORM_URL=wss://<平台域名或IP:端口>/ws/runner \
+  -e RUNNER_TOKEN=plt-runner-xxxx \
+  -e RUNNER_ID=runner-01 \
+  -e RUNNER_ROLE=worker \
+  -e RUNNER_HOST=<本机被网关访问的IP> \
+  platform/runner:v1
+```
+deploy 角色差异:`RUNNER_ROLE=deploy` + `RUNNER_HOST` 填**真实公网 IP**(会写入 runners.public_ip,供部署 URL 直连)。
+
+**方式 B:裸机部署(systemd 托管)**
+```bash
+pip3 install -r runner/requirements.txt   # docker>=6.0, websockets>=11.0
+# 环境变量同方式 A(PLATFORM_URL/RUNNER_TOKEN/RUNNER_ID/RUNNER_ROLE/RUNNER_HOST)
+python3 main.py                            # 建议配 systemd unit:Restart=always
+```
+
+**运行时行为(核对要点)**:
+- 注册:`register{token, machine_info, host}` → 平台返回 `register_success(runner_id)`;身份由 **token** 决定(RUNNER_ID 仅日志标识)
+- 心跳:30s 一跳;平台 60s 未收到判 **offline**,>5min 漂移拒绝;Runner 断线指数退避自动重连
+- 对账:重连后 `sync` 上报本地容器列表,状态以 Runner 为准
+- 端口:任务容器 preview 随机映射宿主机 **20000-29999**;部署容器固定 **10000-10099**(deploy Runner)
+
+**部署后验证**:
+- [ ] 平台 Runner 管理页该 Runner `online`,`machine_info`(os/arch/cpu/mem/docker_version)已上报
+- [ ] `docker stop runner-01` → 60s 后页面转 `offline`;`docker start` 后自动恢复 `online`
+- [ ] 创建测试任务 → 容器在本机 `docker ps` 可见,状态 running,端口在 20000-29999 区间
+- [ ] 任务工作台:终端可连接(pty)、预览路由可访问、文件树可读
+
+**Runner 下线/回滚**:`docker stop && docker rm runner-01`(或停 systemd);平台侧标记 offline,不影响平台其余功能;已运行容器按容器级销毁处理。
+
+## 6. 上线后配置动作(平台内,顺序执行)
+
+- [ ] 首个注册用户自动成为 superadmin(R1 bootstrap;当前库已有 2 用户,确认超管账号归属)
+- [ ] 超管 → 平台设置,录入 `gitlab_url` / `gitlab_bot_token`(scope=api)/ `gitlab_bot_group_id` / `gitlab_webhook_secret`(**当前 platform_settings=0 行,不配置则项目创建全局禁用 2001**)
+- [ ] 确认 `preview_base_domain` / `deploy_base_domain`(有默认值)
+- [ ] Runner 管理创建 Runner 并按 §5 部署(当前 runners 表已有 1 条记录,确认是否复用)
+
+## 7. 验证步骤(上线后逐项执行)
+
+- [ ] 健康检查:`GET /health` → 200
+- [ ] OpenAPI 可达:`GET /docs`、`GET /openapi.json`
+- [ ] 登录冒烟:`POST /api/auth/login`(测试账号)→ code=0 + 双 token
+- [ ] 核心链路冒烟(依赖 §6 已配置):建项目 → 建需求 → 打磨任务拉起(容器 running)→ 终端连接 → 预览路由 → 测试任务 → 发布任务(URL 可达 + 需求 done)→ 归档 + 知识条目
+- [ ] 前端页面可达:登录页 / Dashboard / 项目列表 / 四维管理 / 管理后台五页
+- [ ] WebSocket:终端 TTY 可交互;通知 toast 通道连通
+
+## 8. 回滚方案
+
+- **代码**:各组件回退上一版本镜像/产物重启(后端/前端/网关/Runner 相互独立,可单独回滚)
+- **数据库**:全部变更为**纯新增**(CREATE TABLE IF NOT EXISTS / 加列 / 枚举扩展),代码回滚后旧表不碍事,**无需逆向 DDL**;仅在全量废弃时按建表逆序 DROP(先备份)
+- 唯一非纯新增:`tasks.status` 枚举扩展(R6)——回滚前必须先归并数据:`UPDATE tasks SET status='pending' WHERE status='cases_review'; UPDATE tasks SET status='done' WHERE status='passed';` 再执行 downgrade ALTER
+- 数据不可逆操作(项目/需求/任务的 GitLab 侧建仓、分支删除)不在本平台回滚范围内,需 GitLab 侧人工处理
+
+## 9. 回滚验证(高风险项评估)
+
+- 本次变更全为新增表/加列,**无不可逆 SQL、无大改表、无核心链路重构** → 免演练
+- [ ] (若部署新环境执行了 §2 全量 DDL)测试环境演练一次:代码回退 + §8 数据归并 + 健康检查/登录冒烟重跑
+
+## 10. 风险与遗留
+
+- **Dockerfile 阻塞项**(§0):未修复则 Runner 镜像无法启动
+- UI 原型对齐迭代未完成(DESIGNLOG.md 进度表 pending 项),用户知情接受
+- AI 执行路径:claude-agent-sdk 未安装(pip 网络受限),V1 走容器内 `claude -p` CLI 兜底;装包后切 SDK adapter
+- R20 知识库导入完成通知仅 logger 钩子(R18 通知已在,钩子待接)
+- 开发库历史由 create_all 维护 + alembic stamp 对齐;全新环境必须走 `alembic upgrade head`,勿混用两种方式
+- 网关 V1 仅 HTTP(HTTPS/CDN/WAF 范围外);Runner 机器不部署反代(直连形态)
