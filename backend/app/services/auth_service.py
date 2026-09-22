@@ -159,6 +159,7 @@ class AuthService:
                 phone=mask_phone(user.phone),
                 nickname=user.nickname,
                 avatar_url=user.avatar_url,
+                role=user.role,
             ),
         )
 

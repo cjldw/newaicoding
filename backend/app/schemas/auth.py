@@ -145,6 +145,7 @@ class LoginUserInfo(BaseModel):
     phone: str  # 脱敏后
     nickname: Optional[str] = None
     avatar_url: Optional[str] = None
+    role: str = "user"  # 平台角色:superadmin / user
 
 
 class LoginData(BaseModel):

@@ -35,6 +35,7 @@ async def get_me(
         phone=mask_phone(current_user.phone),
         nickname=current_user.nickname,
         avatar_url=current_user.avatar_url,
+        role=current_user.role,
         gitlab_username=current_user.gitlab_username,
         gitlab_token_bound=current_user.gitlab_token_encrypted is not None,
         gitlab_token_scopes=current_user.gitlab_token_scopes,

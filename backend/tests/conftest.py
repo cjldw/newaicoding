@@ -6,24 +6,132 @@ R1 用户认证系统 — pytest 公共 fixture
 - 测试隔离:每个测试前 truncate users 表
 - 数据库 session 管理(async SQLAlchemy)
 
-使用 .env 中配置的 MySQL 开发库(alembic 已 upgrade)。
+使用隔离测试库 aicoding_test(不影响开发库 aicoding)。
 """
 import asyncio
 import os
+import sqlalchemy as sa
 import httpx
 import pytest
 import pytest_asyncio
 
 # ---------------------------------------------------------------------------
 # 环境变量(测试用,在 import app 模块之前设置)
-# 注意: 不覆盖 DATABASE_URL,使用 .env 中已配置的 MySQL 开发库
+# 关键:覆盖 DATABASE_URL 指向测试库 aicoding_test
 # ---------------------------------------------------------------------------
+TEST_DATABASE_URL = "mysql+asyncmy://develop:Develop%40123@120.27.217.194:3306/aicoding_test?charset=utf8mb4"
+
+# 强制覆盖 DATABASE_URL(不使用 setdefault,确保覆盖 .env 中的开发库配置)
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-for-testing-only")
 os.environ.setdefault(
     "PLATFORM_SECRET_KEY",
     "dGVzdC1wbGF0Zm9ybS1zZWNyZXQta2V5LTM1Ynl0ZXMh"  # base64(32 bytes)
 )
 os.environ.setdefault("GITLAB_INSTANCE_URL", "https://gitlab.example.com")
+
+# ---------------------------------------------------------------------------
+# 护栏:确保连接的是测试库,防止误伤开发库
+# ---------------------------------------------------------------------------
+from urllib.parse import urlparse
+
+parsed_url = urlparse(TEST_DATABASE_URL)
+database_name = parsed_url.path.lstrip('/')
+
+if database_name != "aicoding_test":
+    pytest.exit(
+        f"拒绝在非测试库上运行:当前数据库为 '{database_name}',期望 'aicoding_test'",
+        returncode=1
+    )
+
+
+# ---------------------------------------------------------------------------
+# 会话级 schema 初始化:运行 alembic upgrade head 确保测试库表结构完整
+# ---------------------------------------------------------------------------
+def pytest_configure(config):
+    """pytest 启动时运行 alembic upgrade head 初始化测试库 schema"""
+    import asyncio
+    from alembic.config import Config
+    from alembic import command
+
+    # 获取 alembic.ini 路径(相对于 backend/ 目录)
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    alembic_cfg = Config(os.path.join(backend_dir, "alembic.ini"))
+
+    # 注意:不调用 set_main_option("sqlalchemy.url", ...)
+    # 因为 URL 含 %40 等字符,与 configparser 的 % 插值冲突。
+    # env.py 已改为直接使用 settings.DATABASE_URL(见 env.py:72),
+    # 而 os.environ["DATABASE_URL"] 已在文件顶部设置为测试库 URL,
+    # 所以 reload app.config 后 settings 即指向 aicoding_test。
+
+    async def run_upgrade():
+        import sys
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+
+        # 重新加载 settings 以使用测试库 URL
+        import importlib
+        import app.config
+        importlib.reload(app.config)
+
+        # 运行 alembic upgrade head(env.py 会从 settings.DATABASE_URL 读 URL)
+        command.upgrade(alembic_cfg, "head")
+
+    try:
+        asyncio.run(run_upgrade())
+    except Exception as e:
+        # 如果 alembic 失败,回退到 create_all
+        print(f"Warning: alembic upgrade failed ({e}), falling back to create_all")
+        asyncio.run(_fallback_create_all())
+
+
+async def _fallback_create_all():
+    """回退方案:使用 Base.metadata.create_all 创建表"""
+    from app.database import engine as app_engine, Base
+    # 导入所有模型
+    from app.models.user import User  # noqa: F401
+    from app.models.project import Project, ProjectRepo, PlatformSetting  # noqa: F401
+    from app.models.project_member import ProjectMember  # noqa: F401
+    from app.models.model_config import ModelConfig  # noqa: F401
+    from app.models.skill import Skill, ProjectSkill  # noqa: F401
+    from app.models.container import Container  # noqa: F401
+    from app.models.runner import Runner  # noqa: F401
+    from app.models.terminal import TerminalSession  # noqa: F401
+    from app.models.route import Route  # noqa: F401
+    from app.models.requirement import Requirement  # noqa: F401
+    from app.models.task import Task, TaskUploadedFile, TaskMessage  # noqa: F401
+    from app.models.knowledge_entry import KnowledgeEntry  # noqa: F401
+    from app.models.knowledge_base import KnowledgeBase, KnowledgeDoc  # noqa: F401
+    from app.models.notification import Notification, UserNotificationSettings  # noqa: F401
+    from app.models.audit_log import AuditLog, Invitation  # noqa: F401
+
+    async with app_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+        # create_all 只建表不建 alembic 迁移里 op.execute 的 FULLTEXT 索引;
+        # 知识库搜索(MATCH...AGAINST)依赖它们,缺了会报 1191。此处补建
+        # (与 a3c8e7f2b9d4 / b5d9e1f4a7c3 两笔迁移保持一致;幂等:已存在则跳过)
+        fulltext_indexes = [
+            ("knowledge_entries", "ft_knowledge_title_content", "(`title`, `content`)"),
+            ("knowledge_docs", "ft_kb_docs_title_content", "(`title`, `content`)"),
+        ]
+        for table, index_name, columns in fulltext_indexes:
+            exists = await conn.scalar(
+                sa.text(
+                    "SELECT COUNT(*) FROM information_schema.statistics "
+                    "WHERE table_schema = DATABASE() AND table_name = :tbl AND index_name = :idx"
+                ),
+                {"tbl": table, "idx": index_name},
+            )
+            if not exists:
+                await conn.execute(
+                    sa.text(
+                        f"ALTER TABLE `{table}` ADD FULLTEXT INDEX `{index_name}` "
+                        f"{columns} WITH PARSER ngram"
+                    )
+                )
+    await app_engine.dispose()
 
 # ---------------------------------------------------------------------------
 # event loop 策略:Windows 下用 ProactorEventLoop

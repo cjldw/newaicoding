@@ -69,10 +69,18 @@ def validate_setting_value(key: str, value: Any) -> Any:
             raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 必须为 http(s) 地址且不能为空")
         return value.strip().rstrip("/")
 
-    # 整数:范围内正整数(排除 bool)
+    # 整数:范围内正整数(排除 bool);宽容接受可转 int 的数字字符串(BUG-008)
     if vtype == "int":
-        if isinstance(value, bool) or not isinstance(value, int):
+        if isinstance(value, bool):
             raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 必须为整数")
+        if not isinstance(value, int):
+            if not isinstance(value, str):
+                raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 必须为整数")
+            stripped = value.strip()
+            try:
+                value = int(stripped)
+            except (ValueError, TypeError):
+                raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 必须为整数")
         low, high = range_
         if not (low <= value <= high):
             raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 数值越界(允许 {low}-{high})")

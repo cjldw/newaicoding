@@ -61,6 +61,7 @@ class UserProfileResponse(BaseModel):
     phone: str  # 脱敏后
     nickname: Optional[str] = None
     avatar_url: Optional[str] = None
+    role: str = "user"  # 平台角色:superadmin / user
     gitlab_username: Optional[str] = None
     gitlab_token_bound: bool = False
     gitlab_token_scopes: Optional[List[str]] = None

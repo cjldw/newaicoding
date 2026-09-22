@@ -210,6 +210,70 @@ class TestPlatformSettingsIllegalValue:
         data = resp.json()
         assert data["code"] == 2007
 
+
+# ---------------------------------------------------------------------------
+# BUG-008/BUG-009 — gitlab_bot_group_id 类型宽容(R2.F1 新增)
+# ---------------------------------------------------------------------------
+class TestGroupIdTypeCoercion:
+    """gitlab_bot_group_id 接受 int 或可转 int 的数字字符串,非数字字符串拒绝"""
+
+    @pytest.mark.asyncio
+    async def test_group_id_string_numeric_accepted(self, client, superadmin_headers):
+        """字符串 "12345" → code=0,GET 回读为 int"""
+        resp = await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"gitlab_bot_group_id": "12345"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == 0
+
+        # GET 回读应为 int
+        resp = await client.get("/api/admin/platform-settings", headers=superadmin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == 0
+        group_id = data["data"]["gitlab_bot_group_id"]
+        assert isinstance(group_id, int)
+        assert group_id == 12345
+
+    @pytest.mark.asyncio
+    async def test_group_id_string_with_whitespace_accepted(self, client, superadmin_headers):
+        """带空白的数字字符串 "  12345  " → code=0,strip 后转 int"""
+        resp = await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"gitlab_bot_group_id": "  12345  "},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == 0
+
+    @pytest.mark.asyncio
+    async def test_group_id_string_non_numeric_rejected(self, client, superadmin_headers):
+        """非数字字符串 "abc" → 拒绝(2007)"""
+        resp = await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"gitlab_bot_group_id": "abc"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == 2007
+
+    @pytest.mark.asyncio
+    async def test_group_id_int_accepted(self, client, superadmin_headers):
+        """int 12345 → code=0"""
+        resp = await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"gitlab_bot_group_id": 12345},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == 0
+
     @pytest.mark.asyncio
     async def test_put_empty_required_value(self, client, superadmin_headers):
         """必填项为空:返回 2007"""
