@@ -334,7 +334,7 @@ interface QuickCreateDialogProps {
   onClose: () => void
 }
 
-function QuickCreateDialog({ open, dimension, createLabel, onClose }: QuickCreateDialogProps) {
+function QuickCreateDialog({ open, dimension, onClose }: QuickCreateDialogProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [pid, setPid] = useState('')

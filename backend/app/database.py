@@ -13,6 +13,9 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    # R19.F5:会话时区钉死东八区——func.now() 写入的墙钟从"碰巧是 +08:00"变为契约保证
+    # (与存量数据口径一致,零迁移;asyncmy init_command,每个新建连接执行一次)
+    connect_args={"init_command": "SET time_zone='+08:00'"},
 )
 
 # 创建异步会话工厂

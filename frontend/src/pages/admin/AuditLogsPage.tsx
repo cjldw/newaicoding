@@ -17,6 +17,7 @@ import {
   TableCell,
 } from '@/components/ui/Table'
 import { adminAuditLogsApi, adminUsersApi, type AuditLog } from '@/api/admin'
+import { ApiError } from '@/api/client'
 
 // 操作类型映射
 const ACTION_TYPE_MAP: Record<string, string> = {
@@ -38,14 +39,30 @@ const DANGEROUS_ACTIONS = new Set([
   'review_reject',
 ])
 
+// 时区钉死 GMT+8(BUG-039):与后端库内墙钟(DATETIME 存 +08:00 裸值)口径一致,
+// 显式 Asia/Shanghai 格式化——不用 toISOString()(UTC),也不用无参 toLocaleString()(随浏览器时区)
+const PLATFORM_TZ = 'Asia/Shanghai'
+
+// Date → GMT+8 裸时间串 YYYY-MM-DDTHH:mm(datetime-local 原生格式,无时区后缀)
+function formatGmt8(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: PLATFORM_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
+}
+
 // 默认最近 7 天
 function getDefaultDateRange() {
-  const end = new Date()
-  const start = new Date()
-  start.setDate(start.getDate() - 7)
   return {
-    start_time: start.toISOString(),
-    end_time: end.toISOString(),
+    start_time: formatGmt8(new Date(Date.now() - 7 * 86400000)),
+    end_time: formatGmt8(new Date()),
   }
 }
 
@@ -64,7 +81,7 @@ export default function AuditLogsPage() {
   })
   const users = usersData?.data?.items ?? []
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin-audit-logs', startTime, endTime, userIdFilter, actionTypeFilter, page],
     queryFn: () =>
       adminAuditLogsApi.list({
@@ -76,6 +93,9 @@ export default function AuditLogsPage() {
         page_size: 20,
       }),
   })
+  // 401/403(19002)→ 引导重新登录;其余(5xx/网络)→ 通用错误 + 重试(不再静默渲染空表)
+  const isAuthError =
+    error instanceof ApiError && (error.code === 401 || error.code === 403 || error.code === 19002)
 
   const logs = data?.data?.items ?? []
   const total = data?.data?.total ?? 0
@@ -92,17 +112,9 @@ export default function AuditLogsPage() {
     [],
   )
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr)
-    return d.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
-  }
+  // 时间列:直接渲染后端 created_at 裸串(GMT+8 墙钟,无时区后缀);
+  // 禁止经 new Date() 再格式化——那会被浏览器时区重解释(BUG-039 同根)
+  const formatCreatedAt = (createdAt: string) => createdAt.replace('T', ' ')
 
   const formatDetail = (detail: Record<string, unknown> | null) => {
     if (!detail) return '—'
@@ -125,18 +137,18 @@ export default function AuditLogsPage() {
         <input
           type="datetime-local"
           className="input"
-          value={startTime ? startTime.slice(0, 16) : ''}
+          value={startTime}
           onChange={(e) => {
-            setStartTime(new Date(e.target.value).toISOString())
+            setStartTime(e.target.value)
             setPage(1)
           }}
         />
         <input
           type="datetime-local"
           className="input"
-          value={endTime ? endTime.slice(0, 16) : ''}
+          value={endTime}
           onChange={(e) => {
-            setEndTime(new Date(e.target.value).toISOString())
+            setEndTime(e.target.value)
             setPage(1)
           }}
         />
@@ -184,6 +196,8 @@ export default function AuditLogsPage() {
         </button>
         <button
           className="btn btn-sm btn-primary"
+          disabled={!!startTime && !!endTime && startTime > endTime}
+          title={!!startTime && !!endTime && startTime > endTime ? '开始时间晚于结束时间' : undefined}
           onClick={() => refetch()}
         >
           查询
@@ -216,6 +230,19 @@ export default function AuditLogsPage() {
                     加载中...
                   </TableCell>
                 </TableRow>
+              ) : isError ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <div className="text-text-muted">
+                      {isAuthError
+                        ? '登录已过期或无平台超管权限,请重新登录'
+                        : `加载审计日志失败${error instanceof ApiError ? `:${error.message}` : ''}`}
+                    </div>
+                    <button className="btn btn-sm" style={{ marginTop: '8px' }} onClick={() => refetch()}>
+                      重试
+                    </button>
+                  </TableCell>
+                </TableRow>
               ) : logs.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-text-muted">
@@ -226,7 +253,7 @@ export default function AuditLogsPage() {
                 logs.map((log: AuditLog) => (
                   <TableRow key={log.log_id}>
                     <TableCell className="mono small muted" style={{ whiteSpace: 'nowrap' }}>
-                      {formatDate(log.created_at)}
+                      {formatCreatedAt(log.created_at)}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">

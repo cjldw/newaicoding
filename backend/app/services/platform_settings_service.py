@@ -11,6 +11,7 @@ import logging
 import re
 from typing import Any, Optional
 
+from cryptography.exceptions import InvalidTag
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -176,11 +177,23 @@ def mask_sensitive(value: str) -> str:
 
 
 def _decode_stored(key: str, stored: Any) -> Optional[str]:
-    """从 value JSON 还原明文:敏感项解密,普通项原样"""
+    """从 value JSON 还原明文:敏感项解密,普通项原样。
+    BUG-038:单键解密失败(密钥轮换/密文损坏)视为「已失效需重置」,
+    折叠为 None 走既有未配置语义(2001/13005),不再打挂 GET 等消费方。
+    """
     if stored is None:
         return None
     if key in SENSITIVE_KEYS and isinstance(stored, dict) and "__encrypted" in stored:
-        return decrypt_token(stored["__encrypted"])
+        try:
+            return decrypt_token(stored["__encrypted"])
+        except (InvalidTag, ValueError):
+            # InvalidTag=密钥不匹配(如 .env 密钥轮换后存量密文);
+            # ValueError 覆盖密文损坏(base64 的 binascii.Error)与解出乱码
+            # (UnicodeDecodeError),二者均为其子类。只记键名,不落明文/密文。
+            logger.warning(
+                "平台配置 %s 解密失败(密文失效需重置:密钥轮换或密文损坏),按未配置处理", key
+            )
+            return None
     return stored
 
 
