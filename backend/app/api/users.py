@@ -18,6 +18,7 @@ from app.schemas.user import (
     BindGitlabTokenResponse,
 )
 from app.services.gitlab_service import GitlabService
+from app.services.platform_settings_service import get_setting
 
 router = APIRouter(prefix="/api/users", tags=["用户"])
 
@@ -80,7 +81,11 @@ async def bind_gitlab_token(
     - AES-256-GCM 加密后存储
     """
     # 调用 GitLab API 验证 token
-    gitlab_info = await GitlabService.verify_token(req.gitlab_token)
+    # BUG-015:个人 token 须打到平台设置配置的自建 GitLab 实例校验;
+    # 平台未配置 gitlab_url 时传 None,维持旧的默认 gitlab.com 行为
+    gitlab_url = await get_setting(db, "gitlab_url")
+    api_base = f"{gitlab_url.rstrip('/')}/api/v4" if gitlab_url else None
+    gitlab_info = await GitlabService.verify_token(req.gitlab_token, api_base=api_base)
     username = gitlab_info["username"]
     scopes = gitlab_info["scopes"]
 

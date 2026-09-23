@@ -50,22 +50,26 @@ class GitlabService:
     # 验证 GitLab token 并获取用户信息
     # -------------------------------------------------------------------
     @staticmethod
-    async def verify_token(gitlab_token: str) -> dict:
+    async def verify_token(gitlab_token: str, api_base: Optional[str] = None) -> dict:
         """
         调用 GitLab API 验证 personal access token:
         - GET /api/v4/user → 获取用户名 + 从 X-Token-Scopes 响应头获取 scope
+        - api_base:自建 GitLab 的 API 基址(如 http://gitlab.example.com/api/v4);
+          None 时回落默认 GITLAB_API_BASE(BUG-015:自建环境必须由调用方传入平台配置的 gitlab_url)
         返回 {"username": str, "scopes": list[str]}
         失败时抛出 BizError
         """
         # BUG-012:GitLab PAT 仅认 PRIVATE-TOKEN 头(Bearer 仅适用于 OAuth token)
         headers = {"PRIVATE-TOKEN": gitlab_token}
+        # BUG-015:校验目标实例以调用方传入为准,未传入才用模块默认值
+        base = (api_base or GITLAB_API_BASE).rstrip("/")
 
         client = _get_client()
         try:
             # 获取用户信息（同时从响应头提取 scope）
             try:
                 resp = await client.get(
-                    f"{GITLAB_API_BASE}/user",
+                    f"{base}/user",
                     headers=headers,
                 )
             except httpx.HTTPError as e:
@@ -82,8 +86,11 @@ class GitlabService:
             username = user_data.get("username", "")
 
             # 从 X-Token-Scopes 响应头获取 scope 列表
+            # BUG-016:GitLab 12.x 之前 /user 响应不带 X-Token-Scopes 头(实测 v11.7 为 None),
+            # 且旧版无 personal_access_tokens 自省接口(404)——scope 无法判定时置
+            # ["unknown"] 而非空列表,避免有效 token 在旧版实例上被误判缺权限
             scopes_header = resp.headers.get("X-Token-Scopes", "")
-            scopes = scopes_header.split() if scopes_header else []
+            scopes = scopes_header.split() if scopes_header else ["unknown"]
 
         finally:
             await client.aclose()
@@ -95,9 +102,13 @@ class GitlabService:
         """
         检查 token 是否包含所需 scope（AND 逻辑）。
         R1 要求: 必须同时具备 read_repository 和 write_repository。
+        BUG-016:scopes == ["unknown"] 表示实例过旧无法自省 scope,放行——
+        真实权限不足由后续实际 GitLab 操作的 401/403 兜底暴露。
         """
         if not scopes:
             return False
+        if scopes == ["unknown"]:
+            return True
         return all(s in scopes for s in REQUIRED_SCOPES)
 
 

@@ -175,9 +175,9 @@ class TestBindGitLabTokenInsufficientScope:
         assert data["code"] == 1013
 
     @pytest.mark.asyncio
-    async def test_bind_token_empty_scopes_returns_1013(self, client, auth_headers):
-        """scope 为空:返回 1013"""
-        with httpx.MockTransport(mock_gitlab_user_api(200, scopes=[])):
+    async def test_bind_token_insufficient_scopes_returns_1013(self, client, auth_headers):
+        """header 存在但缺少全部必需 scope:返回 1013(BUG-016 后"真权限不足"以带 header 表达)"""
+        with httpx.MockTransport(mock_gitlab_user_api(200, scopes=["read_user"])):
             resp = await client.put(
                 "/api/users/me/gitlab-token",
                 headers=auth_headers,
@@ -186,6 +186,25 @@ class TestBindGitLabTokenInsufficientScope:
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 1013
+
+    @pytest.mark.asyncio
+    async def test_bind_token_no_scopes_header_old_gitlab_passes(self, client, auth_headers):
+        """BUG-016:X-Token-Scopes 头缺失(GitLab v11.x)→ scope 置 ["unknown"] 放行,绑定成功"""
+        with httpx.MockTransport(mock_gitlab_user_api(200, scopes=[])):
+            resp = await client.put(
+                "/api/users/me/gitlab-token",
+                headers=auth_headers,
+                json={"gitlab_token": "glpat-old-gitlab"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == 0
+        assert data["data"]["gitlab_token_scopes"] == ["unknown"]
+
+        # 绑定结果落库:GET /me 反映 unknown scopes
+        me = await client.get("/api/users/me", headers=auth_headers)
+        assert me.status_code == 200
+        assert me.json()["data"]["gitlab_token_scopes"] == ["unknown"]
 
 
 # ---------------------------------------------------------------------------
