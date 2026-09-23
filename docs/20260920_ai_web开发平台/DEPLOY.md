@@ -774,7 +774,7 @@ CREATE TABLE IF NOT EXISTS `users` (
 - [ ] **网关**:`gateway/` → `GATEWAY_PORT=80 python3 gateway/main.py`(依赖 backend app 代码,与后端同机或同代码部署)
 - [ ] **Runner 机器**:见 §5
 - [ ] **镜像**(Docker 任一可联网机器构建后推送/导入目标机器):
-  - [ ] `docker build -t platform/devbox:v1 -f docker/devbox/Dockerfile .`(**注意 build context 为仓库根**,Dockerfile 内 `COPY skills/` 相对根)
+  - [ ] `docker build -t platform/devbox:v1 -f docker/devbox/Dockerfile .`(**注意 build context 为仓库根**,Dockerfile 内 `COPY skills/` 相对根;R8.F1 2026-09-23:基础镜像已换 `devcontainers/typescript-node:dev-bookworm`——原 universal 退役,默认用户 node,CMD sleep infinity 保活,skills/ 目录已建占位;实测构建+保活+E2E 全通)
   - [ ] `docker build -t platform/runner:v1 -f docker/runner/Dockerfile runner/`(**先完成 §0 Dockerfile 修复**)
 
 ## 5. Runner 部署专项(每台 Runner 机器执行)
