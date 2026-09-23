@@ -16,7 +16,7 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/Table'
-import { adminAuditLogsApi, type AuditLog } from '@/api/admin'
+import { adminAuditLogsApi, adminUsersApi, type AuditLog } from '@/api/admin'
 
 // 操作类型映射
 const ACTION_TYPE_MAP: Record<string, string> = {
@@ -57,7 +57,14 @@ export default function AuditLogsPage() {
   const [actionTypeFilter, setActionTypeFilter] = useState('')
   const [page, setPage] = useState(1)
 
-  const { data, isLoading } = useQuery({
+  // 获取用户列表用于筛选下拉
+  const { data: usersData } = useQuery({
+    queryKey: ['admin-users-for-audit'],
+    queryFn: () => adminUsersApi.list({ page_size: 100 }),
+  })
+  const users = usersData?.data?.items ?? []
+
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['admin-audit-logs', startTime, endTime, userIdFilter, actionTypeFilter, page],
     queryFn: () =>
       adminAuditLogsApi.list({
@@ -135,6 +142,21 @@ export default function AuditLogsPage() {
         />
         <select
           className="input"
+          value={userIdFilter}
+          onChange={(e) => {
+            setUserIdFilter(e.target.value)
+            setPage(1)
+          }}
+        >
+          <option value="">全部操作人</option>
+          {users.map((u) => (
+            <option key={u.user_id} value={u.user_id}>
+              {u.nickname || u.phone}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input"
           value={actionTypeFilter}
           onChange={(e) => {
             setActionTypeFilter(e.target.value)
@@ -159,6 +181,12 @@ export default function AuditLogsPage() {
           }}
         >
           重置
+        </button>
+        <button
+          className="btn btn-sm btn-primary"
+          onClick={() => refetch()}
+        >
+          查询
         </button>
         {/* 统计文案:fbar 右侧 */}
         <span className="small faint" style={{ marginLeft: 'auto' }}>

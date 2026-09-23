@@ -10,13 +10,48 @@
  *   - 顶层页(/、/projects、/knowledge、/admin/runners):单级 <b>
  *   - /admin/*:平台管理 / X(平台管理无落地页,渲染为 <b>)
  *   - /manage/*:工作台 / 项目管理 / X(项目管理 → /projects)
- *   - 动态路由(projects/:id 等):简单两级回退
+ *   - 动态路由(projects/:id 等):前缀匹配 + 上下文覆盖
+ *
+ * 动态详情面包屑(BUG-UI-063):
+ *   - 详情页通过 BreadcrumbOverrideProvider 设置动态 crumbs(用页面已加载数据)
+ *   - 无覆盖时走增强前缀匹配(带完整父级链 + 类型标签兜底)
  */
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useLocation, Link } from 'react-router-dom'
 
-interface CrumbItem {
+export interface CrumbItem {
   label: string
   href?: string
+}
+
+// ---- Context: 详情页可覆盖面包屑 ----
+interface BreadcrumbCtxValue {
+  crumbs: CrumbItem[] | null
+  setCrumbs: (crumbs: CrumbItem[] | null) => void
+}
+
+const BreadcrumbContext = createContext<BreadcrumbCtxValue>({
+  crumbs: null,
+  setCrumbs: () => {},
+})
+
+/** 供详情页设置面包屑(挂载时设置,卸载时清空) */
+export function BreadcrumbOverrideProvider({ crumbs, children }: { crumbs: CrumbItem[]; children?: ReactNode }) {
+  const { setCrumbs } = useContext(BreadcrumbContext)
+  useEffect(() => {
+    setCrumbs(crumbs)
+    return () => { setCrumbs(null) }
+  }, [crumbs, setCrumbs])
+  return <>{children}</>
+}
+
+function BreadcrumbProvider({ children }: { children: ReactNode }) {
+  const [crumbs, setCrumbs] = useState<CrumbItem[] | null>(null)
+  return (
+    <BreadcrumbContext.Provider value={{ crumbs, setCrumbs }}>
+      {children}
+    </BreadcrumbContext.Provider>
+  )
 }
 
 /** 路由 → 面包屑层级映射(精确匹配表) */
@@ -52,7 +87,7 @@ const EXACT_MAP: Record<string, CrumbItem[]> = {
 }
 
 /**
- * 根据 pathname 返回面包屑层级数组
+ * 根据 pathname 返回面包屑层级数组(增强前缀匹配,带完整父级链)
  * 精确匹配优先;未命中时按前缀回退到动态路由;仍无则返回空(不渲染)
  */
 function getBreadcrumbs(pathname: string): CrumbItem[] {
@@ -60,27 +95,110 @@ function getBreadcrumbs(pathname: string): CrumbItem[] {
   const key = pathname === '/' ? '/' : pathname.replace(/\/$/, '')
   if (EXACT_MAP[key]) return EXACT_MAP[key]
 
-  // 动态路由前缀匹配(早 return,不写 else)
+  // 动态路由前缀匹配(增强版:完整父级链 + ID 提取)
+  // 项目新建
   if (pathname.startsWith('/projects/create')) {
     return [{ label: '项目列表', href: '/projects' }, { label: '新建项目' }]
   }
-  if (pathname.startsWith('/projects/')) {
-    return [{ label: '项目列表', href: '/projects' }, { label: '项目详情' }]
+  // 知识库视图: /projects/:projectId/knowledge-bases/:kbId
+  const kbViewMatch = pathname.match(/^\/projects\/([^/]+)\/knowledge-bases\/([^/]+)/)
+  if (kbViewMatch) {
+    return [
+      { label: '知识条目', href: '/knowledge' },
+      { label: '知识库' }, // 兜底,详情页会用 context 覆盖为 kb.name
+    ]
   }
-  if (pathname.startsWith('/requirements/')) {
-    return [{ label: '需求详情' }]
+  // 知识库列表: /projects/:projectId/knowledge-bases
+  if (pathname.match(/^\/projects\/([^/]+)\/knowledge-bases\/?$/)) {
+    return [
+      { label: '项目列表', href: '/projects' },
+      { label: '项目详情' }, // 兜底,详情页会用 context 覆盖
+      { label: '知识库' },
+    ]
   }
-  if (pathname.startsWith('/tasks/')) {
-    return [{ label: '任务详情' }]
+  // 项目知识库(旧路由): /projects/:projectId/knowledge
+  if (pathname.match(/^\/projects\/([^/]+)\/knowledge\/?$/)) {
+    return [
+      { label: '知识条目', href: '/knowledge' },
+    ]
+  }
+  // 项目需求列表: /projects/:projectId/requirements
+  if (pathname.match(/^\/projects\/([^/]+)\/requirements\/?$/)) {
+    return [
+      { label: '项目列表', href: '/projects' },
+      { label: '项目详情' }, // 兜底
+      { label: '需求' },
+    ]
+  }
+  // 项目详情: /projects/:projectId
+  const projMatch = pathname.match(/^\/projects\/([^/]+)\/?$/)
+  if (projMatch) {
+    return [
+      { label: '项目列表', href: '/projects' },
+      { label: '项目详情' }, // 兜底,详情页会用 context 覆盖为 project.name
+    ]
+  }
+  // 归档页: /requirements/:reqId/archive
+  const archiveMatch = pathname.match(/^\/requirements\/([^/]+)\/archive\/?$/)
+  if (archiveMatch) {
+    return [
+      { label: '需求详情', href: `/requirements/${archiveMatch[1]}` },
+      { label: '归档' },
+    ]
+  }
+  // 需求详情: /requirements/:reqId
+  if (pathname.match(/^\/requirements\/([^/]+)\/?$/)) {
+    return [
+      { label: '项目管理', href: '/projects' },
+      { label: '需求' },
+      { label: '需求详情' }, // 兜底,详情页会用 context 覆盖为 requirement.title
+    ]
+  }
+  // 任务子页: /tasks/:taskId/cases
+  const taskCasesMatch = pathname.match(/^\/tasks\/([^/]+)\/cases\/?$/)
+  if (taskCasesMatch) {
+    return [
+      { label: '项目管理', href: '/projects' },
+      { label: '任务' },
+      { label: '用例审阅' },
+    ]
+  }
+  // 任务子页: /tasks/:taskId/report
+  const taskReportMatch = pathname.match(/^\/tasks\/([^/]+)\/report\/?$/)
+  if (taskReportMatch) {
+    return [
+      { label: '项目管理', href: '/projects' },
+      { label: '任务' },
+      { label: '测试报告' },
+    ]
+  }
+  // 任务子页: /tasks/:taskId/deploy
+  const taskDeployMatch = pathname.match(/^\/tasks\/([^/]+)\/deploy\/?$/)
+  if (taskDeployMatch) {
+    return [
+      { label: '项目管理', href: '/projects' },
+      { label: '任务' },
+      { label: '部署状态' },
+    ]
+  }
+  // 任务详情: /tasks/:taskId
+  if (pathname.match(/^\/tasks\/([^/]+)\/?$/)) {
+    return [
+      { label: '项目管理', href: '/projects' },
+      { label: '任务' },
+      { label: '任务详情' }, // 兜底,详情页会用 context 覆盖为 task.title
+    ]
   }
 
   // 未匹配:不渲染
   return []
 }
 
-export function Breadcrumb() {
+function BreadcrumbInner() {
   const { pathname } = useLocation()
-  const items = getBreadcrumbs(pathname)
+  const { crumbs: overrideCrumbs } = useContext(BreadcrumbContext)
+  // 优先用 context 覆盖(详情页动态数据),否则走 pattern 匹配
+  const items = overrideCrumbs ?? getBreadcrumbs(pathname)
 
   if (items.length === 0) return null
 
@@ -98,5 +216,13 @@ export function Breadcrumb() {
         )
       })}
     </>
+  )
+}
+
+export function Breadcrumb() {
+  return (
+    <BreadcrumbProvider>
+      <BreadcrumbInner />
+    </BreadcrumbProvider>
   )
 }

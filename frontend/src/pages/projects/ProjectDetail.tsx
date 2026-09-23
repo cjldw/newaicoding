@@ -4,11 +4,12 @@
  * 本阶段仅"仓库"Tab 可用,其余 disabled
  */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Settings, Archive, Trash2, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { BreadcrumbOverrideProvider } from '@/components/layout/Breadcrumb'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter,

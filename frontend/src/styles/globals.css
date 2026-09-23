@@ -463,6 +463,9 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .toast-wrap{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:80;align-items:center;pointer-events:none;padding:0 16px}
 .toast{background:var(--primary);color:#fff;font-size:13px;border-radius:999px;padding:8px 18px;box-shadow:var(--shadow-md);animation:tin .18s ease-out;max-width:90vw;text-align:center}
 @keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+/* ===== dialog 动画(Dialog.tsx 引用)===== */
+@keyframes dialogOverlayIn{from{opacity:0}to{opacity:1}}
+@keyframes dialogContentIn{from{opacity:0;transform:scale(0.95) translateY(4px)}to{opacity:1;transform:none}}
 /* ===== workbench ===== */
 .wb-head{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:var(--surface)}
 .wb-head .ttl{font-weight:600;font-size:14.5px;display:flex;align-items:center;gap:8px;min-width:0}

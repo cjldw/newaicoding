@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Paperclip, Send, X } from 'lucide-react'
+import { Download, Maximize2, Minimize2, Paperclip, Send, X } from 'lucide-react'
 import { Button } from './ui/Button'
 import {
   useTaskMessages, useSendTaskMessage, useUploadTaskFile,
@@ -20,6 +20,9 @@ import { ApiError } from '@/api/client'
 
 interface TaskChatProps {
   taskId: string
+  /** 全屏(BUG-UI-064:CSS 提升为 fixed 覆盖层,组件不重挂载,消息与输入态保留) */
+  fullscreen?: boolean
+  onToggleFullscreen?: () => void
 }
 
 // 渲染消息内容 — 把 @filename 渲染为可点击链接
@@ -65,7 +68,7 @@ function renderContent(content: string, files: UploadedFile[]) {
   })
 }
 
-export function TaskChat({ taskId }: TaskChatProps) {
+export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: TaskChatProps) {
   const { data: msgData } = useTaskMessages(taskId)
   const { data: uploadsData, refetch: refetchUploads } = useUploadedFiles(taskId)
   const sendMut = useSendTaskMessage(taskId)
@@ -177,12 +180,50 @@ export function TaskChat({ taskId }: TaskChatProps) {
     })
   }
 
+  // 导出对话记录(BUG-UI-064:transcript 转 Markdown 下载)
+  const handleExport = () => {
+    if (messages.length === 0) return
+    const md = messages
+      .map((m) => `**${m.role === 'user' ? '用户' : 'AI'}**\n\n${m.content}`)
+      .join('\n\n---\n\n')
+    const blob = new Blob([`# 任务对话记录 ${taskId}\n\n${md}\n`], { type: 'text/markdown;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `chat-${taskId.slice(0, 8)}.md`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   return (
     <div
-      className="flex flex-col w-full h-full min-h-0 border border-border rounded-md bg-background"
+      className={`flex flex-col w-full h-full min-h-0 border border-border rounded-md bg-background${fullscreen ? ' fixed inset-0 z-[60] p-2 rounded-none' : ''}`}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
+      {/* 面板头:标题 + 导出 + 全屏(BUG-UI-064) */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border shrink-0">
+        <span className="text-sm font-medium text-text">AI 对话</span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            title="导出对话记录"
+            className="p-1 text-text-secondary hover:text-primary disabled:opacity-40"
+            disabled={messages.length === 0}
+            onClick={handleExport}
+          >
+            <Download className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            title={fullscreen ? '退出全屏' : '全屏'}
+            className="p-1 text-text-secondary hover:text-primary"
+            onClick={onToggleFullscreen}
+          >
+            {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
       {/* 消息列表 */}
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && (
@@ -241,20 +282,26 @@ export function TaskChat({ taskId }: TaskChatProps) {
 
       {/* 输入区 */}
       <div className="relative border-t border-border p-2">
-        {showAC && filteredFiles.length > 0 && (
+        {showAC && (
           <div className="absolute bottom-full left-2 right-2 mb-1 max-h-40 overflow-y-auto bg-popover border border-border rounded-md shadow-md z-10">
-            {filteredFiles.map((f, i) => (
-              <button
-                key={f.file_id}
-                type="button"
-                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-muted ${
-                  i === acIndex ? 'bg-muted' : ''
-                }`}
-                onClick={() => selectAC(f.filename)}
-              >
-                {f.filename}
-              </button>
-            ))}
+            {filteredFiles.length > 0 ? (
+              filteredFiles.map((f, i) => (
+                <button
+                  key={f.file_id}
+                  type="button"
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-muted ${
+                    i === acIndex ? 'bg-muted' : ''
+                  }`}
+                  onClick={() => selectAC(f.filename)}
+                >
+                  {f.filename}
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-2 text-sm text-text-secondary text-center">
+                {files.length === 0 ? '暂无已上传文件' : '无匹配文件'}
+              </div>
+            )}
           </div>
         )}
         <div className="flex items-center gap-2">

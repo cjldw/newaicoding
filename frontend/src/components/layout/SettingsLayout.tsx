@@ -3,11 +3,12 @@
  */
 
 import { NavLink, Outlet } from 'react-router-dom'
-import { User, Key } from 'lucide-react'
+import { User, Key, Bell } from 'lucide-react'
 
 const navItems = [
   { to: '/settings/profile', label: '个人资料', icon: User },
   { to: '/settings/gitlab-token', label: 'GitLab Token', icon: Key },
+  { to: '/settings/notifications', label: '通知设置', icon: Bell },
 ]
 
 export function SettingsLayout() {

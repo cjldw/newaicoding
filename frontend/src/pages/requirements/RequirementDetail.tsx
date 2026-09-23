@@ -3,10 +3,11 @@
  * 页头(标题+状态徽章+优先级徽章+状态按钮)+ 基本信息卡片 + 关联任务列表
  */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Play, Send, CheckCircle, XCircle, FileText } from 'lucide-react'
 import { TaskCreateDialog } from '@/pages/tasks/TaskCreateDialog'
+import { BreadcrumbOverrideProvider } from '@/components/layout/Breadcrumb'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Textarea } from '@/components/ui/Textarea'
@@ -22,6 +23,23 @@ import {
   useReviewRequirement, useCancelRequirement, getRequirementErrorMessage,
 } from '@/api/requirements'
 import type { RequirementStatus, RequirementPriority, RequirementTask } from '@/api/requirements'
+
+// Markdown 简易渲染(与 KnowledgeBaseView 保持一致)
+function renderMarkdown(content: string): string {
+  let html = content
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
+  html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold mt-5 mb-2">$1</h2>')
+  html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-6 mb-3">$1</h1>')
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="bg-surface-strong p-3 rounded my-2 overflow-x-auto"><code>$2</code></pre>')
+  html = html.replace(/`([^`]+)`/g, '<code class="bg-surface-strong px-1 rounded">$1</code>')
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
+  html = html.replace(/^\- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
+  html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
+  html = html.replace(/\n\n/g, '</p><p class="my-2">')
+  return `<p class="my-2">${html}</p>`
+}
 
 // 状态徽章映射
 const statusMap: Record<RequirementStatus, { label: string; variant: 'outline' | 'secondary' | 'primary' | 'success' | 'error' }> = {
@@ -65,6 +83,13 @@ export function RequirementDetail() {
   const [cancelDialog, setCancelDialog] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [error, setError] = useState('')
+
+  // BUG-UI-063: 面包屑链 = 项目管理 / 需求 / {标题}
+  const breadcrumbCrumbs = useMemo(() => [
+    { label: '项目管理', href: '/projects' },
+    { label: '需求' },
+    { label: requirement?.title ?? '需求详情' },
+  ], [requirement?.title])
 
   if (isLoading) {
     return <div className="container mx-auto px-4 py-6 text-text-muted">加载中...</div>
@@ -145,6 +170,7 @@ export function RequirementDetail() {
   const hasTestTaskPassed = requirement.tasks.some(t => t.type === 'test' && t.status === 'passed')
 
   return (
+    <BreadcrumbOverrideProvider crumbs={breadcrumbCrumbs}>
     <div className="page wide">
       {/* 返回按钮 */}
       <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-4">
@@ -231,19 +257,17 @@ export function RequirementDetail() {
           {requirement.background && (
             <div>
               <label className="block text-sm font-medium text-text-muted mb-1">背景</label>
-              <div className="text-text whitespace-pre-wrap">{requirement.background}</div>
+              <div className="text-text prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMarkdown(requirement.background) }} />
             </div>
           )}
           <div>
             <label className="block text-sm font-medium text-text-muted mb-1">描述</label>
-            <div className="text-text whitespace-pre-wrap">{requirement.description}</div>
+            <div className="text-text prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMarkdown(requirement.description) }} />
           </div>
           {requirement.acceptance_criteria && (
             <div>
               <label className="block text-sm font-medium text-text-muted mb-1">验收标准</label>
-              <div className="text-text whitespace-pre-wrap font-mono text-sm">
-                {requirement.acceptance_criteria}
-              </div>
+              <div className="text-text prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMarkdown(requirement.acceptance_criteria) }} />
             </div>
           )}
           <div className="grid grid-cols-2 gap-4">
@@ -398,5 +422,6 @@ export function RequirementDetail() {
         />
       )}
     </div>
+    </BreadcrumbOverrideProvider>
   )
 }

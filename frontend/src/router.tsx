@@ -18,6 +18,7 @@ import { ForgotPassword } from '@/pages/auth/ForgotPassword'
 import { ResetPassword } from '@/pages/auth/ResetPassword'
 import { ProfileSettings } from '@/pages/settings/ProfileSettings'
 import { GitLabTokenSettings } from '@/pages/settings/GitLabTokenSettings'
+import { NotificationSettings } from '@/pages/settings/NotificationSettings'
 import { Dashboard } from '@/pages/dashboard/Dashboard'
 import { SettingsLayout } from '@/components/layout/SettingsLayout'
 import { MainLayout } from '@/components/layout/MainLayout'
@@ -38,6 +39,7 @@ import ArchivePage from '@/pages/requirements/ArchivePage'
 import KnowledgeBase from '@/pages/knowledge/KnowledgeBase'
 import KnowledgeBaseList from '@/pages/knowledge/KnowledgeBaseList'
 import KnowledgeBaseView from '@/pages/knowledge/KnowledgeBaseView'
+import { NotificationCenter } from '@/pages/notifications/NotificationCenter'
 import { RequirementsManage, TasksManage, TestsManage, ReleasesManage } from '@/pages/manage/ManagePages'
 import { RequireRole } from '@/components/RequireRole'
 
@@ -53,6 +55,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="profile" replace /> },
       { path: 'profile', element: <ProfileSettings /> },
       { path: 'gitlab-token', element: <GitLabTokenSettings /> },
+      { path: 'notifications', element: <NotificationSettings /> },
     ],
   },
   {
@@ -60,6 +63,7 @@ export const router = createBrowserRouter([
     element: <MainLayout />,
     children: [
       { index: true, element: <Dashboard /> },
+      { path: 'notifications', element: <NotificationCenter /> },
       { path: 'projects', element: <ProjectList /> },
       { path: 'projects/create', element: <ProjectCreate /> },
       { path: 'projects/:projectId', element: <ProjectDetail /> },

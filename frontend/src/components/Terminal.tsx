@@ -14,6 +14,8 @@ import { useAuthStore } from '@/stores/authStore'
 interface TerminalProps {
   wsUrl: string
   onOpen?: () => void
+  /** 挂载后回传 xterm 实例(供面板导出日志/全屏适配),卸载时回传 null */
+  attachTerm?: (term: XTerm | null) => void
 }
 
 /** 将 http(s) URL 转为 ws(s) */
@@ -30,8 +32,11 @@ function buildWsUrl(raw: string): string {
   return token ? `${abs}${abs.includes('?') ? '&' : '?'}token=${token}` : abs
 }
 
-export function Terminal({ wsUrl, onOpen }: TerminalProps) {
+export function Terminal({ wsUrl, onOpen, attachTerm }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // ref 中转避免 attachTerm 变化触发 effect 重跑(ws 重连)
+  const attachRef = useRef(attachTerm)
+  attachRef.current = attachTerm
 
   useEffect(() => {
     const el = containerRef.current
@@ -50,6 +55,8 @@ export function Terminal({ wsUrl, onOpen }: TerminalProps) {
     term.open(el)
     // 初始 fit
     requestAnimationFrame(() => fitAddon.fit())
+    // 回传实例(BUG-UI-064:面板导出日志用)
+    attachRef.current?.(term)
 
     let ws: WebSocket | null = null
     let disposed = false
@@ -111,6 +118,7 @@ export function Terminal({ wsUrl, onOpen }: TerminalProps) {
 
     return () => {
       disposed = true
+      attachRef.current?.(null)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       dataDisposable.dispose()
       ro.disconnect()

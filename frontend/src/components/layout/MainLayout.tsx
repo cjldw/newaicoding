@@ -11,9 +11,11 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FolderKanban, ListChecks, Activity, FlaskConical, Rocket,
   BookOpen, Server, Users, ScrollText, Settings, Bell, LogOut, Blocks,
+  ExternalLink, CheckCheck, Loader2,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { Breadcrumb } from './Breadcrumb'
+import { useUnreadCount, useNotificationList, useMarkNotificationRead, useMarkAllRead } from '@/api/notifications'
 
 function LogoMark({ size = 17 }: { size?: number }) {
   return (
@@ -118,6 +120,17 @@ export function MainLayout() {
   const isSuperadmin = user?.role === 'superadmin'
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userBtnRef = useRef<HTMLDivElement>(null)
+  const [bellOpen, setBellOpen] = useState(false)
+  const bellRef = useRef<HTMLDivElement>(null)
+
+  // 通知数据:未读数(60s 轮询)+ 最近 5 条
+  const { data: unreadData } = useUnreadCount()
+  const { data: recentData, isLoading: recentLoading } = useNotificationList({ page: 1, page_size: 5 })
+  const markRead = useMarkNotificationRead()
+  const markAllRead = useMarkAllRead()
+
+  const unreadCount = unreadData?.unread_count ?? 0
+  const recentItems = recentData?.items ?? []
 
   // 点击外部关闭用户下拉
   useEffect(() => {
@@ -131,6 +144,18 @@ export function MainLayout() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [userMenuOpen])
 
+  // 点击外部关闭铃铛下拉
+  useEffect(() => {
+    if (!bellOpen) return
+    function handleClick(e: globalThis.MouseEvent) {
+      if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
+        setBellOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [bellOpen])
+
   function handleLogout() {
     logout()
     navigate('/login')
@@ -139,6 +164,32 @@ export function MainLayout() {
   function handleUserBtnClick(e: MouseEvent) {
     e.stopPropagation()
     setUserMenuOpen((v) => !v)
+  }
+
+  function handleBellClick(e: MouseEvent) {
+    e.stopPropagation()
+    setBellOpen((v) => !v)
+  }
+
+  async function handleBellMarkAllRead() {
+    try { await markAllRead.mutateAsync() } catch { /* 静默 */ }
+  }
+
+  async function handleBellItemClick(id: string, link: string | null) {
+    if (link) navigate(link)
+    setBellOpen(false)
+    try { await markRead.mutateAsync(id) } catch { /* 静默 */ }
+  }
+
+  /** 相对时间(铃铛下拉用,简短) */
+  function shortTime(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime()
+    const mins = Math.floor(diff / 60_000)
+    if (mins < 1) return '刚刚'
+    if (mins < 60) return `${mins}分钟前`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}小时前`
+    return `${Math.floor(hours / 24)}天前`
   }
 
   const displayName = user?.nickname || user?.phone || '未登录'
@@ -181,14 +232,109 @@ export function MainLayout() {
         <header className="topbar">
           <div className="crumb"><Breadcrumb /></div>
           <div className="top-actions">
-            {/* 站内信铃铛:占位,待后端(R18) */}
-            <button
-              className="btn btn-ghost icon-btn"
-              title="站内信(占位,待后端 R18)"
-              onClick={() => {/* 占位,待后端(R18) */}}
-            >
-              <Bell size={15} />
-            </button>
+            {/* 站内信铃铛:未读徽章 + 下拉最近通知 + 查看全部 */}
+            <div className="user-btn-wrap" ref={bellRef} style={{ position: 'relative' }}>
+              <button
+                className="btn btn-ghost icon-btn"
+                title="站内信"
+                onClick={handleBellClick}
+                style={{ position: 'relative' }}
+              >
+                <Bell size={15} />
+                {unreadCount > 0 && (
+                  <span style={{
+                    position: 'absolute', top: 2, right: 2,
+                    minWidth: 14, height: 14, padding: '0 3px',
+                    fontSize: 10, fontWeight: 600, lineHeight: '14px',
+                    color: '#fff', background: '#ef4444',
+                    borderRadius: 7, textAlign: 'center',
+                  }}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </button>
+              {bellOpen && (
+                <div style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: 4,
+                  width: 320, background: 'var(--card-bg, #fff)',
+                  border: '1px solid var(--border, #e4e4e7)',
+                  borderRadius: 'var(--vp-radius, 8px)',
+                  boxShadow: '0 4px 16px rgba(0,0,0,.1)',
+                  zIndex: 100, overflow: 'hidden',
+                }}>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '10px 12px', borderBottom: '1px solid var(--border, #e4e4e7)',
+                  }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>通知</span>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={handleBellMarkAllRead}
+                        style={{
+                          fontSize: 12, color: 'var(--primary, #3b82f6)',
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: 3,
+                        }}
+                      >
+                        <CheckCheck size={12} /> 全部已读
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                    {recentLoading ? (
+                      <div style={{ padding: 20, textAlign: 'center' }}>
+                        <Loader2 size={16} className="animate-spin" style={{ margin: '0 auto' }} />
+                      </div>
+                    ) : recentItems.length === 0 ? (
+                      <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted, #a1a1aa)', fontSize: 13 }}>
+                        暂无通知
+                      </div>
+                    ) : (
+                      recentItems.map((item) => (
+                        <div
+                          key={item.notification_id}
+                          onClick={() => handleBellItemClick(item.notification_id, item.link)}
+                          style={{
+                            padding: '10px 12px', cursor: 'pointer',
+                            borderBottom: '1px solid var(--border, #f0f0f0)',
+                            opacity: item.read_at ? 0.55 : 1,
+                            display: 'flex', gap: 8, alignItems: 'flex-start',
+                          }}
+                        >
+                          {!item.read_at && (
+                            <span className="dot pulse" style={{
+                              background: 'var(--primary, #3b82f6)', flexShrink: 0, marginTop: 5,
+                            }} />
+                          )}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{
+                              fontSize: 13, fontWeight: item.read_at ? 400 : 500,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}>
+                              {item.title}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted, #a1a1aa)', marginTop: 2 }}>
+                              {shortTime(item.created_at)}
+                              {item.link && <ExternalLink size={10} style={{ marginLeft: 4, opacity: 0.4 }} />}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div
+                    onClick={() => { navigate('/notifications'); setBellOpen(false) }}
+                    style={{
+                      padding: '10px 12px', textAlign: 'center', fontSize: 13,
+                      color: 'var(--primary, #3b82f6)', cursor: 'pointer',
+                      borderTop: '1px solid var(--border, #e4e4e7)',
+                    }}
+                  >
+                    查看全部通知
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* 用户按钮:头像[姓名首字]+姓名+角色徽章,下拉含退出登录 */}
             <div className="user-btn-wrap" ref={userBtnRef}>
