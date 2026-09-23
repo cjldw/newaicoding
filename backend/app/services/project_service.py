@@ -17,6 +17,7 @@ from app.services.gitlab_service import (
     ACCESS_LEVEL_MAINTAINER,
 )
 from app.services.platform_settings_service import get_gitlab_bot_config
+from app.services.audit_service import audit_write  # R25 审计接入(事务内,失败不阻塞)
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +293,12 @@ async def create_project(db: AsyncSession, user: User, req) -> dict:
         "项目创建完成 project=%s slug=%s main_repo=%s(%s)",
         project.project_id, slug, gitlab_repo_id, bind_type,
     )
+    # R25 审计:project.create
+    await audit_write(
+        db, user, "project.create",
+        project_id=project.project_id, target_type="project", target_id=project.project_id,
+        detail={"name": project.name, "slug": slug},
+    )
     return {
         "project_id": project.project_id,
         "slug": slug,
@@ -383,6 +390,12 @@ async def update_project(db: AsyncSession, user: User, project_id: str, req) -> 
     # 必须显式异步 refresh,否则后续属性访问触发同步 IO(MissingGreenlet)
     await db.refresh(project)
     logger.info("项目更新 project=%s by=%s", project_id, user.user_id)
+    # R25 审计:project.update
+    await audit_write(
+        db, user, "project.update",
+        project_id=project_id, target_type="project", target_id=project_id,
+        detail={"name": project.name},
+    )
     return await build_detail(db, project)
 
 
@@ -397,6 +410,11 @@ async def delete_project(db: AsyncSession, user: User, project_id: str) -> None:
     project.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.flush()
     logger.info("项目软删 project=%s by=%s", project_id, user.user_id)
+    # R25 审计:project.delete(软删)
+    await audit_write(
+        db, user, "project.delete",
+        project_id=project_id, target_type="project", target_id=project_id,
+    )
 
 
 async def archive_project(db: AsyncSession, user: User, project_id: str) -> None:
@@ -407,6 +425,11 @@ async def archive_project(db: AsyncSession, user: User, project_id: str) -> None
     project.status = "archived"
     await db.flush()
     logger.info("项目归档 project=%s by=%s", project_id, user.user_id)
+    # R25 审计:project.archive
+    await audit_write(
+        db, user, "project.archive",
+        project_id=project_id, target_type="project", target_id=project_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +499,12 @@ async def add_repo(db: AsyncSession, user: User, project_id: str, req) -> dict:
     await db.flush()
 
     logger.info("仓库绑定完成 repo=%s role=%s project=%s", row.repo_id, req.role, project_id)
+    # R25 审计:project.add_repo
+    await audit_write(
+        db, user, "project.add_repo",
+        project_id=project_id, target_type="repo", target_id=row.repo_id,
+        detail={"role": req.role, "gitlab_repo_id": gitlab_repo_id},
+    )
     return {
         "repo_id": row.repo_id,
         "role": row.role,
@@ -509,3 +538,8 @@ async def unbind_repo(db: AsyncSession, user: User, project_id: str, repo_id: st
     await db.execute(delete(ProjectRepo).where(ProjectRepo.id == repo.id))
     # 仅断平台关联,不动 GitLab repo
     logger.info("仓库解绑 repo=%s project=%s by=%s(GitLab repo 不受影响)", repo_id, project_id, user.user_id)
+    # R25 审计:project.unbind_repo
+    await audit_write(
+        db, user, "project.unbind_repo",
+        project_id=project_id, target_type="repo", target_id=repo_id,
+    )

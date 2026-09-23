@@ -212,3 +212,95 @@ class TestContainerEvents:
         mgr = ContainerManager(client_factory=lambda: fake)
         actions = [e["Action"] for e in mgr.iter_events()]
         assert actions == ["die", "oom"]
+
+
+# ---------------------------------------------------------------------------
+# R9.F1:claude_prompt 会话参数(cmd 拼接三分支)
+# ---------------------------------------------------------------------------
+class TestClaudePromptSession:
+    """claude_prompt cmd 拼接:无参/session_id/resume 三分支"""
+
+    def test_claude_prompt_no_session(self):
+        """无 session 参数 → 原 cmd(兼容旧行为)"""
+        fake = FakeClient()
+        mgr = ContainerManager(client_factory=lambda: fake)
+        # lambda 必须同时记录 cmd 到 exec_calls(原 FakeContainer.exec_run 自带记录,
+        # 但覆盖后需要手动追加)
+        container = fake.containers.container
+        container.exec_run = lambda cmd: (
+            container.exec_calls.append(cmd),
+            (0, b'{"result":"ok","total_tokens_in":1,"total_tokens_out":2}'),
+        )[1]
+
+        result = mgr.claude_prompt("abc123def456", "hello world")
+
+        # 验证 cmd 不含 --session-id 或 --resume
+        exec_cmds = fake.containers.container.exec_calls
+        # exec_capture 内部用 bash -lc 包装,实际 exec_run 的参数是 list
+        # 找到包含 claude 的命令
+        claude_cmd = None
+        for cmd in exec_cmds:
+            if isinstance(cmd, list):
+                # bash -lc "..." 形式
+                if len(cmd) >= 3 and "claude" in cmd[2]:
+                    claude_cmd = cmd[2]
+                    break
+            elif isinstance(cmd, str) and "claude" in cmd:
+                claude_cmd = cmd
+                break
+        assert claude_cmd is not None
+        assert "--session-id" not in claude_cmd
+        assert "--resume" not in claude_cmd
+        assert "claude -p" in claude_cmd
+        assert "--output-format json" in claude_cmd
+
+    def test_claude_prompt_with_session_id(self):
+        """session_id + resume=False → cmd 含 --session-id <sid>"""
+        import uuid
+        fake = FakeClient()
+        mgr = ContainerManager(client_factory=lambda: fake)
+        # lambda 必须同时记录 cmd 到 exec_calls
+        container = fake.containers.container
+        container.exec_run = lambda cmd: (
+            container.exec_calls.append(cmd),
+            (0, b'{"result":"ok","total_tokens_in":1,"total_tokens_out":2}'),
+        )[1]
+
+        test_sid = str(uuid.uuid4())
+        result = mgr.claude_prompt("abc123def456", "hello", session_id=test_sid, resume=False)
+
+        # 找到 claude 命令
+        claude_cmd = None
+        for cmd in fake.containers.container.exec_calls:
+            if isinstance(cmd, list) and len(cmd) >= 3 and "claude" in cmd[2]:
+                claude_cmd = cmd[2]
+                break
+        assert claude_cmd is not None
+        assert f"--session-id {test_sid}" in claude_cmd
+        assert "--resume" not in claude_cmd
+
+    def test_claude_prompt_with_resume(self):
+        """resume=True → cmd 含 --resume <sid>"""
+        import uuid
+        fake = FakeClient()
+        mgr = ContainerManager(client_factory=lambda: fake)
+        # lambda 必须同时记录 cmd 到 exec_calls
+        container = fake.containers.container
+        container.exec_run = lambda cmd: (
+            container.exec_calls.append(cmd),
+            (0, b'{"result":"ok","total_tokens_in":1,"total_tokens_out":2}'),
+        )[1]
+
+        test_sid = str(uuid.uuid4())
+        result = mgr.claude_prompt("abc123def456", "hello", session_id=test_sid, resume=True)
+
+        # 找到 claude 命令
+        claude_cmd = None
+        for cmd in fake.containers.container.exec_calls:
+            if isinstance(cmd, list) and len(cmd) >= 3 and "claude" in cmd[2]:
+                claude_cmd = cmd[2]
+                break
+        assert claude_cmd is not None
+        assert f"--resume {test_sid}" in claude_cmd
+        # resume 模式下不应有 --session-id
+        assert "--session-id" not in claude_cmd

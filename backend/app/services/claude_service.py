@@ -22,19 +22,32 @@ async def run_prompt(
     prompt: str,
     workdir: str = "/workspace/main",
     timeout: float = 600.0,
+    session_id: str | None = None,
+    resume: bool = False,
 ) -> dict:
     """
     发送一轮 AI 请求(当前 CLI 兜底实现):
     经 Runner exec 在容器内执行 claude CLI,返回 {"result", "tokens_in", "tokens_out"}。
+
+    R9.F1 会话参数:
+    - session_id: 任务级 claude CLI 会话 ID(可选,不传时维持原行为)
+    - resume: True=续接已有会话(--resume),False=首次建会话(--session-id)
     """
     from app.services import runner_service
 
     req_id = uuid.uuid4().hex
+    args = {"prompt": prompt, "workdir": workdir}
+    # R9.F1:会话参数透传(不传时维持原样,兼容旧行为)
+    if session_id is not None:
+        args["session_id"] = session_id
+        if resume:
+            args["resume"] = True
+
     message = {
         "type": "exec_tool",
         "container_id": container_id,
         "tool": "claude_prompt",
-        "args": {"prompt": prompt, "workdir": workdir},
+        "args": args,
         "req_id": req_id,
     }
     try:

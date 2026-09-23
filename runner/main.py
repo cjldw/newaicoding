@@ -78,12 +78,16 @@ def collect_machine_info() -> dict:
         mem_gb = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3, 1)
     except (AttributeError, ValueError, OSError):
         mem_gb = 0
+    # R26:自报自身容器 id(容器内 HOSTNAME=短 id;docker exec_create 接受短 id)。
+    # 裸跑进程(非容器)时 HOSTNAME 是主机名 → 平台侧 exec 探活失败按 6003 口径兜底。
+    self_container_id = os.getenv("HOSTNAME", "")
     return {
         "os": py_platform.system().lower(),
         "arch": py_platform.machine(),
         "cpu_count": os.cpu_count() or 0,
         "mem_total_gb": mem_gb,
         "docker_version": docker_version,
+        "self_container_id": self_container_id,
     }
 
 
@@ -100,15 +104,33 @@ def local_container_states() -> list[dict]:
         return []
 
 
+# 全部 ws 下发收敛到这一把锁:heartbeat / event_listener / port_prober /
+# receive_loop 回包与两条 run_coroutine_threadsafe 线程泵(pty 输出/watcher 事件)
+# 并发 send 会让 websockets 帧交错 → 服务端 RST 掉线
+# (rd-fix 第 14 轮 BUG-032 根因②,13:12/13:40/13:55 三次掉线实证)
+_SEND_LOCK = asyncio.Lock()
+
+
 async def send(ws: Any, payload: dict) -> None:
     import json
 
-    await ws.send(json.dumps(payload, ensure_ascii=False))
+    data = json.dumps(payload, ensure_ascii=False)
+    async with _SEND_LOCK:
+        await ws.send(data)
 
 
 async def send_result(ws: Any, req_id: str, ok: bool, data=None, error: str = "") -> None:
     """请求-响应结算(R11 文件操作)"""
     await send(ws, {"type": "result", "req_id": req_id, "ok": ok, "data": data, "error": error})
+
+
+async def safe_send_result(ws: Any, req_id: str, ok: bool, data=None, error: str = "") -> None:
+    """结果回报(防炸版):连接已死时仅记日志 —— receive_loop 因回报失败而死亡会
+    中断所有消息处理,连接由重连循环重建即可,不应连带炸循环(BUG-032)"""
+    try:
+        await send_result(ws, req_id, ok, data, error)
+    except Exception:
+        logger.warning("send_result 失败(连接不可用) req_id=%s", req_id)
 
 
 def _watcher_event_callback(ws: Any):
@@ -256,15 +278,22 @@ async def handle_message(ws: Any, msg: dict) -> None:
         args = msg.get("args") or {}
         try:
             if tool == "claude_prompt":
-                data = manager.claude_prompt(
+                # 同步 docker exec 会 minute 级堵死事件循环 → websockets ping/pong
+                # 饿死(服务端杀连接)+ heartbeat 饿死(sweep_offline 注销活连接)
+                # → 掉线根因①(BUG-032);移入线程池保持循环畅通
+                # R9.F1:透传 session_id/resume 参数(任务级 claude 会话共用)
+                data = await asyncio.to_thread(
+                    manager.claude_prompt,
                     msg.get("container_id", ""), args.get("prompt", ""),
                     workdir=args.get("workdir", "/workspace/main"),
+                    session_id=args.get("session_id"),
+                    resume=args.get("resume", False),
                 )
-                await send_result(ws, req_id, True, data)
+                await safe_send_result(ws, req_id, True, data)
             else:
-                await send_result(ws, req_id, False, error=f"未知工具: {tool}")
+                await safe_send_result(ws, req_id, False, error=f"未知工具: {tool}")
         except Exception as e:
-            await send_result(ws, req_id, False, error=str(e))
+            await safe_send_result(ws, req_id, False, error=str(e))
 
     elif mtype == "write_file_b64":
         # R4 附件写入(base64 字节流)

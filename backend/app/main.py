@@ -101,11 +101,8 @@ async def lifespan(app: FastAPI):
     # Runner 心跳超时巡检(R16):每 60s 一轮,>60s 无心跳 → offline
     sweep_task = asyncio.create_task(_runner_offline_sweep())
 
-    # R19:审计异步写入的会话工厂注入
-    from app.database import async_session_factory as _asf
-    from app.api.admin import users_admin as _users_admin
-
-    _users_admin.set_audit_session_factory(_asf)
+    # R19 审计:原 set_audit_session_factory 注入已废弃(R25 改 spawn_audit_write
+    # 自带 session_factory,users_admin 中该函数已删,此处调用一并移除)
 
     yield
 

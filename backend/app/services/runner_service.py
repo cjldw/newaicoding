@@ -133,8 +133,20 @@ async def request_runner(conn: RunnerConnection, message: dict, timeout: float =
     fut = loop.create_future()
     _pending_requests[req_id] = fut
     try:
-        await send_to_runner(conn, message)
-        return await asyncio.wait_for(fut, timeout)
+        # 死连接上 send_json 常"静默成功"(TCP 本地缓冲),future 永不结算 → 调用方
+        # 等满 timeout(对话 600s)→ 用户"发送中"卡 10 分钟(BUG-032)。send 阶段
+        # 任何异常立即转 TimeoutError,复用调用方既有超时处理,秒级暴露
+        try:
+            await send_to_runner(conn, message)
+        except Exception as e:
+            raise TimeoutError(f"Runner 连接不可用: {e}") from e
+        try:
+            return await asyncio.wait_for(fut, timeout)
+        except asyncio.TimeoutError:
+            # py3.10 上 asyncio.TimeoutError 与内建 TimeoutError 是两个类,
+            # 调用方 `except TimeoutError` 接不住 → 裸奔成 500(BUG-033 实证);
+            # 这里统一归一化为内建 TimeoutError
+            raise TimeoutError("Runner 响应超时") from None
     finally:
         _pending_requests.pop(req_id, None)
 
@@ -318,6 +330,16 @@ async def sweep_offline(db: AsyncSession) -> int:
         logger.info("Runner 心跳超时 → offline runner=%s", runner.runner_id)
     if count:
         await db.flush()
+        # R25 审计:系统事件(占位全零 user_id + role=system,detail 带 reason;不记 ip)
+        from app.database import async_session_factory
+        from app.services.audit_service import spawn_audit_write
+
+        spawn_audit_write(
+            async_session_factory,
+            {"user_id": "00000000-0000-0000-0000-000000000000", "role": "system"},
+            "runner.offline_sweep",
+            detail={"reason": "heartbeat_timeout_sweep", "count": count},
+        )
     return count
 
 

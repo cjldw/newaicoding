@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_superadmin
 from app.core.response import BizError, ErrCode, success
-from app.database import get_db
+from app.database import get_db, async_session_factory
 from app.models.project import Project
 from app.models.task import Task
 from app.models.user import User
@@ -132,25 +132,17 @@ async def update_user_status(
 
     await db.flush()
 
-    # 审计(异步独立会话写入;factory 未注入[测试 ASGI]时跳过)
-    factory = _session_factory_holder.get("factory")
-    if factory is not None:
-        audit_service.spawn_audit_write(
-            factory,
-            {"user_id": current_user.user_id, "role": current_user.role},
-            action_type="user.disable" if req.status == "disabled" else "user.enable",
-            target_type="user", target_id=user_id,
-            detail={"status": req.status},
-        )
+    # 审计(异步独立会话写入;R25 修复:改用模块级 factory 直连——
+    # 原 holder 机制无任何注入调用方,user.disable/enable 审计此前从不落库)
+    audit_service.spawn_audit_write(
+        async_session_factory,
+        {"user_id": current_user.user_id, "role": current_user.role},
+        action_type="user.disable" if req.status == "disabled" else "user.enable",
+        target_type="user", target_id=user_id,
+        detail={"status": req.status},
+    )
 
     return success(data={"user_id": user_id, "status": target.status, "cancelled_tasks": cancelled_tasks})
-
-
-_session_factory_holder: dict = {}
-
-
-def set_audit_session_factory(factory) -> None:
-    _session_factory_holder["factory"] = factory
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +161,17 @@ async def create_invitation(
     """生成平台注册邀请(一次性 token,仅此响应返回明文;7 天有效)"""
     invitation, token = await audit_service.create_invitation(
         db, current_user, invited_phone=req.invited_phone,
+    )
+    # R25 审计:invitation.create(token 明文不落审计;手机号只记脱敏格式)
+    from app.core.security import mask_phone
+
+    await audit_service.audit_write(
+        db, current_user, "invitation.create",
+        target_type="invitation", target_id=invitation.invitation_id,
+        detail={
+            "invited_phone": mask_phone(req.invited_phone) if req.invited_phone else None,
+            "expires_in_days": audit_service.INVITATION_EXPIRES_DAYS,
+        },
     )
     from datetime import timedelta
 
@@ -215,6 +218,11 @@ async def revoke_invitation(
     """撤销 pending 邀请(token 失效)"""
     try:
         await audit_service.revoke_invitation(db, invitation_id)
+        # R25 审计:invitation.revoke(token 不落审计)
+        await audit_service.audit_write(
+            db, current_user, "invitation.revoke",
+            target_type="invitation", target_id=invitation_id,
+        )
     except ValueError:
         raise BizError(404, "邀请不存在或已撤销", status_code=404)
     return success(message="邀请已撤销")

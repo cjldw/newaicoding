@@ -160,6 +160,13 @@ async def offline_deploy(
     if task.type != "release":
         raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "仅发布任务可下线")
     await task_service.offline_deploy(db, task)
+    # R25 审计:release.offline(service 签名无 operator → 模式 C API 层)
+    from app.services.audit_service import audit_write
+
+    await audit_write(
+        db, current_user, "release.offline",
+        project_id=task.project_id, target_type="task", target_id=task_id,
+    )
     return success(message="已下线")
 
 
@@ -198,6 +205,9 @@ async def get_task(
     task = await task_service.get_task_or_404(db, task_id)
     data = {
         "task_id": task.task_id,
+        # R4.F4:任务工作台面包屑需要 完整上级链(项目 / {项目名} / {需求} / 任务),补两个归属字段
+        "project_id": task.project_id,
+        "req_id": task.req_id,
         "type": task.type,
         "title": task.title,
         "description": task.description,
@@ -242,6 +252,13 @@ async def retry_task(
     """重试任务(failed/cancelled/timeout → pending)"""
     task = await task_service.get_task_or_404(db, task_id)
     await task_service.retry_task(db, task)
+    # R25 审计:task.retry(service 签名无 operator → 模式 C API 层)
+    from app.services.audit_service import audit_write
+
+    await audit_write(
+        db, current_user, "task.retry",
+        project_id=task.project_id, target_type="task", target_id=task_id,
+    )
     return success(message="任务已重试")
 
 

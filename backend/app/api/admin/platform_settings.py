@@ -6,10 +6,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_superadmin
-from app.core.response import success
+from app.core.response import BizError, ErrCode, success
 from app.database import get_db
 from app.models.user import User
-from app.services import gitlab_service, platform_settings_service
+from app.services import gitlab_service, llm_service, platform_settings_service
+from app.services.audit_service import audit_write  # R25 审计接入
 
 router = APIRouter(prefix="/api/admin/platform-settings", tags=["平台管理"])
 
@@ -38,9 +39,33 @@ async def update_platform_settings(
 ):
     """
     超管更新配置(部分更新 {key: value});仅白名单 key 可写,非法值 2007。
-    变更即时生效(读取处实时查表);审计留 TODO(R19)。
+    变更即时生效(读取处实时查表)。R25:审计在 API 层接入(service 签名不改)。
     """
+    # R23: payload 含 llm_* 键时,先整批校验(2007)→ 连通性测试(失败 2008)→ 才落库
+    llm_keys = {"llm_base_url", "llm_api_key", "llm_model"}
+    provided = llm_keys & payload.keys()
+    if provided:
+        # 齐备性前置:缺任一键 2007(必须先于下方取键,避免 KeyError)
+        if provided != llm_keys:
+            raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "平台默认模型需完整配置三项")
+        # 逐键预校验(与 update_settings 同规则;提前到测试前,非法格式不必等网络超时)
+        for key in provided:
+            platform_settings_service.validate_setting_value(key, payload[key])
+        try:
+            await llm_service.test_connectivity(
+                payload["llm_base_url"], payload["llm_api_key"], payload["llm_model"]
+            )
+        except BizError as e:
+            # 项目级测试失败是 13001;平台默认保存失败用独立码 2008,便于前端区分文案
+            raise BizError(ErrCode.PLATFORM_LLM_CONNECT_FAILED, e.message) from e
     updated = await platform_settings_service.update_settings(db, current_user.user_id, payload)
+    # R25 审计:platform_settings.update(模式 C:operator 在 API 层;detail 只记键列表,
+    # 不记值——值可能含 token/key,落 detail 即泄密)
+    await audit_write(
+        db, current_user, "platform_settings.update",
+        target_type="platform_setting",
+        detail={"updated_keys": updated},
+    )
     return success(data={"updated": updated})
 
 

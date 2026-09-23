@@ -21,6 +21,7 @@ from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.services import gitlab_service
 from app.services.platform_settings_service import get_gitlab_bot_config
+from app.services.audit_service import audit_write  # R25 审计接入(事务内,失败不阻塞)
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,12 @@ async def invite_member(db: AsyncSession, project: Project, operator: User, phon
     await db.flush()
 
     logger.info("邀请成员 project=%s user=%s role=%s by=%s", project.project_id, target.user_id, role, operator.user_id)
+    # R25 审计:project_member.add(手机号不入 detail,只记目标 user_id 与角色)
+    await audit_write(
+        db, operator, "project_member.add",
+        project_id=project.project_id, target_type="user", target_id=target.user_id,
+        detail={"role": role},
+    )
     await _sync_all_repos(db, project, target, "add", role)
 
     brief = await _user_brief(db, target.user_id)
@@ -273,6 +280,12 @@ async def remove_member(db: AsyncSession, project: Project, operator: User, targ
 
     await db.execute(delete(ProjectMember).where(ProjectMember.id == member.id))
     logger.info("移除成员 project=%s user=%s by=%s", project.project_id, target_user_id, operator.user_id)
+    # R25 审计:project_member.remove
+    await audit_write(
+        db, operator, "project_member.remove",
+        project_id=project.project_id, target_type="user", target_id=target_user_id,
+        detail={"role": member.role},
+    )
 
     if target_user is not None:
         await _sync_all_repos(db, project, target_user, "remove")
@@ -303,6 +316,12 @@ async def change_member_role(
     member.role = new_role
     await db.flush()
     logger.info("改角色 project=%s user=%s → %s by=%s", project.project_id, target_user_id, new_role, operator.user_id)
+    # R25 审计:project_member.role_change
+    await audit_write(
+        db, operator, "project_member.role_change",
+        project_id=project.project_id, target_type="user", target_id=target_user_id,
+        detail={"new_role": new_role},
+    )
 
     target_user = await db.execute(select(User).where(User.user_id == target_user_id))
     target_user_obj = target_user.scalar_one_or_none()
@@ -354,6 +373,11 @@ async def transfer_ownership(
     await db.flush()
     logger.info(
         "转让 owner project=%s %s → %s by=%s", project.project_id, operator.user_id, new_owner_user_id, operator.user_id
+    )
+    # R25 审计:project_member.transfer_ownership
+    await audit_write(
+        db, operator, "project_member.transfer_ownership",
+        project_id=project.project_id, target_type="user", target_id=new_owner_user_id,
     )
 
     # GitLab 权限对调(非关键步骤)

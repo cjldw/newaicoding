@@ -347,17 +347,37 @@ class ContainerManager:
             raise RuntimeError(f"PRD push 失败({code}): {out.decode(errors='ignore')[:300]}")
         logger.info("PRD 已 commit+push repo=%s branch=%s", repo_path, branch)
 
-    def claude_prompt(self, container_id: str, prompt: str, workdir: str = "/workspace/main") -> dict:
+    def claude_prompt(
+        self,
+        container_id: str,
+        prompt: str,
+        workdir: str = "/workspace/main",
+        session_id: str | None = None,
+        resume: bool = False,
+    ) -> dict:
         """
         R4 AI 执行(CLI 兜底):容器内 claude -p <prompt> --output-format json
         返回 {"result", "tokens_in", "tokens_out"};输出非 JSON 时按纯文本兜底。
+
+        R9.F1 会话参数:
+        - session_id + resume=False → --session-id <sid>(首次建会话)
+        - session_id + resume=True  → --resume <sid>(续接已有会话)
+        - 都不传 → 维持原 cmd(兼容旧行为)
         """
         import json as _json
         import shlex as _shlex
 
+        # R9.F1:会话参数拼接(规避 CLI 版本差异:首次 --session-id,后续 --resume)
+        session_flag = ""
+        if session_id is not None:
+            if resume:
+                session_flag = f" --resume {_shlex.quote(session_id)}"
+            else:
+                session_flag = f" --session-id {_shlex.quote(session_id)}"
+
         cmd = (
             f"cd {workdir} 2>/dev/null; "
-            f"claude -p {_shlex.quote(prompt)} --output-format json 2>/dev/null"
+            f"claude -p {_shlex.quote(prompt)} --output-format json{session_flag} 2>/dev/null"
         )
         code, out = self.exec_capture(container_id, cmd)
         text = out.decode(errors="ignore").strip()

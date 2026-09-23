@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.response import BizError, ErrCode
+from app.database import async_session_factory
+from app.services.audit_service import audit_write, spawn_audit_write
 from app.core.security import (
     hash_password,
     verify_password,
@@ -29,6 +31,9 @@ from app.schemas.auth import (
 )
 
 logger = logging.getLogger(__name__)
+
+# R25:登录失败·用户不存在时的审计占位 user_id(audit_logs.user_id 非空约束)
+AUDIT_PLACEHOLDER_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 
 class AuthService:
@@ -71,6 +76,9 @@ class AuthService:
         db.add(user)
         await db.flush()  # 触发 default 值填充
 
+        # R25:注册审计(事务内;detail 只记角色,手机号不落审计)
+        await audit_write(db, user, "auth.register", detail={"role": role})
+
         logger.info("新用户注册: phone=%s, role=%s, user_id=%s", req.phone, role, user.user_id)
 
         return RegisterData(
@@ -86,21 +94,37 @@ class AuthService:
     LOCK_DURATION_MINUTES = 10
 
     @staticmethod
-    async def login(db: AsyncSession, req: LoginRequest) -> LoginData:
+    async def login(db: AsyncSession, req: LoginRequest, ip: str | None = None) -> LoginData:
         """
         手机号 + 密码登录:
         - 密码错误 5 次 → 锁定 10 分钟（DB 字段记录）
         - 登录成功 → 清除错误计数，递增 token_version
+        - R25:登录成功/失败审计(成功=事务内 audit_write 随 commit 落库;
+          失败=spawn 独立会话——失败分支业务事务将回滚,审计不可随之回滚)
         """
         # 查找用户
         result = await db.execute(select(User).where(User.phone == req.phone))
         user = result.scalar_one_or_none()
 
         if not user:
-            raise BizError(ErrCode.WRONG_CREDENTIALS, "手机号或密码错误")
+            # 用户不存在:全零占位 user_id + role=anonymous;手机号不落 detail(防枚举)
+            spawn_audit_write(
+                async_session_factory,
+                {"user_id": AUDIT_PLACEHOLDER_USER_ID, "role": "anonymous"},
+                "auth.login_fail_not_found",
+                detail={"reason": "user_not_found"},
+                ip=ip,
+            )
+            raise BizError(ErrCode.WRONG_CREDENTIALS, "手机号或密码错误", data={"reason": "user_not_found"})
 
         # 检查账号状态
         if user.status == "disabled":
+            spawn_audit_write(
+                async_session_factory,
+                {"user_id": user.user_id, "role": user.role},
+                "auth.login_fail_disabled",
+                ip=ip,
+            )
             raise BizError(ErrCode.ACCOUNT_DISABLED, "账号已被禁用")
 
         # 检查是否处于锁定状态
@@ -112,6 +136,14 @@ class AuthService:
                 locked_until = locked_until.replace(tzinfo=timezone.utc)
             if now < locked_until:
                 remaining_seconds = int((locked_until - now).total_seconds())
+                # 拒绝原因=账号锁定中(审计口径:action_type 描述本次登录失败原因)
+                spawn_audit_write(
+                    async_session_factory,
+                    {"user_id": user.user_id, "role": user.role},
+                    "auth.login_fail_locked",
+                    detail={"reason": "locked", "remaining_seconds": remaining_seconds},
+                    ip=ip,
+                )
                 raise BizError(
                     ErrCode.ACCOUNT_LOCKED,
                     "账号已锁定，请10分钟后重试",
@@ -127,16 +159,30 @@ class AuthService:
             # 密码错误，累加失败计数
             user.login_fail_count = (user.login_fail_count or 0) + 1
             if user.login_fail_count >= AuthService.MAX_LOGIN_FAIL_COUNT:
-                # 达到阈值，锁定账号
+                # 达到阈值，锁定账号(拒绝原因=密码错,审计 detail 记录锁定副作用)
                 user.locked_until = now + timedelta(minutes=AuthService.LOCK_DURATION_MINUTES)
                 await db.flush()
                 remaining_seconds = AuthService.LOCK_DURATION_MINUTES * 60
+                spawn_audit_write(
+                    async_session_factory,
+                    {"user_id": user.user_id, "role": user.role},
+                    "auth.login_fail_wrong_password",
+                    detail={"reason": "wrong_password", "locked_triggered": True},
+                    ip=ip,
+                )
                 raise BizError(
                     ErrCode.ACCOUNT_LOCKED,
                     "账号已锁定，请10分钟后重试",
                     data={"remaining_seconds": remaining_seconds},
                 )
             await db.flush()
+            spawn_audit_write(
+                async_session_factory,
+                {"user_id": user.user_id, "role": user.role},
+                "auth.login_fail_wrong_password",
+                detail={"reason": "wrong_password"},
+                ip=ip,
+            )
             raise BizError(ErrCode.WRONG_CREDENTIALS, "手机号或密码错误")
 
         # 登录成功 → 清除锁定计数，递增 token_version（使旧 token 失效）
@@ -144,6 +190,9 @@ class AuthService:
         user.locked_until = None
         user.token_version = (user.token_version or 0) + 1
         await db.flush()
+
+        # R25:登录成功审计(事务内,随本事务 commit 落库)
+        await audit_write(db, user, "auth.login_success", ip=ip)
 
         # 生成双 token
         access_token = create_access_token(user.user_id, user.token_version)

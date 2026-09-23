@@ -14,6 +14,7 @@ from app.models.project import Project, ProjectRepo
 from app.models.requirement import Requirement
 from app.models.user import User
 from app.services import container_service, runner_service
+from app.services.audit_service import audit_write  # R25 审计接入(事务内,失败不阻塞)
 from app.services.runner_service import runner_registry
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,12 @@ async def create_requirement(db: AsyncSession, project: Project, operator: User,
     await db.refresh(requirement)
 
     logger.info("需求创建完成 req=%s branch=%s", requirement.req_id, branch)
+    # R25 审计:requirement.create
+    await audit_write(
+        db, operator, "requirement.create",
+        project_id=project.project_id, target_type="requirement", target_id=requirement.req_id,
+        detail={"title": req_data.get("title")},
+    )
     return {"req_id": requirement.req_id, "req_branch": branch}
 
 
@@ -163,6 +170,11 @@ async def start_polish(db: AsyncSession, project: Project, operator: User, req: 
     req.prd_file_path = task_service.build_prd_path(req.title, task_id)
     await db.flush()
     logger.info("打磨任务已启动 req=%s task=%s", req.req_id, task_id)
+    # R25 审计:requirement.start_polish
+    await audit_write(
+        db, operator, "requirement.start_polish",
+        project_id=req.project_id, target_type="requirement", target_id=req.req_id,
+    )
     return task_id
 
 
@@ -220,6 +232,11 @@ async def review_requirement(
         req.reviewed_by = operator.user_id
         req.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         logger.info("需求评审通过 req=%s by=%s", req.req_id, operator.user_id)
+        # R25 审计:requirement.review_approve
+        await audit_write(
+            db, operator, "requirement.review_approve",
+            project_id=req.project_id, target_type="requirement", target_id=req.req_id,
+        )
     else:
         if not reject_reason:
             raise BizError(ErrCode.NOT_IN_POLISHING, "驳回时必须填写理由")
@@ -228,6 +245,11 @@ async def review_requirement(
         req.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         req.reject_reason = reject_reason
         logger.info("需求驳回 req=%s by=%s", req.req_id, operator.user_id)
+        # R25 审计:requirement.review_reject
+        await audit_write(
+            db, operator, "requirement.review_reject",
+            project_id=req.project_id, target_type="requirement", target_id=req.req_id,
+        )
     await db.flush()
 
 
@@ -239,6 +261,12 @@ async def cancel_requirement(db: AsyncSession, operator: User, req: Requirement,
     req.reject_reason = reason
     await db.flush()
     logger.info("需求取消 req=%s by=%s reason=%s", req.req_id, operator.user_id, reason[:50])
+    # R25 审计:requirement.cancel(reason 截断,防 detail 膨胀)
+    await audit_write(
+        db, operator, "requirement.cancel",
+        project_id=req.project_id, target_type="requirement", target_id=req.req_id,
+        detail={"reason": reason[:100]},
+    )
 
 
 # ---------------------------------------------------------------------------

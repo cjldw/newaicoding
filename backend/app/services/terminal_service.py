@@ -16,6 +16,9 @@ from typing import Optional
 
 from fastapi import WebSocket
 
+from app.database import async_session_factory
+from app.services.audit_service import spawn_audit_write
+
 logger = logging.getLogger(__name__)
 
 # 高频输出限流:每秒最多转发的输出块数(超出丢弃中间,保留最新)
@@ -28,10 +31,14 @@ DESTRUCTIVE_PATTERNS = ("rm -rf", "git reset --hard", "mkfs", "dd if=", "> /dev/
 class TerminalConnection:
     """一条前端终端 WS 连接"""
     session_id: str
-    task_id: str
     runner_id: str
     user_id: str
     websocket: WebSocket
+    # R26:task_id 解耦 — Runner shell 会话无任务关联,默认 None;
+    # 任务终端会话仍携带 task_id(由 api/terminal.py 构造时显式传入)
+    task_id: Optional[str] = None
+    # R25:审计快照用(破坏性命令归因操作者角色);带默认值保持既有构造兼容
+    role: str = "user"
     # 限流状态(滑动 1s 窗口)
     chunk_timestamps: list[float] = field(default_factory=list)
     drop_hint_sent: bool = False
@@ -154,12 +161,28 @@ async def runner_service_safe_send(runner_conn, message: dict) -> None:
 def audit_destructive_input(session_id: str, data: str) -> None:
     """
     破坏性命令审计(不拦截):rm -rf / git reset --hard / mkfs / dd 等。
-    R19 audit_logs 落库;当前结构化日志(含会话,不含完整内容避免日志膨胀)。
+    R25:命中 DESTRUCTIVE_PATTERNS → audit_logs 落库(spawn 独立会话,失败重试不阻塞转发);
+    detail 含 matched_pattern + 输入前 200 字符(结构化日志保留,避免日志膨胀)。
     """
     lowered = data.lower()
     for pattern in DESTRUCTIVE_PATTERNS:
         if pattern in lowered:
-            # TODO(R19): 写 audit_logs(terminal.destructive_command)
+            # R25:审计入库(WS handler 场景无事务上下文 → spawn;factory 缺失[异常环境]跳过)
+            conn = terminal_registry.get(session_id)
+            if conn is not None:
+                spawn_audit_write(
+                    async_session_factory,
+                    {"user_id": conn.user_id, "role": conn.role},
+                    "terminal.destructive_command",
+                    target_type="terminal_session",
+                    target_id=session_id,
+                    detail={
+                        "matched_pattern": pattern,
+                        "input_head": data[:200],
+                        # R26:标记会话类型(runner 宿主 shell 的 task_id 为 None)
+                        "session_kind": "runner_shell" if conn.task_id is None else "task",
+                    },
+                )
             logger.warning(
                 "审计:终端破坏性命令 session=%s pattern=%s", session_id, pattern
             )

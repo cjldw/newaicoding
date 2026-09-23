@@ -30,6 +30,27 @@ LLM_ENV_KEYS = {
     "ANTHROPIC_API_KEY": "api_key",
 }
 
+
+def container_base_url(base_url: str) -> str:
+    """
+    容器内可达性改写(BUG-034):平台配置的 base_url 若指向宿主机回环
+    (127.0.0.1 / localhost / [::1]),注入容器后 127.0.0.1 = 容器自身,
+    claude CLI 连接直接 ECONNREFUSED(实证:平台连通性测试通过但容器内
+    全部失败)。注入容器前改写为 host.docker.internal(Docker Desktop
+    默认提供,指向宿主机);仅改写注入值,平台存储配置与连通性测试不动。
+    仅改写 scheme:// 后紧跟的回环 host,避免误伤路径/查询中的同形字符串。
+    """
+    import re
+
+    if not base_url:
+        return base_url
+    return re.sub(
+        r"^(https?://)(127\.0\.0\.1|localhost|\[::1\])(?=[:/]|$)",
+        r"\1host.docker.internal",
+        base_url,
+        flags=re.IGNORECASE,
+    )
+
 # ---------------------------------------------------------------------------
 # 测试用 mock client 注入点(与 gitlab_service._test_transport 同机制;
 # conftest 的 autouse patch 只覆盖 gitlab,LLM 的 mock 由测试直接调
@@ -93,9 +114,10 @@ def decrypt_config(config: ModelConfig) -> dict:
 
 async def resolve_config(db, project_id: str, config_id: Optional[str] = None) -> dict:
     """
-    任务执行时解析配置:优先指定 config_id(会话级切换),否则取项目 default。
-    无可用配置 → BizError(13005 语义:未配置,任务入口禁用并引导;
-    复用 13001 不合适,独立码 13005)。
+    任务执行时解析配置(R23 回退链):
+      会话级 config_id → 项目 default(enabled)→ 平台默认(llm_* 三键)。
+    全部不可用 → BizError(13005;语义:项目与平台均未配置,入口禁用并引导)。
+    返回体含 source 字段("project" | "platform"),供调用方留痕排障,不进容器 env。
     """
     from sqlalchemy import select
 
@@ -103,15 +125,51 @@ async def resolve_config(db, project_id: str, config_id: Optional[str] = None) -
         result = await db.execute(
             select(ModelConfig).where(ModelConfig.config_id == config_id)
         )
-    else:
-        result = await db.execute(
-            select(ModelConfig).where(
-                ModelConfig.project_id == project_id,
-                ModelConfig.is_default.is_(True),
-                ModelConfig.enabled.is_(True),
-            )
+        config = result.scalar_one_or_none()
+        if config is not None:
+            resolved = decrypt_config(config)
+            resolved["source"] = "project"
+            return resolved
+        # 会话级指定失效时同样走回退链(项目级 → 平台级)
+        logger.info("会话级配置 %s 不存在,走回退链", config_id)
+
+    result = await db.execute(
+        select(ModelConfig).where(
+            ModelConfig.project_id == project_id,
+            ModelConfig.is_default.is_(True),
+            ModelConfig.enabled.is_(True),
         )
+    )
     config = result.scalar_one_or_none()
-    if config is None:
-        raise BizError(13005, "项目未配置可用模型,请先在项目设置中添加模型配置")
-    return decrypt_config(config)
+    if config is not None:
+        resolved = decrypt_config(config)
+        resolved["source"] = "project"
+        return resolved
+
+    # R23: 项目级无可用配置 → 回退平台默认
+    return await _resolve_platform_config(db)
+
+
+async def _resolve_platform_config(db) -> dict:
+    """
+    R23: 平台默认 LLM 回退(llm_base_url / llm_api_key / llm_model 三键齐备才生效)。
+    任一缺失 → 13005;部分键存在(手工改库等异常)按未配置处理并告警。
+    """
+    from app.services.platform_settings_service import get_setting
+
+    base_url = await get_setting(db, "llm_base_url")
+    api_key = await get_setting(db, "llm_api_key")
+    model = await get_setting(db, "llm_model")
+
+    # 部分键存在:视为未配置,告警便于排查脏数据
+    present = [name for name, value in
+               (("llm_base_url", base_url), ("llm_api_key", api_key), ("llm_model", model)) if value]
+    if present and len(present) < 3:
+        logger.warning("平台默认 LLM 配置不完整(仅 %s),按未配置处理", present)
+
+    if not base_url or not api_key or not model:
+        raise BizError(
+            13005,
+            "项目与平台均未配置模型,请联系管理员配置平台默认或在项目设置中添加模型配置",
+        )
+    return {"base_url": base_url, "api_key": api_key, "model": model, "source": "platform"}

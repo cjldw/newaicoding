@@ -33,7 +33,10 @@ class FakeFrontendWS:
 
 
 async def _setup_running_container(db_session, registered_user, runner_id="runner-t"):
-    """项目 + running 容器(R9 会话前置)"""
+    """项目 + 需求 + 任务 + running 容器(R9 会话前置)
+
+    R9.F1:终端创建端点需按 task_id 查 Task 行(ensure_claude_session),夹具补建真实 Task。
+    """
     runner_row = None
     from app.models.runner import Runner
 
@@ -45,9 +48,42 @@ async def _setup_running_container(db_session, registered_user, runner_id="runne
     project = Project(name="p", slug=f"p-{uuid.uuid4().hex[:8]}", owner_id=registered_user["user_id"])
     db_session.add(project)
     await db_session.flush()
+
+    from app.models.requirement import Requirement
+    from app.models.task import Task
+
+    req = Requirement(
+        req_id=str(uuid.uuid4()),
+        title="terminal-req",
+        description="d",
+        status="approved",
+        req_branch="main",
+        created_by=registered_user["user_id"],
+        project_id=project.project_id,
+    )
+    db_session.add(req)
+    await db_session.flush()
+
+    task_id = str(uuid.uuid4())
+    task = Task(
+        task_id=task_id,
+        req_id=req.req_id,
+        project_id=project.project_id,
+        type="dev",
+        title="terminal-task",
+        description="d",
+        base_branch="main",
+        work_branch="main",
+        status="running",
+        conversation_id=str(uuid.uuid4()),
+        created_by=registered_user["user_id"],
+    )
+    db_session.add(task)
+    await db_session.flush()
+
     container = Container(
         container_id=f"docker-{uuid.uuid4().hex[:10]}",
-        task_id=f"task-{uuid.uuid4().hex[:8]}",
+        task_id=task_id,
         runner_id=runner_row.runner_id,
         project_id=project.project_id,
         status="running",
@@ -87,7 +123,13 @@ async def test_create_terminal_session_success(client, auth_headers, db_session,
     msg = sent[0]
     assert msg["type"] == "exec"
     assert msg["pty"] is True
-    assert msg["cmd"] == ["/bin/bash"]
+    # R9.F1:cmd 从裸 ["/bin/bash"] 改为 bash -lc 包装的自动进 claude 命令
+    # (claude 守卫 + 首次 --session-id + 退出落回 bash)
+    assert msg["cmd"][:2] == ["/bin/bash", "-lc"]
+    wrapper = msg["cmd"][2]
+    assert wrapper.startswith("command -v claude")
+    assert "claude --session-id '" in wrapper  # 新任务首建会话
+    assert "exec /bin/bash" in wrapper
     assert msg["container_id"] == container.container_id
     runner_registry.unregister(container.runner_id)
 

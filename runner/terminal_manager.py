@@ -142,16 +142,24 @@ class TerminalManager:
             return False
         try:
             sock = session.sock
-            # docker-py SocketIO:raw socket 写入
             raw = getattr(sock, "_sock", sock)
-            if isinstance(raw, py_socket.socket):
-                raw.sendall(data.encode("utf-8"))
-            else:
-                sock.write(data.encode("utf-8"))
-                sock.flush()
+            # 写路径探测:Windows docker 返回 NpipeSocket —— 它不是 socket.socket
+            # 子类(hasattr sendall=True / write=False),用 isinstance(socket.socket)
+            # 判断会落到 write+flush 分支并抛 AttributeError,导致终端键盘输入
+            # 全部丢失(输出 recv 不受影响,故表现为"看得见回显打不了字")。
+            # 统一改为:有 sendall 就用 sendall(NpipeSocket 与 raw socket 皆支持),
+            # 仅无 sendall 的类文件对象(SocketIO 场景)才回退 write+flush。
+            sendall = getattr(raw, "sendall", None)
+            if sendall is not None:
+                sendall(data.encode("utf-8"))
+                return True
+            # 类文件对象回退路径
+            sock.write(data.encode("utf-8"))
+            sock.flush()
             return True
         except Exception:
-            logger.warning("pty 写入失败 session=%s", session_id)
+            # 带 traceback 记录(原 warning 吞栈,同类问题无从排查)
+            logger.exception("pty 写入失败 session=%s", session_id)
             return False
 
     def resize(self, session_id: str, cols: int, rows: int) -> None:
@@ -170,9 +178,12 @@ class TerminalManager:
             return False
         session.closed = True
         try:
+            # 与 write_input 同理:NpipeSocket 有 shutdown 但不是 socket.socket 子类,
+            # isinstance 判断会跳过 shutdown;改为探测式调用(close 兜底)
             sock = getattr(session.sock, "_sock", session.sock)
-            if isinstance(sock, py_socket.socket):
-                sock.shutdown(py_socket.SHUT_RDWR)
+            shutdown = getattr(sock, "shutdown", None)
+            if shutdown is not None:
+                shutdown(py_socket.SHUT_RDWR)
             sock.close()
         except Exception:
             pass

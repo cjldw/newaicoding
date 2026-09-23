@@ -95,7 +95,8 @@ async def test_reject_to_dev_success(client, auth_headers, db_session, registere
 
     captured: list = []
 
-    async def fake_run_prompt(runner_conn, container_id, prompt, workdir="/workspace/main", timeout=600.0):
+    # R9.F1:run_prompt 新增 session_id/resume 参数,替身同步接受
+    async def fake_run_prompt(runner_conn, container_id, prompt, workdir="/workspace/main", timeout=600.0, session_id=None, resume=False):
         captured.append(prompt)
         return {"result": "ok", "tokens_in": 1, "tokens_out": 1}
 

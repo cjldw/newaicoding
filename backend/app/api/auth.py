@@ -1,6 +1,6 @@
 """认证路由 - 注册、登录、刷新 token、SMS 占位"""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import success, BizError
@@ -32,9 +32,10 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
 # POST /api/auth/login - 登录
 # -------------------------------------------------------------------
 @router.post("/login")
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """手机号 + 密码登录，返回 access_token + refresh_token"""
-    data = await AuthService.login(db, req)
+async def login(req: LoginRequest, db: AsyncSession = Depends(get_db), request: Request = None):
+    """手机号 + 密码登录，返回 access_token + refresh_token;R25 审计透传客户端 IP"""
+    ip = request.client.host if (request is not None and request.client) else None
+    data = await AuthService.login(db, req, ip=ip)
     return success(data=data.model_dump())
 
 

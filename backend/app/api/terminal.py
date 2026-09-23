@@ -24,10 +24,12 @@ from app.core.security import decode_token
 from app.database import get_db
 from app.models.container import Container
 from app.models.project import Project
+from app.models.task import Task
 from app.models.terminal import TerminalSession
 from app.models.user import User
 from app.services import project_member_service, runner_service, terminal_service
 from app.services.runner_service import runner_registry
+from app.services.task_service import ensure_claude_session
 from app.services.terminal_service import (
     TerminalConnection,
     forward_input_to_runner,
@@ -71,7 +73,13 @@ async def create_terminal_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """创建终端会话(owner/editor;平台向 Runner 下发 exec pty 指令)"""
+    """创建终端会话(owner/editor;平台向 Runner 下发 exec pty 指令)
+
+    R9.F1:自动进入 claude,与对话面板共用同一任务级会话。
+    - 首次(created_now=True): claude --session-id <sid>
+    - 续接(created_now=False): claude --resume <sid>
+    - 无 claude 的容器(command -v claude 失败):直接落 bash,行为与改动前一致
+    """
     # 1. 容器须 running
     container = await _get_running_container(db, task_id)
 
@@ -88,7 +96,30 @@ async def create_terminal_session(
     if runner_registry.get(container.runner_id) is None:
         raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "终端不可用:Runner offline")
 
-    # 4. 建会话台账 + 下发 exec 指令
+    # 4. R9.F1:获取 Task + 确保 claude 会话 ID(对话与终端共用)
+    task = (await db.execute(
+        select(Task).where(Task.task_id == task_id)
+    )).scalar_one_or_none()
+    if task is None:
+        raise BizError(404, "任务不存在", status_code=404)
+    sid, created_now = await ensure_claude_session(db, task)
+
+    # 5. 构造自动进入 claude 的 cmd:
+    # - command -v claude 守卫:无 claude 时直接落 bash(行为与改动前一致)
+    # - 首次 --session-id / 续接 --resume;失败兜底裸 claude
+    # - exec /bin/bash:用户退出 claude 后落回 shell
+    if created_now:
+        claude_enter = f"claude --session-id '{sid}' || claude"
+    else:
+        claude_enter = f"claude --resume '{sid}' || claude"
+    auto_claude_cmd = (
+        f"command -v claude >/dev/null 2>&1 "
+        f"&& (cd /workspace/main 2>/dev/null; {claude_enter}; exec /bin/bash) "
+        f"|| exec /bin/bash"
+    )
+    cmd = ["/bin/bash", "-lc", auto_claude_cmd]
+
+    # 6. 建会话台账 + 下发 exec 指令
     session = TerminalSession(
         task_id=task_id,
         container_id=container.container_id,
@@ -103,7 +134,7 @@ async def create_terminal_session(
     await runner_service.send_to_runner(runner_conn, {
         "type": "exec",
         "container_id": container.container_id,
-        "cmd": [req.shell],
+        "cmd": cmd,
         "pty": True,
         "session_id": session.session_id,
     })
@@ -196,6 +227,7 @@ async def terminal_ws(
         task_id=session_row.task_id,
         runner_id=session_row.runner_id,
         user_id=user.user_id,
+        role=user.role,  # R25:审计快照(破坏性命令归因)
         websocket=websocket,
     )
     terminal_registry.put(conn)  # 覆盖旧连接 = 断线重连 attach 语义

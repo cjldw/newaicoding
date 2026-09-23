@@ -264,6 +264,38 @@ async def list_model_configs(
 
 
 # -------------------------------------------------------------------
+# GET /api/projects/{project_id}/model-configs/resolvable - 生效配置查询(R23)
+# -------------------------------------------------------------------
+@router.get("/{project_id}/model-configs/resolvable")
+async def get_resolvable_model_config(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """回退链当前生效配置(project/platform/none);成员可读(含 viewer);api_key 仅打码"""
+    project = await project_service.get_project_or_404(db, project_id)
+    role = await project_member_service.get_project_role(db, project, current_user)
+    if not role and project.visibility != "internal":
+        raise BizError(404, "项目不存在", status_code=404)
+    try:
+        resolved = await llm_service.resolve_config(db, project.project_id)
+    except BizError:
+        # 13005(项目与平台均未配置)→ none 态:不抛错,供前端做入口禁用与提示判定
+        return success(data={
+            "effective_source": "none",
+            "base_url": None,
+            "model": None,
+            "api_key_masked": None,
+        })
+    return success(data={
+        "effective_source": resolved.get("source", "project"),
+        "base_url": resolved["base_url"],
+        "model": resolved["model"],
+        "api_key_masked": model_config_service.mask_api_key(resolved["api_key"]),
+    })
+
+
+# -------------------------------------------------------------------
 # POST /api/projects/{project_id}/model-configs - 创建配置
 # -------------------------------------------------------------------
 @router.post("/{project_id}/model-configs")

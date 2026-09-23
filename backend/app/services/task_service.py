@@ -26,6 +26,9 @@ from app.models.requirement import Requirement
 from app.models.task import Task, TaskMessage, TaskUploadedFile
 from app.models.user import User
 from app.services import claude_service, container_service, runner_service
+from app.services.audit_service import audit_write, spawn_audit_write  # R25 审计接入
+from app.database import async_session_factory
+from app.services.auth_service import AUDIT_PLACEHOLDER_USER_ID as AUDIT_SYSTEM_USER_ID
 from app.services.runner_service import runner_registry
 
 logger = logging.getLogger(__name__)
@@ -64,6 +67,9 @@ async def create_polish_task(db: AsyncSession, project: Project, requirement: Re
     - 模型配置校验(R13;未配置 13005)
     - 组装 env(模型/GitLab token/任务上下文)与 repos 挂载(req_branch)
     - 调度拉起容器(R8)
+    R3.F1(BUG-035)修复:原实现只生成 task_id 直接拉容器,**从不落 tasks 行**——
+    前端跳转 /tasks/{id} 404、BUG-030 容器回填落空、四维列表不可见。
+    现对齐 create_task+start_task 口径:先落 Task 行(pending),调度成功后置 running。
     """
     from app.services import llm_service
     from app.services.platform_settings_service import get_setting
@@ -84,18 +90,43 @@ async def create_polish_task(db: AsyncSession, project: Project, requirement: Re
         repos.append({"url": repo.gitlab_repo_url, "path": mount, "branch": requirement.req_branch})
 
     env = {
+        # R8.F4(BUG-036):平台自定义变量铺底,系统键后置覆盖(保存校验已拒冲突,双保险)
+        **(await get_setting(db, "custom_env_vars") or {}),
         "GITLAB_TOKEN": bot_token,
         "GITLAB_INSTANCE_URL": gitlab_url,
-        "LLM_BASE_URL": llm_config["base_url"],
+        # 容器内回环 host 改写:127.0.0.1 在容器内指向容器自身(BUG-034)
+        "LLM_BASE_URL": llm_service.container_base_url(llm_config["base_url"]),
         "LLM_API_KEY": llm_config["api_key"],
         "LLM_MODEL": llm_config["model"],
-        "ANTHROPIC_BASE_URL": llm_config["base_url"],
+        # R8.F4:LLM_URL 别名(容器内脚本按此取名)
+        "LLM_URL": llm_service.container_base_url(llm_config["base_url"]),
+        "ANTHROPIC_BASE_URL": llm_service.container_base_url(llm_config["base_url"]),
         "ANTHROPIC_API_KEY": llm_config["api_key"],
+        # claude CLI 不读 LLM_MODEL,读 ANTHROPIC_MODEL(缺失时请求内置默认
+        # claude-opus-5-5,网关无此渠道 → 503;E2E 实证)
+        "ANTHROPIC_MODEL": llm_config["model"],
         "TASK_ID": task_id,
         "PROJECT_ID": project.project_id,
         "REQ_ID": requirement.req_id,
         "PRD_FILE_PATH": build_prd_path(requirement.title, task_id),
     }
+
+    # R3.F1(BUG-035):先落 Task 行(pending),再调度容器——
+    # 容器调度失败(8003 等)时事务回滚,任务行不落库,与 create_task+start_task 失败语义一致
+    task = Task(
+        task_id=task_id,
+        req_id=requirement.req_id,
+        project_id=project.project_id,
+        type="requirement",
+        title=f"需求打磨:{requirement.title}",
+        description=requirement.description or requirement.title,
+        base_branch=requirement.req_branch,
+        work_branch=requirement.req_branch,
+        status="pending",
+        created_by=operator.user_id,
+    )
+    db.add(task)
+    await db.flush()
 
     await container_service.schedule_and_start(
         db,
@@ -105,6 +136,11 @@ async def create_polish_task(db: AsyncSession, project: Project, requirement: Re
         env=env,
         repos=repos,
     )
+    # 调度成功即运行(打磨容器与 start_task 同口径置 running)
+    task.status = "running"
+    task.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    await db.flush()
+    logger.info("打磨任务已创建并调度 task=%s req=%s", task_id, requirement.req_id)
     return task_id
 
 
@@ -337,13 +373,21 @@ async def start_task(db: AsyncSession, task: Task, project: Project, requirement
         repos.append({"url": repo.gitlab_repo_url, "path": mount, "branch": task.work_branch})
 
     env = {
+        # R8.F4(BUG-036):平台自定义变量铺底,系统键后置覆盖(保存校验已拒冲突,双保险)
+        **(await get_setting(db, "custom_env_vars") or {}),
         "GITLAB_TOKEN": bot_token,
         "GITLAB_INSTANCE_URL": gitlab_url,
-        "LLM_BASE_URL": llm_config["base_url"],
+        # 容器内回环 host 改写:127.0.0.1 在容器内指向容器自身(BUG-034)
+        "LLM_BASE_URL": llm_service.container_base_url(llm_config["base_url"]),
         "LLM_API_KEY": llm_config["api_key"],
         "LLM_MODEL": llm_config["model"],
-        "ANTHROPIC_BASE_URL": llm_config["base_url"],
+        # R8.F4:LLM_URL 别名(容器内脚本按此取名)
+        "LLM_URL": llm_service.container_base_url(llm_config["base_url"]),
+        "ANTHROPIC_BASE_URL": llm_service.container_base_url(llm_config["base_url"]),
         "ANTHROPIC_API_KEY": llm_config["api_key"],
+        # claude CLI 不读 LLM_MODEL,读 ANTHROPIC_MODEL(缺失时请求内置默认
+        # claude-opus-5-5,网关无此渠道 → 503;E2E 实证)
+        "ANTHROPIC_MODEL": llm_config["model"],
         "TASK_ID": task.task_id,
         "PROJECT_ID": project.project_id,
         "REQ_ID": requirement.req_id,
@@ -372,6 +416,21 @@ async def start_task(db: AsyncSession, task: Task, project: Project, requirement
 # ---------------------------------------------------------------------------
 # 对话
 # ---------------------------------------------------------------------------
+async def ensure_claude_session(db: AsyncSession, task: Task) -> tuple[str, bool]:
+    """
+    R9.F1:确保任务级 claude CLI 会话 ID 存在(懒生成,对话与终端共用)。
+    返回 (session_id, created_now):
+    - created_now=True: 本次新生成(首次使用 --session-id)
+    - created_now=False: 已有值,后续用 --resume 续接
+    """
+    if task.claude_session_id:
+        return task.claude_session_id, False
+    new_sid = str(uuid.uuid4())
+    task.claude_session_id = new_sid
+    await db.flush()
+    return new_sid, True
+
+
 async def send_message(db: AsyncSession, task: Task, operator: User, content: str) -> dict:
     """
     发送消息:保存 user 消息(@file 注入)→ Claude CLI 兜底执行 → 保存 assistant
@@ -392,13 +451,8 @@ async def send_message(db: AsyncSession, task: Task, operator: User, content: st
     if fix_block:
         enhanced_prompt = fix_block + enhanced_prompt
 
-    user_msg = TaskMessage(
-        task_id=task.task_id, role="user", content=content, file_refs=file_refs or None,
-    )
-    db.add(user_msg)
-    await db.flush()
-
-    # 定位运行容器与 Runner 连接
+    # 定位运行容器与 Runner 连接 —— 先校验后落库:原序先 flush user 消息再校验,
+    # 校验失败 BizError 连带回滚,消息"发了却不存在"(BUG-032;rd-plan 旧分析 P0)
     container = (await db.execute(
         select(Container).where(
             Container.task_id == task.task_id, Container.status == "running"
@@ -410,9 +464,20 @@ async def send_message(db: AsyncSession, task: Task, operator: User, content: st
     if runner_conn is None:
         raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "Runner offline,AI 会话暂不可用")
 
+    user_msg = TaskMessage(
+        task_id=task.task_id, role="user", content=content, file_refs=file_refs or None,
+    )
+    db.add(user_msg)
+    await db.flush()
+
     started = time.monotonic()
+    # R9.F1:确保任务级 claude 会话 ID,对话与终端共用同一会话
+    sid, created_now = await ensure_claude_session(db, task)
     try:
-        response = await claude_service.run_prompt(runner_conn, container.container_id, enhanced_prompt)
+        response = await claude_service.run_prompt(
+            runner_conn, container.container_id, enhanced_prompt,
+            session_id=sid, resume=not created_now,
+        )
     except RuntimeError as e:
         # 执行失败:assistant 错误消息 + 事件
         err = TaskMessage(task_id=task.task_id, role="assistant", content=f"执行失败:{e}")
@@ -497,6 +562,14 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
     await db.flush()
     await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": status})
     logger.info("任务结束 task=%s status=%s", task.task_id, status)
+    # R25 审计:task.done / task.cancelled(其他状态值不映射审计,防枚举外泄)
+    _AUDIT_TASK_FINISH = {"done": "task.done", "cancelled": "task.cancelled"}
+    action = _AUDIT_TASK_FINISH.get(status)
+    if action is not None:
+        await audit_write(
+            db, operator, action,
+            project_id=task.project_id, target_type="task", target_id=task.task_id,
+        )
 
 
 async def retry_task(db: AsyncSession, task: Task) -> None:
@@ -531,6 +604,13 @@ async def sweep_timeouts(db: AsyncSession) -> int:
         count += 1
     if count:
         await db.flush()
+        # R25 审计:系统事件(占位全零 user_id + role=system,detail 带 reason;不记 ip)
+        spawn_audit_write(
+            async_session_factory,
+            {"user_id": AUDIT_SYSTEM_USER_ID, "role": "system"},
+            "task.timeout_sweep",
+            detail={"reason": "task_timeout_sweep", "count": count},
+        )
         logger.info("任务超时清理 %d 个", count)
     return count
 
@@ -801,6 +881,16 @@ async def run_release(db: AsyncSession, task: Task, project: Project, requiremen
         task.status = "done"  # 发布任务执行完成;容器保留(R7 例外)
         await db.flush()
         await _maybe_complete_requirement(db, requirement)
+        # R25 审计:release.deployed(操作者=任务创建者,查库取角色)
+        _creator = (await db.execute(
+            select(User).where(User.user_id == task.created_by)
+        )).scalars().first()
+        if _creator is not None:
+            await audit_write(
+                db, _creator, "release.deployed",
+                project_id=task.project_id, target_type="task", target_id=task.task_id,
+                detail={"deploy_host": ext.get("deploy_host")},
+            )
         await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": "deployed"})
         logger.info("发布完成 task=%s host=%s", task.task_id, ext.get("deploy_host"))
     except Exception as e:

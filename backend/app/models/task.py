@@ -50,6 +50,7 @@ class Task(Base):
     container_id = Column(String(64), nullable=True, index=True, comment="任务运行时的 docker id")
     runner_id = Column(CHAR(36), nullable=True, index=True, comment="任务运行的 Runner id")
     conversation_id = Column(CHAR(36), default=lambda: str(uuid.uuid4()), nullable=False, comment="Claude 会话 id")
+    claude_session_id = Column(CHAR(36), nullable=True, comment="任务级 claude CLI 会话 ID,懒生成;对话与终端共用")
     created_by = Column(CHAR(36), nullable=False, index=True, comment="创建者 user_id")
     started_at = Column(DateTime, nullable=True, comment="开始时间")
     finished_at = Column(DateTime, nullable=True, comment="完成时间")

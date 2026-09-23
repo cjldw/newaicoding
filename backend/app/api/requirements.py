@@ -172,6 +172,13 @@ async def submit_review(
     project = await get_project_or_404(db, requirement.project_id)
     await project_member_service.require_project_role(db, project, current_user, "editor")
     await requirement_service.submit_review(db, requirement)
+    # R25 审计:requirement.submit_review(service 签名无 operator → 模式 C API 层)
+    from app.services.audit_service import audit_write
+
+    await audit_write(
+        db, current_user, "requirement.submit_review",
+        project_id=project.project_id, target_type="requirement", target_id=req_id,
+    )
     return success(message="已提交评审")
 
 

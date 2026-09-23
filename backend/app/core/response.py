@@ -48,6 +48,7 @@ class ErrCode:
     REPO_LIMIT_EXCEEDED = 2005        # 单项目绑定 repo 数超限(>10)
     MAIN_REPO_UNBINDABLE = 2006       # main repo 不可解绑
     PLATFORM_SETTING_INVALID = 2007   # 非法配置值(域名格式非法/数值越界/未知配置键)
+    PLATFORM_LLM_CONNECT_FAILED = 2008  # 平台默认 LLM 保存连通性测试失败(R23;区别于项目级 13001)
 
     # R12 项目成员
     INVITE_USER_NOT_FOUND = 12001  # 用户不存在(手机号未注册)
@@ -101,6 +102,11 @@ class ErrCode:
 
     # R16 Runner
     RUNNER_HAS_CONTAINERS = 16001  # Runner 上有运行中容器,不可删除
+
+    # R26 Runner 终端(6xxx 段)
+    RUNNER_NOT_ONLINE = 6001          # Runner 不在线
+    RUNNER_SESSION_EXISTS = 6002      # 该 Runner 已有终端会话,请先关闭
+    RUNNER_TOO_OLD = 6003             # Runner 版本过旧,请升级 Runner 镜像后使用终端
 
     # 权限
     NOT_SUPERADMIN = 19002            # 非平台超级管理员

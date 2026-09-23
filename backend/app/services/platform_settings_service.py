@@ -23,7 +23,22 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 配置键白名单与校验规则
 # ---------------------------------------------------------------------------
-SENSITIVE_KEYS = {"gitlab_bot_token", "gitlab_webhook_secret"}
+SENSITIVE_KEYS = {"gitlab_bot_token", "gitlab_webhook_secret", "llm_api_key"}
+
+# R23: llm_* 三键必须齐备(整批保存,不支持只更新一键)
+LLM_KEYS = {"llm_base_url", "llm_api_key", "llm_model"}
+
+# R8.F4(BUG-036):自定义环境变量键名规则(合法 shell 变量名)
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# 自定义变量数量上限(防设置页灌爆容器 env)
+CUSTOM_ENV_MAX_KEYS = 50
+# 系统注入键(R8.F4:自定义变量不得占用,防覆盖 LLM/GitLab/任务上下文)
+RESERVED_ENV_KEYS = {
+    "GITLAB_TOKEN", "GITLAB_INSTANCE_URL",
+    "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "LLM_URL",
+    "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+    "TASK_ID", "PROJECT_ID", "REQ_ID", "PRD_FILE_PATH",
+}
 
 # 域名(合法主机名)正则:至少一个点分段,每段字母数字连字符,不以 - 开头/结尾
 _HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63}(?<!-))+$")
@@ -39,6 +54,12 @@ SETTING_KEYS: dict[str, tuple[str, Any]] = {
     "max_containers_total": ("int", (1, 10000)),
     "kb_max_pages_per_kb": ("int", (1, 100000)),
     "kb_max_file_mb": ("int", (1, 1024)),
+    # R23: 平台默认 LLM 配置(三键齐备才生效)
+    "llm_base_url": ("url", None),
+    "llm_api_key": ("secret", None),
+    "llm_model": ("str", None),
+    # R8.F4(BUG-036): 自定义容器环境变量(多组 KV,启动任务时全量注入)
+    "custom_env_vars": ("envmap", None),
 }
 
 
@@ -86,10 +107,62 @@ def validate_setting_value(key: str, value: Any) -> Any:
             raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 数值越界(允许 {low}-{high})")
         return value
 
+    # R8.F4: 自定义环境变量表(dict[str,str];空 dict=清空)
+    if vtype == "envmap":
+        return _validate_custom_env(value)
+
+    # R23: str 类型(非空、strip、≤64 字符)
+    if vtype == "str":
+        if not isinstance(value, str) or not value.strip():
+            raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 不能为空")
+        return value.strip()[:64]
+
     # secret/token:非空字符串
     if not isinstance(value, str) or not value.strip() or len(value) > 255:
         raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 不能为空且长度需在 255 以内")
     return value.strip()
+
+
+def _validate_custom_env(value: Any) -> dict:
+    """
+    R8.F4(BUG-036):custom_env_vars 校验——必须为 {str: str} 字典。
+    规则:键名匹配 shell 变量名、≤50 组、值 ≤2048 字符、不得占用系统保留键。
+    空 dict 合法(=清空)。错误文案只暴露键名,不回显值(值可能含密文)。
+    设计留痕:本键**不进 SENSITIVE_KEYS**——密文回显会让编辑不可用(用户需看值来改),
+    且该设置页仅超管可见,与"审计不落值"(R25 决策④)共同构成安全边界。
+    """
+    if not isinstance(value, dict):
+        raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "配置项 custom_env_vars 必须为键值对象")
+    if len(value) > CUSTOM_ENV_MAX_KEYS:
+        raise BizError(
+            ErrCode.PLATFORM_SETTING_INVALID,
+            f"自定义变量数量超限(最多 {CUSTOM_ENV_MAX_KEYS} 个)",
+        )
+    result: dict[str, str] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not _ENV_KEY_RE.match(k):
+            raise BizError(
+                ErrCode.PLATFORM_SETTING_INVALID,
+                f"变量名 {k!r} 非法(须匹配 [A-Za-z_][A-Za-z0-9_]*)",
+            )
+        # 保留名拒写:防覆盖平台注入的 LLM/GitLab/任务上下文
+        if k in RESERVED_ENV_KEYS:
+            raise BizError(
+                ErrCode.PLATFORM_SETTING_INVALID,
+                f"变量名 {k} 为系统保留",
+            )
+        if not isinstance(v, str):
+            raise BizError(
+                ErrCode.PLATFORM_SETTING_INVALID,
+                f"变量 {k} 的值必须为字符串",
+            )
+        if len(v) > 2048:
+            raise BizError(
+                ErrCode.PLATFORM_SETTING_INVALID,
+                f"变量 {k} 的值超长(≤2048 字符)",
+            )
+        result[k] = v
+    return result
 
 
 def mask_sensitive(value: str) -> str:
@@ -167,8 +240,13 @@ async def get_gitlab_bot_config(db: AsyncSession) -> tuple[str, str, Optional[in
 async def update_settings(db: AsyncSession, updated_by: str, payload: dict) -> list[str]:
     """
     PUT 接口用:白名单 + 类型校验后 UPSERT;敏感项加密落盘。
-    返回成功更新的 key 列表。审计留 TODO(R19)。
+    返回成功更新的 key 列表。审计由 API 层接入(R25:模式 C,operator 在 API 层)。
     """
+    # R23: llm_* 三键必须齐备(整体保存,不支持只更新一键;缺一整批拒绝)
+    provided_llm = LLM_KEYS & payload.keys()
+    if provided_llm and provided_llm != LLM_KEYS:
+        raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "平台默认模型需完整配置三项")
+
     # 先整体校验,任一非法则整批拒绝(避免部分写入)
     validated: dict[str, Any] = {}
     for key, value in payload.items():
@@ -187,6 +265,6 @@ async def update_settings(db: AsyncSession, updated_by: str, payload: dict) -> l
         updated.append(key)
 
     await db.flush()
-    # TODO(R19): 审计记录 platform_settings.update(操作人/变更键列表,异步队列写 audit_logs)
+    # R25:审计已在 API 层接入(platform_settings.update,detail 记键列表不记值)
     logger.info("平台设置更新 keys=%s by=%s", updated, updated_by)
     return updated

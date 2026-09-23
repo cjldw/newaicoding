@@ -11,6 +11,7 @@ from app.models.model_config import ModelConfig
 from app.models.project import Project
 from app.models.user import User
 from app.services import llm_service
+from app.services.audit_service import audit_write  # R25 审计接入(事务内,失败不阻塞)
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,12 @@ async def create_config(db: AsyncSession, project, operator: User, req) -> dict:
     await db.refresh(config)
 
     logger.info("模型配置创建完成 config=%s project=%s", config.config_id, project.project_id)
+    # R25 审计:model_config.create(api_key 绝不落 detail)
+    await audit_write(
+        db, operator, "model_config.create",
+        project_id=project.project_id, target_type="model_config", target_id=config.config_id,
+        detail={"name": config.name, "model": config.model},
+    )
     return await _config_item(db, config)
 
 
@@ -167,6 +174,12 @@ async def update_config(db: AsyncSession, project, operator: User, config_id: st
     await db.flush()
     await db.refresh(config)
     logger.info("模型配置更新 config=%s by=%s", config_id, operator.user_id)
+    # R25 审计:model_config.update(api_key 绝不落 detail)
+    await audit_write(
+        db, operator, "model_config.update",
+        project_id=project.project_id, target_type="model_config", target_id=config_id,
+        detail={"name": config.name, "model": config.model},
+    )
     return await _config_item(db, config)
 
 
@@ -179,3 +192,9 @@ async def delete_config(db: AsyncSession, project, operator: User, config_id: st
     await db.delete(config)
     await db.flush()
     logger.info("模型配置删除 config=%s by=%s", config_id, operator.user_id)
+    # R25 审计:model_config.delete
+    await audit_write(
+        db, operator, "model_config.delete",
+        project_id=project.project_id, target_type="model_config", target_id=config_id,
+        detail={"name": config.name},
+    )
