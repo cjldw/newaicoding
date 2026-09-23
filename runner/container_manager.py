@@ -103,7 +103,7 @@ class ContainerManager:
         # git clone + checkout(逐 repo;失败抛出由调用方标记 failed 并清理)
         try:
             for repo in repos:
-                self._clone_repo(container, repo)
+                self._clone_repo(container, repo, env)
         except Exception:
             logger.exception("容器内 git 操作失败 container=%s", container.short_id)
             self.stop_container(container.short_id, force_push=False)
@@ -115,13 +115,27 @@ class ContainerManager:
             "ports": {str(c): h for c, h in port_map.items()},
         }
 
-    def _clone_repo(self, container: Any, repo: dict) -> None:
-        """容器内:git clone {url} {path} + checkout branch(+ 建工作分支)"""
+    def _clone_repo(self, container: Any, repo: dict, env: Optional[dict] = None) -> None:
+        """容器内:git clone {url} {path} + checkout branch(+ 建工作分支)
+
+        BUG-029:私有仓库 clone 需认证——平台 env 已注入 GITLAB_TOKEN(D10)。
+        普通 clone 失败时用 oauth2:{token}@ URL 重试,成功后立即把 remote 洗回干净
+        URL(凭据不落盘、不进 .git/config)。
+        """
         url = repo["url"]
         path = repo["path"]
         branch = repo.get("branch")
 
-        _exec(container, f"git clone {url} {path}")
+        code = _exec(container, f"git clone {url} {path}", check=False)
+        if code != 0:
+            token = (env or {}).get("GITLAB_TOKEN", "")
+            if not token:
+                # 无 token:按原逻辑抛出(clone 的真实报错)
+                _exec(container, f"git clone {url} {path}")
+            cred_url = _embed_token(url, token)
+            _exec(container, f"git clone {cred_url} {path}")
+            # 凭据不留在 .git/config(后续 push 由任务层单独处理)
+            _exec(container, f"git -C {path} remote set-url origin {url}", check=False)
         if branch:
             # 先尝试 checkout 远端分支;不存在则从当前 HEAD 建新分支(需求分支语义)
             code = _exec(container, f"git checkout {branch}", cwd=path, check=False)
@@ -440,6 +454,14 @@ def _cpu_limit_to_nano_cpus(cpu_limit: str) -> int:
         return int(cores * 1e9)
     except ValueError:
         return int(2e9)
+
+
+def _embed_token(url: str, token: str) -> str:
+    """http(s) URL 嵌入 oauth2 凭据(clone 认证重试用;clone 后立即洗回原 URL)"""
+    for scheme in ("https://", "http://"):
+        if url.startswith(scheme):
+            return f"{scheme}oauth2:{token}@{url[len(scheme):]}"
+    return url
 
 
 def _exec(container: Any, cmd: str, cwd: str = "", check: bool = True) -> int:

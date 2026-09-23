@@ -20,6 +20,8 @@ import asyncio
 import logging
 import os
 import platform as py_platform
+import queue
+import threading
 import time
 from typing import Any
 
@@ -350,17 +352,32 @@ def unregister_probe(container_id: str) -> None:
 
 
 async def event_listener(ws: Any) -> None:
-    """Docker events → 回报平台(die 时 manager 内先自动重启 ≤3 次)"""
-    def _iterate():
+    """Docker events → 回报平台(die 时 manager 内先自动重启 ≤3 次)
+
+    BUG-027:
+    - 同步 events 流改在独立线程泵送(原在协程内阻塞迭代,饿死事件循环 → 心跳停摆被平台判 offline)
+    - 只处理平台容器(label qicheng.managed=true);宿主机上无关容器不接管不回报
+    """
+    events_q: queue.Queue = queue.Queue()
+
+    def _pump() -> None:
         try:
-            yield from manager.iter_events()
+            for ev in manager.iter_events():
+                events_q.put(ev)
         except Exception:
             # Docker daemon 挂了:上报平台,平台标记 offline 不再调度(R16)
             logger.exception("Docker events 监听异常")
 
-    for event in _iterate():
+    threading.Thread(target=_pump, daemon=True, name="docker-events").start()
+
+    while True:
+        while events_q.empty():
+            await asyncio.sleep(0.2)
+        event = events_q.get_nowait()
         action = event.get("Action")
         attrs = (event.get("Actor") or {}).get("Attributes") or {}
+        if attrs.get("qicheng.managed") != "true":
+            continue
         container_id = (attrs.get("name") or event.get("id") or "")[:12]
         exit_code = attrs.get("exitCode")
         if action == "die":

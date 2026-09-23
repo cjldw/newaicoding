@@ -13,13 +13,14 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.response import BizError, ErrCode
 from app.models.container import Container
 from app.models.project import PlatformSetting, Project
+from app.models.task import Task
 from app.services import runner_service
 from app.services.runner_service import runner_registry
 
@@ -200,6 +201,15 @@ async def handle_container_started(
     container.status = "running"
     container.runner_host_port_5173 = ports.get("5173")
     container.runner_host_port_8000 = ports.get("8000")
+    await db.flush()
+
+    # BUG-030:任务行回填 container_id/runner_id(任务详情展示、停止/取消链路依赖;
+    # 原实现只更新 containers 表,tasks 行两字段恒空)
+    await db.execute(
+        update(Task)
+        .where(Task.task_id == task_id, Task.status == "running")
+        .values(container_id=container.container_id, runner_id=container.runner_id)
+    )
     await db.flush()
     logger.info(
         "容器已启动 container=%s runner=%s ports=%s",
