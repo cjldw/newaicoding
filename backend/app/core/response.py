@@ -108,6 +108,11 @@ class ErrCode:
     RUNNER_SESSION_EXISTS = 6002      # 该 Runner 已有终端会话,请先关闭
     RUNNER_TOO_OLD = 6003             # Runner 版本过旧,请升级 Runner 镜像后使用终端
 
+    # R28 头像上传(按契约使用 4001/4002;与 R4 任务 4001/4002 数字段重合,
+    # 两者业务语境不同、不会同时出现在同一接口,前端按 message 展示)
+    AVATAR_FORMAT_UNSUPPORTED = 4001  # 文件格式不支持(仅 JPG/PNG/WebP)
+    AVATAR_TOO_LARGE = 4002           # 文件大小超过 2MB
+
     # 权限
     NOT_SUPERADMIN = 19002            # 非平台超级管理员
     NO_PROJECT_PERMISSION = 1901      # 无项目操作权限(非 owner)

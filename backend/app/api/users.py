@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
@@ -17,10 +17,26 @@ from app.schemas.user import (
     UserProfileResponse,
     BindGitlabTokenResponse,
 )
+from app.services import avatar_service
 from app.services.gitlab_service import GitlabService
 from app.services.platform_settings_service import get_setting
 
 router = APIRouter(prefix="/api/users", tags=["用户"])
+
+
+def _profile_response(user: User) -> UserProfileResponse:
+    """构造个人信息响应(get_me 与 update_me 共用,R28/F5)"""
+    return UserProfileResponse(
+        user_id=user.user_id,
+        phone=mask_phone(user.phone),
+        nickname=user.nickname,
+        avatar_url=user.avatar_url,
+        role=user.role,
+        gitlab_username=user.gitlab_username,
+        gitlab_token_bound=user.gitlab_token_encrypted is not None,
+        gitlab_token_scopes=user.gitlab_token_scopes,
+        gitlab_token_bound_at=user.gitlab_token_bound_at,
+    )
 
 
 # -------------------------------------------------------------------
@@ -31,17 +47,7 @@ async def get_me(
     current_user: User = Depends(get_current_user),
 ):
     """获取当前登录用户的个人信息"""
-    data = UserProfileResponse(
-        user_id=current_user.user_id,
-        phone=mask_phone(current_user.phone),
-        nickname=current_user.nickname,
-        avatar_url=current_user.avatar_url,
-        role=current_user.role,
-        gitlab_username=current_user.gitlab_username,
-        gitlab_token_bound=current_user.gitlab_token_encrypted is not None,
-        gitlab_token_scopes=current_user.gitlab_token_scopes,
-        gitlab_token_bound_at=current_user.gitlab_token_bound_at,
-    )
+    data = _profile_response(current_user)
     return success(data=data.model_dump())
 
 
@@ -54,15 +60,59 @@ async def update_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """更新昵称、头像等个人信息"""
-    if req.nickname is not None:
+    """更新昵称、头像等个人信息,响应 data 返回更新后的完整用户信息
+
+    - R28/F1:nickname 显式传空串或 null 即清空(前端回显手机号);
+      未携带该字段则不修改(以 model_fields_set 区分)
+    - R28/F6:avatar_url 换成外部 URL 等非本地上传地址时,同步清空
+      avatar_file_path(本地文件不再作为头像来源;文件本身保留,V1 不删)
+    - R28/F5:响应 data 为更新后的 UserProfileResponse(前端直接 setUser)
+    """
+    if "nickname" in req.model_fields_set:
+        # 校验器已把空串折叠为 None,None 即清空昵称
         current_user.nickname = req.nickname
-    if req.avatar_url is not None:
-        current_user.avatar_url = req.avatar_url
+    if "avatar_url" in req.model_fields_set:
+        if req.avatar_url is None:
+            # R28:显式传 null 表示移除头像,同时清空本地文件路径
+            # (文件本身保留,V1 不做磁盘清理)
+            current_user.avatar_url = None
+            current_user.avatar_file_path = None
+        else:
+            if req.avatar_url != current_user.avatar_url:
+                # R28/F6:设为外部 URL(与当前值不同)时,原本地文件路径同步失效
+                current_user.avatar_file_path = None
+            current_user.avatar_url = req.avatar_url
 
     await db.flush()
 
-    return success(message="更新成功")
+    data = _profile_response(current_user)
+    return success(data=data.model_dump(), message="更新成功")
+
+
+# -------------------------------------------------------------------
+# POST /api/users/me/avatar - 上传头像(R28)
+# -------------------------------------------------------------------
+@router.post("/me/avatar")
+async def upload_avatar(
+    file: UploadFile,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    上传头像(multipart/form-data,字段名 file):
+    - 格式仅 JPG/PNG/WebP(4001),大小 ≤ 2MB(4002)
+    - 文件名 uuid4 随机生成(防枚举),落盘 ./data/avatars/{user_id}/
+    - 更新 avatar_url 与 avatar_file_path,响应仅返回 avatar_url
+    """
+    content = avatar_service.read_upload_limited(file.file)
+    ext = avatar_service.validate_avatar_upload(file.filename or "", file.content_type or "", content)
+    avatar_url, file_path = avatar_service.save_avatar_file(current_user.user_id, content, ext)
+
+    current_user.avatar_url = avatar_url
+    current_user.avatar_file_path = file_path
+    await db.flush()
+
+    return success(data={"avatar_url": avatar_url}, message="头像已更新")
 
 
 # -------------------------------------------------------------------

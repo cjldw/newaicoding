@@ -7,7 +7,8 @@ import type { UserInfo } from './auth'
 
 export interface UpdateProfileRequest {
   nickname?: string
-  avatar_url?: string
+  /** R28:传 null 表示移除头像(后端同时清空 avatar_file_path) */
+  avatar_url?: string | null
 }
 
 export interface BindGitLabTokenRequest {
@@ -25,6 +26,13 @@ export const usersApi = {
 
   updateProfile: (data: UpdateProfileRequest) =>
     api.patch<UserInfo>('/users/me', data),
+
+  /** R28:上传头像(multipart/form-data,字段名 file),成功返回平台头像 URL */
+  uploadAvatar: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ avatar_url: string }>('/users/me/avatar', form)
+  },
 
   getGitLabTokenStatus: () =>
     api.get<GitLabTokenStatus>('/users/me/gitlab-token'),

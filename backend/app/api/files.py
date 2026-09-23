@@ -3,15 +3,16 @@
 import logging
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.response import success
+from app.core.response import error, success
 from app.database import get_db
 from app.models.project import Project
 from app.models.user import User
-from app.services import file_service, project_member_service
+from app.services import avatar_service, file_service, project_member_service
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,24 @@ async def task_file_changes(
     """Q27 变更清单:相对 base_branch 全部差异,按仓库分组(M/A/D/R + 行数)"""
     data = await file_service.task_git_changes(db, task_id, base_branch)
     return success(data=data)
+
+
+# ---------------------------------------------------------------------------
+# R28:头像文件公开访问(无需登录)
+# ---------------------------------------------------------------------------
+@router.get("/files/avatars/{filename}")
+async def serve_avatar_file(filename: str):
+    """
+    头像文件公开访问(R28 验收 5:无需登录)。
+    - 文件名 uuid4 随机生成,不可枚举
+    - 严格白名单校验(uuid4 + jpg/jpeg/png/webp),路径遍历不可达
+    - 文件已删除时返回 404(前端加载失败回退默认头像)
+    """
+    path = avatar_service.resolve_avatar_file(filename)
+    if path is None or not path.is_file():
+        return JSONResponse(status_code=404, content=error(404, "头像文件不存在"))
+    media_type = avatar_service.MEDIA_TYPES.get(path.suffix.lstrip(".").lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media_type)
 
 
 # ---------------------------------------------------------------------------

@@ -31,8 +31,11 @@ async function request<T>(
 ): Promise<ApiResponse<T>> {
   const token = useAuthStore.getState().token
 
+  // R28:multipart(FormData)时交由浏览器自动设置 Content-Type(含 boundary)
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string> || {}),
   }
 
@@ -61,13 +64,20 @@ async function request<T>(
   return json
 }
 
+/** R28:FormData 原样作为 body,其余 JSON 序列化 */
+function encodeBody(body: unknown): BodyInit | undefined {
+  if (body == null) return undefined
+  if (typeof FormData !== 'undefined' && body instanceof FormData) return body
+  return JSON.stringify(body)
+}
+
 export const api = {
   get: <T>(url: string) => request<T>(url, { method: 'GET' }),
   post: <T>(url: string, body?: unknown) =>
-    request<T>(url, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+    request<T>(url, { method: 'POST', body: encodeBody(body) }),
   put: <T>(url: string, body?: unknown) =>
-    request<T>(url, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
+    request<T>(url, { method: 'PUT', body: encodeBody(body) }),
   patch: <T>(url: string, body?: unknown) =>
-    request<T>(url, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
+    request<T>(url, { method: 'PATCH', body: encodeBody(body) }),
   delete: <T>(url: string) => request<T>(url, { method: 'DELETE' }),
 }

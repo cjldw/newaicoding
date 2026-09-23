@@ -11,13 +11,21 @@ from pydantic import BaseModel, field_validator
 # ---------------------------------------------------------------------------
 
 class UpdateProfileRequest(BaseModel):
-    """更新个人信息请求"""
+    """更新个人信息请求
+
+    R28/F1:nickname / avatar_url 以「字段是否显式出现在请求体」区分
+    「不修改」与「清空」——显式携带空串或 null 即清空(未携带则保持不变)。
+    服务端用 model_fields_set 判断是否显式携带;校验器把空串折叠为 None,
+    统一以 None 表示清空(昵称清空后前端回显手机号,对齐 R1 默认值逻辑)。
+    """
+
     nickname: Optional[str] = None
     avatar_url: Optional[str] = None
 
     @field_validator("nickname")
     @classmethod
     def validate_nickname(cls, v: Optional[str]) -> Optional[str]:
+        # 空串折叠为 None:显式携带时表示「清空昵称」;超长仍拒绝
         if v is not None:
             v = v.strip()
             if len(v) > 32:

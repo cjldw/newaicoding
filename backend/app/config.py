@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     RUNNER_PORT_RANGE_START: int = 20000
     RUNNER_PORT_RANGE_END: int = 29999
 
+    # R28 头像本地上传目录(相对后端运行目录;按 user_id 建子目录)
+    AVATAR_UPLOAD_DIR: str = "./data/avatars"
+
     # 环境
     ENVIRONMENT: str = "development"
 

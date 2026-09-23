@@ -29,6 +29,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False, comment="bcrypt密码哈希")
     nickname = Column(String(32), nullable=True, comment="显示名")
     avatar_url = Column(String(255), nullable=True, comment="头像URL")
+    avatar_file_path = Column(String(255), nullable=True, comment="本地上传头像存储路径(R28,如 ./data/avatars/{user_id}/{filename})")
     status = Column(SAEnum("active", "disabled", name="user_status"), nullable=False, default="active", server_default="active", comment="状态")
     role = Column(SAEnum("superadmin", "user", name="user_role"), nullable=False, default="user", server_default="user", comment="平台角色")
     token_version = Column(Integer, nullable=False, default=0, server_default="0", comment="会话版本号")

@@ -14,6 +14,7 @@ import {
   ExternalLink, CheckCheck, Loader2,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
+import { getAvColor, getInitial } from '@/utils/avatar'
 import { Breadcrumb } from './Breadcrumb'
 import { useUnreadCount, useNotificationList, useMarkNotificationRead, useMarkAllRead } from '@/api/notifications'
 
@@ -82,30 +83,6 @@ function SItems({ items }: { items: NavItem[] }) {
   )
 }
 
-/** 头像背景色:按用户名/姓名首字映射(对齐 vp 原型) */
-const AV_COLORS: Record<string, string> = {
-  luowen: '#3b82f6', wangq: '#ec4899', liming: '#10b981',
-  zhangy: '#f59e0b', chenx: '#8b5cf6',
-}
-function getAvColor(name?: string): string {
-  if (!name) return '#6b7280'
-  const key = name.toLowerCase()
-  for (const k of Object.keys(AV_COLORS)) {
-    if (key.includes(k)) return AV_COLORS[k]
-  }
-  // 按首字符 hash 取色
-  const palette = ['#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4']
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0x7fffffff
-  return palette[h % palette.length]
-}
-
-/** 姓名首字(头像用) */
-function getInitial(name?: string | null): string {
-  if (!name) return '?'
-  return name.charAt(0)
-}
-
 /** 角色徽章文案 + 样式 */
 function getRoleBadge(role?: string): { label: string; cls: string } | null {
   if (role === 'superadmin') return { label: '超管', cls: 'bdg b-violet' }
@@ -122,6 +99,12 @@ export function MainLayout() {
   const userBtnRef = useRef<HTMLDivElement>(null)
   const [bellOpen, setBellOpen] = useState(false)
   const bellRef = useRef<HTMLDivElement>(null)
+  // R28:头像图加载失败时回退首字母;avatar_url 变化(上传/移除)后重置
+  const [avatarError, setAvatarError] = useState(false)
+
+  useEffect(() => {
+    setAvatarError(false)
+  }, [user?.avatar_url])
 
   // 通知数据:未读数(60s 轮询)+ 最近 5 条
   const { data: unreadData } = useUnreadCount()
@@ -339,7 +322,18 @@ export function MainLayout() {
             {/* 用户按钮:头像[姓名首字]+姓名+角色徽章,下拉含退出登录 */}
             <div className="user-btn-wrap" ref={userBtnRef}>
               <button className="user-btn" onClick={handleUserBtnClick} type="button">
-                <span className="av" style={{ background: avColor }}>{getInitial(displayName)}</span>
+                {/* R28:有 avatar_url 渲染圆形头像图(28px,object-fit:cover),失败/无头像回退首字母+hash 取色 */}
+                {user?.avatar_url && !avatarError ? (
+                  <img
+                    className="av"
+                    src={user.avatar_url}
+                    alt={displayName}
+                    style={{ objectFit: 'cover' }}
+                    onError={() => setAvatarError(true)}
+                  />
+                ) : (
+                  <span className="av" style={{ background: avColor }}>{getInitial(displayName)}</span>
+                )}
                 <span>{displayName}</span>
                 {roleBadge && <span className={roleBadge.cls}>{roleBadge.label}</span>}
               </button>
