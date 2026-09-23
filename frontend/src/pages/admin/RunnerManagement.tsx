@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react'
-import { Plus, Copy, RefreshCcw, Ban, Trash2, Server } from 'lucide-react'
+import { Plus, Copy, RefreshCcw, Ban, Trash2, Server, Terminal } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -16,10 +16,12 @@ import { Select } from '@/components/ui/Select'
 import { Alert } from '@/components/ui/Alert'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/Dialog'
+import { TerminalPanel } from '@/components/TerminalPanel'
 import {
   useRunners, useCreateRunner, useResetRunnerToken, useDisableRunner, useDeleteRunner,
   getRunnerErrorMessage,
 } from '@/api/admin/runners'
+import { createRunnerShellSession, closeTerminalSession, type TerminalSession } from '@/api/terminal'
 import type { Runner } from '@/api/admin/runners'
 
 const ROLE_OPTIONS = [
@@ -66,6 +68,35 @@ export function RunnerManagement() {
   const [resetTokenValue, setResetTokenValue] = useState('')
   const [resetTarget, setResetTarget] = useState<Runner | null>(null)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // R26:Runner 宿主终端(shell 会话;并发上限 1 由后端 6002 把关)
+  const [shellRunner, setShellRunner] = useState<Runner | null>(null)
+  const [shellSession, setShellSession] = useState<TerminalSession | null>(null)
+  const [shellErr, setShellErr] = useState<string | null>(null)
+  const [shellOpening, setShellOpening] = useState(false)
+
+  /** 打开终端:先 POST 建会话(按钮 loading 至返回);失败在 Dialog 内展示 6001/6002/6003 文案 */
+  async function openShell(r: Runner) {
+    setShellOpening(true)
+    setShellErr(null)
+    setShellSession(null)
+    setShellRunner(r)
+    try {
+      setShellSession(await createRunnerShellSession(r.runner_id))
+    } catch (e) {
+      setShellErr(getRunnerErrorMessage(e) || '终端创建失败')
+    } finally {
+      setShellOpening(false)
+    }
+  }
+
+  /** Dialog 关闭:WS close → 销毁会话(Runner 侧 kill pty;无残留) */
+  function closeShellDialog() {
+    if (shellSession) closeTerminalSession(shellSession.session_id).catch(() => {})
+    setShellRunner(null)
+    setShellSession(null)
+    setShellErr(null)
+  }
 
   function openCreate() {
     setForm({ name: '', role: 'worker', max_containers: 10, public_ip: '' })
@@ -155,6 +186,14 @@ export function RunnerManagement() {
                   <TableCell className="text-text-muted">{formatTime(r.last_heartbeat_at)}</TableCell>
                   <TableCell className="text-right" style={{ whiteSpace: 'nowrap' }}>
                     {/* §6.3 #3:操作按钮改 .btn.btn-sm / .btn.btn-sm.btn-danger */}
+                    {/* R26:终端按钮(仅 online 可点;非 online 置灰 title 提示) */}
+                    <button
+                      className="btn btn-sm"
+                      disabled={r.status !== 'online' || shellOpening}
+                      title={r.status !== 'online' ? 'Runner 不在线' : undefined}
+                      onClick={() => openShell(r)}
+                    ><Terminal className="w-3.5 h-3.5 mr-1" />终端</button>
+                    {' '}
                     <button className="btn btn-sm" onClick={() => { setResetTarget(r); setResetOpen(true) }}><RefreshCcw className="w-3.5 h-3.5 mr-1" />重置 token</button>
                     {' '}
                     <button className="btn btn-sm" onClick={() => handleDisable(r)}><Ban className="w-3.5 h-3.5 mr-1" />禁用</button>
@@ -210,6 +249,34 @@ export function RunnerManagement() {
           <DialogHeader><DialogTitle>token 已重置</DialogTitle><DialogDescription>请保存新 token(仅显示一次)</DialogDescription></DialogHeader>
           <div className="flex items-center gap-2 pt-2"><code className="flex-1 font-mono text-sm bg-surface-strong border border-border rounded px-3 py-2 break-all">{resetTokenValue}</code><Button variant="ghost" size="sm" onClick={() => copyToken(resetTokenValue)}><Copy className="w-3.5 h-3.5 mr-1" />点击复制</Button></div>
           <DialogFooter className="pt-2"><Button variant="primary" onClick={() => setResetSuccessOpen(false)}>关闭</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* R26:Runner 宿主终端(Dialog 80vw×80vh;xterm 容器 --term-bg 由 Terminal 组件处理;
+          断线写"Runner 连接中断"且不自动重连(terminalReconnect=false) */}
+      <Dialog open={!!shellRunner} onOpenChange={(o) => { if (!o) closeShellDialog() }}>
+        <DialogContent className="w-[80vw] max-w-[80vw]">
+          <DialogHeader>
+            <DialogTitle>Runner 终端 · {shellRunner?.name}</DialogTitle>
+            <DialogDescription>Runner 容器内 shell;关闭对话框即销毁会话</DialogDescription>
+          </DialogHeader>
+          {shellErr ? (
+            <div className="pt-2">
+              <Alert variant="error">{shellErr}</Alert>
+              <DialogFooter className="pt-4"><Button variant="ghost" onClick={closeShellDialog}>关闭</Button></DialogFooter>
+            </div>
+          ) : shellSession ? (
+            <div className="h-[70vh] min-h-0 flex flex-col">
+              <TerminalPanel
+                createSession={async () => shellSession}
+                onClose={(sid) => { closeTerminalSession(sid).catch(() => {}) }}
+                terminalReconnect={false}
+                terminalCloseMessage="Runner 连接中断"
+              />
+            </div>
+          ) : (
+            <div className="py-10 text-center text-sm text-text-muted">正在建立会话…</div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

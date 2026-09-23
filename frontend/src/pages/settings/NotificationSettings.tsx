@@ -79,9 +79,9 @@ export function NotificationSettings() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-6">
-        <Bell size={18} />
-        <h2 className="text-lg font-semibold">通知设置</h2>
+      {/* R2.F8(BUG-UI-068):统一 page-head + h1 + icon 惯例(原 icon 行升格) */}
+      <div className="page-head">
+        <h1 className="flex items-center gap-2"><Bell size={18} /> 通知设置</h1>
       </div>
 
       {/* 钉钉通知 */}

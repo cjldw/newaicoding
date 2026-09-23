@@ -3,6 +3,7 @@
  * 结构:页面标题 + 需求信息卡片 + 时间线 + 归档总结 + 关联知识条目 Table
  */
 import { useParams } from 'react-router-dom'
+import { Archive } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -54,7 +55,8 @@ export default function ArchivePage() {
     <div className="page wide">
       {/* 页面标题 */}
       <div className="page-head">
-        <h1 className="text-2xl font-semibold text-text">需求归档</h1>
+        {/* R2.F8(BUG-UI-068):h1 补 icon 惯例 */}
+        <h1 className="flex items-center gap-2"><Archive size={18} /> 需求归档</h1>
       </div>
 
       {/* 需求信息卡片 */}

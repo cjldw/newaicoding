@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/Dialog'
 import {
   useModelConfigs, useCreateModelConfig, useUpdateModelConfig,
-  useDeleteModelConfig, useTestModelConfig,
+  useDeleteModelConfig, useTestModelConfig, useResolvableModelConfig,
   getModelConfigErrorMessage,
 } from '@/api/projects'
 import type { ModelConfig } from '@/api/projects'
@@ -36,6 +36,7 @@ interface ModelConfigManagementProps {
 export function ModelConfigManagement({ projectId }: ModelConfigManagementProps) {
   const { data, isLoading } = useModelConfigs(projectId)
   const { data: membersData } = useProjectMembers(projectId)
+  const { data: resolvableData } = useResolvableModelConfig(projectId)
   const createConfig = useCreateModelConfig()
   const updateConfig = useUpdateModelConfig()
   const deleteConfig = useDeleteModelConfig()
@@ -193,6 +194,18 @@ export function ModelConfigManagement({ projectId }: ModelConfigManagementProps)
           </div>
         )}
       </div>
+
+      {/* R23 回退提示条 */}
+      {resolvableData?.effective_source === 'platform' && (
+        <Alert variant="info" className="mb-4">
+          项目未配置模型,当前使用平台默认配置({resolvableData.base_url} / {resolvableData.model})
+        </Alert>
+      )}
+      {resolvableData?.effective_source === 'none' && (
+        <Alert variant="warning" className="mb-4">
+          尚未配置模型,任务入口不可用,请联系管理员配置平台默认或项目默认模型
+        </Alert>
+      )}
 
       {/* 成功提示 */}
       {success && (

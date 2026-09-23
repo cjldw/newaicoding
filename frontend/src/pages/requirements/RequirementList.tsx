@@ -5,7 +5,7 @@
 
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, Eye } from 'lucide-react'
+import { Plus, Eye, ClipboardList } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
@@ -111,7 +111,8 @@ export function RequirementList() {
     <div>
       {/* 页头 */}
       <div className="page-head">
-        <h1 className="text-2xl font-semibold text-text">需求</h1>
+        {/* R2.F8(BUG-UI-068):h1 补 icon 惯例 */}
+        <h1 className="flex items-center gap-2"><ClipboardList size={18} /> 需求</h1>
         <Button variant="primary" onClick={() => setShowCreateDialog(true)}>
           <Plus className="w-4 h-4 mr-2" />
           新建需求

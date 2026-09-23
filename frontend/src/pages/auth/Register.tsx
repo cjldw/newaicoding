@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/Button'
 import { Label } from '@/components/ui/Label'
 import { Alert } from '@/components/ui/Alert'
 import { authApi } from '@/api/auth'
+import { AuthLogo } from './AuthLogo'
 
 const registerSchema = z
   .object({
@@ -76,10 +77,10 @@ export function Register() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg px-4">
       <Card className="w-full max-w-md p-6">
-        {/* Logo + 标题 */}
+        {/* Logo + 标题(R1.F2:LOGO 与登录页统一组件) */}
         <div className="flex flex-col items-center mb-8">
-          <img src="/logo.svg" alt="Logo" className="w-12 h-12 mb-4" />
-          <h1 className="text-xl font-semibold text-text">注册</h1>
+          <AuthLogo />
+          <h1 className="text-xl font-semibold text-text mt-3">注册</h1>
           <p className="text-sm text-text-muted mt-1">创建您的账号</p>
         </div>
 

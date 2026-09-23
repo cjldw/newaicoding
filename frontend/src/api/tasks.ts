@@ -42,6 +42,9 @@ export interface TaskListResponse {
 
 export interface TaskDetail {
   task_id: string
+  // R4.F4:归属字段(面包屑上级链用;旧后端未重启时为 undefined,调用方需兜底)
+  project_id?: string | null
+  req_id?: string | null
   type: TaskType
   title: string
   description: string

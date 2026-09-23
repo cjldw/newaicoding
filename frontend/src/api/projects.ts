@@ -395,6 +395,8 @@ export const modelConfigsApi = {
     api.delete<{ message: string }>(`/projects/${projectId}/model-configs/${configId}`),
   test: (projectId: string, data: TestModelConfigRequest) =>
     api.post<TestModelConfigResponse>(`/projects/${projectId}/model-configs/test`, data),
+  resolvable: (projectId: string) =>
+    api.get<ResolvableResponse>(`/projects/${projectId}/model-configs/resolvable`),
 }
 
 export const ModelConfigErrorCodes = {
@@ -463,5 +465,21 @@ export function useTestModelConfig() {
   return useMutation({
     mutationFn: ({ projectId, data }: { projectId: string; data: TestModelConfigRequest }) =>
       modelConfigsApi.test(projectId, data).then(r => r.data),
+  })
+}
+
+// ---- 生效配置查询(R23) ----
+export interface ResolvableResponse {
+  effective_source: 'project' | 'platform' | 'none'
+  base_url: string | null
+  model: string | null
+  api_key_masked: string | null
+}
+
+export function useResolvableModelConfig(projectId: string) {
+  return useQuery({
+    queryKey: ['model-configs-resolvable', projectId],
+    queryFn: () => modelConfigsApi.resolvable(projectId).then(r => r.data),
+    enabled: !!projectId,
   })
 }

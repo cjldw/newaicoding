@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { Rocket } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
@@ -30,8 +31,10 @@ interface DeployExt {
   deployed_at?: string
 }
 
-export default function DeployStatus() {
-  const { taskId = '' } = useParams<{ taskId: string }>()
+export default function DeployStatus({ taskIdProp, embedded = false }: { taskIdProp?: string; embedded?: boolean } = {}) {
+  // R4.F4:embedded=true 时被任务工作台中栏「部署日志」Tab 内嵌 —— 用传入 taskId、去掉页壳标题
+  const { taskId: routeId = '' } = useParams<{ taskId: string }>()
+  const taskId = taskIdProp ?? routeId
   const { data: task } = useTaskDetail(taskId)
   const offlineMut = useOfflineTask(taskId)
 
@@ -63,16 +66,19 @@ export default function DeployStatus() {
   }
 
   return (
-    <div className="page wide">
+    <div className={embedded ? '' : 'page wide'}>
       {toast && (
         <Alert variant="success" className="mb-4" onClose={() => setToast('')}>
           {toast}
         </Alert>
       )}
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-text">部署状态</h1>
-      </div>
+      {!embedded && (
+        <div className="page-head mb-6">
+          {/* R2.F8(BUG-UI-068):页头统一 page-head + icon 惯例 */}
+          <h1 className="flex items-center gap-2 text-2xl font-semibold text-text"><Rocket size={18} /> 部署状态</h1>
+        </div>
+      )}
 
       {/* 状态卡片 */}
       <Card className="p-6 mb-6">

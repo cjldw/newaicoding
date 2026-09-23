@@ -7,15 +7,16 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Info } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
+import { AuthLogo } from './AuthLogo'
 
 export function ForgotPassword() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg px-4">
       <Card className="w-full max-w-md p-6">
-        {/* 标题 */}
+        {/* 标题(R1.F2:LOGO 与登录页统一组件) */}
         <div className="flex flex-col items-center mb-8">
-          <img src="/logo.svg" alt="Logo" className="w-12 h-12 mb-4" />
-          <h1 className="text-xl font-semibold text-text">找回密码</h1>
+          <AuthLogo />
+          <h1 className="text-xl font-semibold text-text mt-3">找回密码</h1>
           <p className="text-sm text-text-muted mt-1">重置您的账号密码</p>
         </div>
 

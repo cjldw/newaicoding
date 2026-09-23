@@ -23,7 +23,17 @@ interface TerminalPanelProps {
   onToggleFullscreen?: () => void
 }
 
-export function TerminalPanel({ createSession, onClose, fullscreen = false, onToggleFullscreen }: TerminalPanelProps) {
+interface TerminalPanelProps {
+  createSession: () => Promise<{ session_id: string; ws_url: string }>
+  onClose?: (sessionId: string) => void
+  fullscreen?: boolean
+  onToggleFullscreen?: () => void
+  /** R26:透传 Terminal(断线行为;默认不传=任务终端既有行为) */
+  terminalReconnect?: boolean
+  terminalCloseMessage?: string
+}
+
+export function TerminalPanel({ createSession, onClose, fullscreen = false, onToggleFullscreen, terminalReconnect, terminalCloseMessage }: TerminalPanelProps) {
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -164,6 +174,8 @@ export function TerminalPanel({ createSession, onClose, fullscreen = false, onTo
           <Terminal
             wsUrl={active.wsUrl}
             attachTerm={(t) => { termRef.current = t }}
+            reconnect={terminalReconnect}
+            closeMessage={terminalCloseMessage}
           />
         )}
       </div>

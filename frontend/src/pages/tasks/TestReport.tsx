@@ -4,6 +4,7 @@
  */
 import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
@@ -25,8 +26,10 @@ const statusBadge: Record<string, { label: string; variant: 'success' | 'error' 
   pending: { label: '待执行', variant: 'default' },
 }
 
-export default function TestReport() {
-  const { taskId = '' } = useParams<{ taskId: string }>()
+export default function TestReport({ taskIdProp, embedded = false }: { taskIdProp?: string; embedded?: boolean } = {}) {
+  // R4.F4:embedded=true 时被任务工作台中栏「测试报告」Tab 内嵌 —— 用传入 taskId、去掉页壳标题
+  const { taskId: routeId = '' } = useParams<{ taskId: string }>()
+  const taskId = taskIdProp ?? routeId
   const nav = useNavigate()
   const { data: task } = useTaskDetail(taskId)
   const acceptMut = useAcceptFailure(taskId)
@@ -76,11 +79,14 @@ export default function TestReport() {
   }
 
   return (
-    <div className="page wide">
-      <div className="page-head">
-        <h1 className="text-2xl font-semibold text-text">测试报告</h1>
-        <p className="text-sm text-text-muted mt-1">任务:{task.title}</p>
-      </div>
+    <div className={embedded ? '' : 'page wide'}>
+      {!embedded && (
+        <div className="page-head">
+          {/* R2.F8(BUG-UI-068):h1 补 icon 惯例 */}
+          <h1 className="flex items-center gap-2 text-2xl font-semibold text-text"><BarChart3 size={18} /> 测试报告</h1>
+          <p className="text-sm text-text-muted mt-1">任务:{task.title}</p>
+        </div>
+      )}
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-4 gap-4 mb-6">

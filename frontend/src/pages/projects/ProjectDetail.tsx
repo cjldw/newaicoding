@@ -4,12 +4,11 @@
  * 本阶段仅"仓库"Tab 可用,其余 disabled
  */
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { Settings, Archive, Trash2, MoreHorizontal } from 'lucide-react'
+import { Settings, Archive, Trash2, MoreHorizontal, FolderKanban } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { BreadcrumbOverrideProvider } from '@/components/layout/Breadcrumb'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter,
@@ -73,7 +72,8 @@ export function ProjectDetail() {
       {/* 页头 */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold text-text">{project.name}</h1>
+          {/* R2.F8(BUG-UI-068):h1 补 icon 惯例 */}
+          <h1 className="flex items-center gap-2 text-2xl font-semibold text-text"><FolderKanban size={18} /> {project.name}</h1>
           <Badge variant={st.variant}>{st.label}</Badge>
         </div>
         <div className="relative">

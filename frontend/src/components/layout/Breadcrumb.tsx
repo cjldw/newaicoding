@@ -16,7 +16,7 @@
  *   - 详情页通过 BreadcrumbOverrideProvider 设置动态 crumbs(用页面已加载数据)
  *   - 无覆盖时走增强前缀匹配(带完整父级链 + 类型标签兜底)
  */
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useLocation, Link } from 'react-router-dom'
 
 export interface CrumbItem {
@@ -24,34 +24,18 @@ export interface CrumbItem {
   href?: string
 }
 
-// ---- Context: 详情页可覆盖面包屑 ----
-interface BreadcrumbCtxValue {
-  crumbs: CrumbItem[] | null
-  setCrumbs: (crumbs: CrumbItem[] | null) => void
-}
-
-const BreadcrumbContext = createContext<BreadcrumbCtxValue>({
-  crumbs: null,
-  setCrumbs: () => {},
-})
-
-/** 供详情页设置面包屑(挂载时设置,卸载时清空) */
+/**
+ * 供详情页设置面包屑(挂载时设置,卸载时清空)。
+ * R4.F4:经模块级桥 `setCrumbsBridge` 投递给 Breadcrumb 实例 ——
+ * 原 React Context 方案中 Provider 只包住 <Breadcrumb/> 自身,路由 Outlet 在
+ * context 之外,详情页写到的永远是 default context(noop),覆盖从未生效。
+ */
 export function BreadcrumbOverrideProvider({ crumbs, children }: { crumbs: CrumbItem[]; children?: ReactNode }) {
-  const { setCrumbs } = useContext(BreadcrumbContext)
   useEffect(() => {
-    setCrumbs(crumbs)
-    return () => { setCrumbs(null) }
-  }, [crumbs, setCrumbs])
+    setCrumbsBridge?.(crumbs)
+    return () => { setCrumbsBridge?.(null) }
+  }, [crumbs])
   return <>{children}</>
-}
-
-function BreadcrumbProvider({ children }: { children: ReactNode }) {
-  const [crumbs, setCrumbs] = useState<CrumbItem[] | null>(null)
-  return (
-    <BreadcrumbContext.Provider value={{ crumbs, setCrumbs }}>
-      {children}
-    </BreadcrumbContext.Provider>
-  )
 }
 
 /** 路由 → 面包屑层级映射(精确匹配表) */
@@ -196,8 +180,16 @@ function getBreadcrumbs(pathname: string): CrumbItem[] {
 
 function BreadcrumbInner() {
   const { pathname } = useLocation()
-  const { crumbs: overrideCrumbs } = useContext(BreadcrumbContext)
-  // 优先用 context 覆盖(详情页动态数据),否则走 pattern 匹配
+  // R4.F4 修正:override 改走模块级桥。原 BreadcrumbProvider 只包住 <Breadcrumb/> 自身,
+  // Outlet 在 context 之外,详情页的 BreadcrumbOverrideProvider 写到的是 default context(noop),
+  // 覆盖从未真正生效(此前 9 页核对验的是 pattern 兜底链,掩盖了该缺陷)。
+  const [overrideCrumbs, setOverrideCrumbs] = useState<CrumbItem[] | null>(null)
+  useEffect(() => {
+    // Breadcrumb 先于路由子页面挂载(MainLayout 中为前置兄弟),注册时子页 effect 尚未运行,时序安全
+    setCrumbsBridge = setOverrideCrumbs
+    return () => { setCrumbsBridge = null }
+  }, [])
+  // 优先用覆盖(详情页动态数据),否则走 pattern 匹配
   const items = overrideCrumbs ?? getBreadcrumbs(pathname)
 
   if (items.length === 0) return null
@@ -219,10 +211,9 @@ function BreadcrumbInner() {
   )
 }
 
+/** 模块级桥:详情页 override → Breadcrumb 实例(跨子树生效) */
+let setCrumbsBridge: ((c: CrumbItem[] | null) => void) | null = null
+
 export function Breadcrumb() {
-  return (
-    <BreadcrumbProvider>
-      <BreadcrumbInner />
-    </BreadcrumbProvider>
-  )
+  return <BreadcrumbInner />
 }

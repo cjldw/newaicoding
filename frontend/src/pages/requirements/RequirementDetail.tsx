@@ -182,7 +182,8 @@ export function RequirementDetail() {
       <div className="page-head">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-2xl font-semibold text-text">{requirement.title}</h1>
+            {/* R2.F8(BUG-UI-068):h1 补 icon 惯例 */}
+            <h1 className="flex items-center gap-2 text-2xl font-semibold text-text"><FileText size={18} /> {requirement.title}</h1>
             <Badge variant={st.variant}>{st.label}</Badge>
             <Badge variant={pr.variant}>{pr.label}</Badge>
           </div>

@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { authApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/authStore'
+import { AuthLogo } from './AuthLogo'
 
 const loginSchema = z.object({
   phone: z
@@ -62,42 +63,13 @@ export function Login() {
   return (
     <div className="login-wrap">
       <div className="login-card">
-        {/* Logo + 品牌副标题 */}
-        <div className="login-logo">
-          <span
-            className="logo-mark"
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 10,
-              display: 'grid',
-              placeItems: 'center',
-              background: 'var(--primary)',
-              color: '#fff',
-              fontWeight: 700,
-              fontSize: 18,
-            }}
-          >
-            旗
-          </span>
-          <span>
-            <b style={{ fontSize: 18 }}>旗程</b>
-            <span
-              className="muted small"
-              style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}
-            >
-              AI 研发流程平台 · 需求启程,一路旗程:需求 → 开发 → 测试 → 发布 → 归档
-            </span>
-          </span>
-        </div>
+        {/* Logo 统一组件(R1.F2:LOGO 图居中,与注册/找回/重置页一致) */}
+        <AuthLogo />
 
         {/* 登录卡片 */}
         <div className="login-box">
           <div>
             <h2 style={{ fontSize: 17, marginBottom: 4 }}>登录</h2>
-            <div className="muted small" style={{ color: 'var(--muted)', fontSize: 12 }}>
-              手机号 + 密码登录(JWT · access 2h · 短信验证码 V2)
-            </div>
           </div>
 
           {/* 错误提示 */}
@@ -182,27 +154,6 @@ export function Login() {
               )}
             </button>
           </form>
-
-          {/* 徽章 */}
-          <div className="chip-row small" style={{ justifyContent: 'center' }}>
-            <span className="bdg b-green">
-              <Key className="w-3 h-3" />
-              GitLab token 已绑定(luowen@gitlab.internal)
-            </span>
-          </div>
-        </div>
-
-        {/* 底部演示账号说明 */}
-        <div
-          className="small muted"
-          style={{
-            textAlign: 'center',
-            fontSize: 12,
-            color: 'var(--muted)',
-            marginTop: 12,
-          }}
-        >
-          演示账号:罗文(超管)/ 王倩(产品)/ 李明(测试)/ 张野(只读);注册为邀请制(token 由超管在「用户管理」生成)
         </div>
 
         {/* 辅助链接 */}

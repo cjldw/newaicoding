@@ -25,3 +25,12 @@ export async function createTerminalSession(
 export async function closeTerminalSession(sessionId: string): Promise<void> {
   await api.delete(`/terminal-sessions/${sessionId}`)
 }
+
+/** R26:创建 Runner 宿主 shell 会话(超管;POST /api/admin/runners/{id}/shell-sessions) */
+export async function createRunnerShellSession(runnerId: string): Promise<TerminalSession> {
+  const res = await api.post<TerminalSession>(
+    `/admin/runners/${runnerId}/shell-sessions`,
+    {},
+  )
+  return res.data
+}

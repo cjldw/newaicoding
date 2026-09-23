@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Plus,
   Folder,
@@ -43,6 +43,8 @@ const badgeLabel: Record<string, string> = {
 }
 
 export function ProjectList() {
+  // R2.F8(BUG-UI-068):卡片点击改走 SPA 路由(createBrowserRouter 下 hash 赋值无效)
+  const navigate = useNavigate()
   const [page, setPage] = useState(1)
   const { data, isLoading } = useProjectList({ status: 'active', page, page_size: 10 })
   const deleteProject = useDeleteProject()
@@ -108,7 +110,11 @@ export function ProjectList() {
                 <div
                   key={item.project_id}
                   className="pcard"
-                  onClick={() => (window.location.hash = `#/projects/${item.project_id}`)}
+                  onClick={() => navigate(`/projects/${item.project_id}`)}
+                  onKeyDown={(e) => {
+                    // 键盘可达性:role=link + tabIndex=0,Enter 与点击同效
+                    if (e.key === 'Enter') navigate(`/projects/${item.project_id}`)
+                  }}
                   role="link"
                   tabIndex={0}
                 >

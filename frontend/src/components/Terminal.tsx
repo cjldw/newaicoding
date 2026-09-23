@@ -16,6 +16,13 @@ interface TerminalProps {
   onOpen?: () => void
   /** 挂载后回传 xterm 实例(供面板导出日志/全屏适配),卸载时回传 null */
   attachTerm?: (term: XTerm | null) => void
+  /**
+   * R26:断线是否 3s 自动重连(默认 true=任务终端既有行为)。
+   * Runner shell 会话传 false:断线写"Runner 连接中断"且不重连(判据 11)。
+   */
+  reconnect?: boolean
+  /** 断线且 reconnect=false 时写入 xterm 的提示文案 */
+  closeMessage?: string
 }
 
 /** 将 http(s) URL 转为 ws(s) */
@@ -32,7 +39,7 @@ function buildWsUrl(raw: string): string {
   return token ? `${abs}${abs.includes('?') ? '&' : '?'}token=${token}` : abs
 }
 
-export function Terminal({ wsUrl, onOpen, attachTerm }: TerminalProps) {
+export function Terminal({ wsUrl, onOpen, attachTerm, reconnect = true, closeMessage }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // ref 中转避免 attachTerm 变化触发 effect 重跑(ws 重连)
   const attachRef = useRef(attachTerm)
@@ -109,6 +116,11 @@ export function Terminal({ wsUrl, onOpen, attachTerm }: TerminalProps) {
       }
       ws.onclose = () => {
         if (disposed) return
+        // R26:reconnect=false(Runner shell)→ 写断线文案,不自动重连(判据 11)
+        if (!reconnect) {
+          term.write(`\r\n\x1b[31m${closeMessage || '连接已断开'}\x1b[0m\r\n`)
+          return
+        }
         // 3 秒后重连(attach 复用 pty)
         reconnectTimer = setTimeout(connect, 3000)
       }
@@ -125,7 +137,7 @@ export function Terminal({ wsUrl, onOpen, attachTerm }: TerminalProps) {
       ws?.close()
       term.dispose()
     }
-  }, [wsUrl, onOpen])
+  }, [wsUrl, onOpen, reconnect, closeMessage])
 
   return (
     <div

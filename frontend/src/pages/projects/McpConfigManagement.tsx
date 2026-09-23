@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import { FileJson } from 'lucide-react'
+import { FileJson, Plug } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
 import { Input } from '@/components/ui/Input'
@@ -132,7 +132,8 @@ export function McpConfigManagement({ projectId }: McpConfigManagementProps) {
     <div className="space-y-4">
       {/* 操作栏 */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-text">MCP 配置</h2>
+        {/* R2.F8(BUG-UI-068):Tab 内区块标题补 icon(ProjectDetail 设置页内嵌,无独立页壳) */}
+        <h2 className="text-lg font-semibold text-text flex items-center gap-2"><Plug size={18} /> MCP 配置</h2>
         <Button variant="outline" size="sm" onClick={() => setTemplateOpen(true)}>
           <FileJson className="w-4 h-4 mr-2" />
           使用模板

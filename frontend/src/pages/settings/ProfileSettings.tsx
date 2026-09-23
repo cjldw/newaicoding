@@ -9,7 +9,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Save } from 'lucide-react'
+import { Loader2, Save, User } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -85,7 +85,10 @@ export function ProfileSettings() {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-text mb-4">个人资料</h2>
+      {/* R2.F8(BUG-UI-068):页头补 page-head + h1 + icon 惯例(与全部主页面统一) */}
+      <div className="page-head">
+        <h1 className="flex items-center gap-2"><User size={18} /> 个人资料</h1>
+      </div>
 
       {errorMsg && (
         <Alert variant="error" onClose={() => setErrorMsg(null)} className="mb-4">

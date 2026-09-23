@@ -9,7 +9,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff, Link2, Unlink, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Link2, Unlink, Loader2, KeyRound } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -96,7 +96,10 @@ export function GitLabTokenSettings() {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-text mb-4">GitLab Token</h2>
+      {/* R2.F8(BUG-UI-068):页头补 page-head + h1 + icon 惯例 */}
+      <div className="page-head">
+        <h1 className="flex items-center gap-2"><KeyRound size={18} /> GitLab Token</h1>
+      </div>
 
       {/* 提示 */}
       {errorMsg && (

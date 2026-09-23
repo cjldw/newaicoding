@@ -8,6 +8,29 @@
 
 import { api } from './client'
 
+// ========== 平台设置 ==========
+
+export interface PlatformSettings {
+  // GitLab 集成
+  gitlab_url: string | null
+  gitlab_bot_token: string | null  // 打码格式
+  gitlab_bot_group_id: number | string | null
+  gitlab_webhook_secret: string | null  // 打码格式
+  // 域名配置
+  preview_base_domain: string | null
+  deploy_base_domain: string | null
+  // 全局参数
+  max_containers_total: number | null
+  kb_max_pages_per_kb: number | null
+  kb_max_file_mb: number | null
+  // 模型默认配置(R23)
+  llm_base_url: string | null
+  llm_api_key: string | null  // 打码格式
+  llm_model: string | null
+  // 自定义容器环境变量(R8.F4;原样回显不打码)
+  custom_env_vars: Record<string, string> | null
+}
+
 // ========== 用户管理 ==========
 
 export interface AdminUser {
