@@ -25,6 +25,8 @@ from app.services import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["任务"])
+# BUG-UI-065:WS 独立无前缀 router(同 terminal.py)
+ws_router = APIRouter(tags=["任务"])
 
 
 # ---------------------------------------------------------------------------
@@ -483,7 +485,7 @@ async def delete_task_file(
 # ---------------------------------------------------------------------------
 # WS:任务事件流 /ws/tasks/{task_id}/events
 # ---------------------------------------------------------------------------
-@router.websocket("/ws/tasks/{task_id}/events")
+@ws_router.websocket("/ws/tasks/{task_id}/events")
 async def task_events_ws(
     websocket: WebSocket,
     task_id: str,

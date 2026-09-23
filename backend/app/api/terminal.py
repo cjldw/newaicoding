@@ -39,6 +39,8 @@ from app.services.terminal_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["终端"])
+# BUG-UI-065:WS 不吃 /api 前缀(前端/代理统一走 /ws/*;原挂在 /api 下导致握手 403)
+ws_router = APIRouter(tags=["终端"])
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +166,7 @@ async def _ws_current_user(db: AsyncSession, token: str) -> User | None:
     return user
 
 
-@router.websocket("/ws/terminal/{session_id}")
+@ws_router.websocket("/ws/terminal/{session_id}")
 async def terminal_ws(
     websocket: WebSocket,
     session_id: str,

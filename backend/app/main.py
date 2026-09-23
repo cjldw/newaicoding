@@ -67,11 +67,11 @@ from app.api.skills import router as skills_router
 from app.api.admin.skills import router as admin_skills_router
 from app.api.runner_ws import router as runner_ws_router
 from app.api.admin.runners import router as admin_runners_router
-from app.api.terminal import router as terminal_router
+from app.api.terminal import router as terminal_router, ws_router as terminal_ws_router
 from app.api.previews import router as previews_router
-from app.api.files import router as files_router
+from app.api.files import router as files_router, ws_router as files_ws_router
 from app.api.requirements import router as requirements_router
-from app.api.tasks import router as tasks_router
+from app.api.tasks import router as tasks_router, ws_router as tasks_ws_router
 from app.api.knowledge import router as knowledge_router
 from app.api.knowledge_bases import router as knowledge_bases_router
 from app.api.dashboard import router as dashboard_router
@@ -183,6 +183,10 @@ app.include_router(previews_router)
 app.include_router(files_router)
 app.include_router(requirements_router)
 app.include_router(tasks_router)
+# BUG-UI-065:WS 路由(/ws/*,无 /api 前缀)
+app.include_router(terminal_ws_router)
+app.include_router(files_ws_router)
+app.include_router(tasks_ws_router)
 app.include_router(knowledge_router)
 app.include_router(knowledge_bases_router)
 app.include_router(dashboard_router)

@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, Maximize2, Minimize2, Paperclip, Send, X } from 'lucide-react'
+import { Download, Loader2, Maximize2, Minimize2, Paperclip, Send, X } from 'lucide-react'
 import { Button } from './ui/Button'
 import {
   useTaskMessages, useSendTaskMessage, useUploadTaskFile,
@@ -280,6 +280,14 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
         </div>
       )}
 
+      {/* 发送 pending 反馈(BUG-UI-065:后端同步执行最长 10 分钟,无反馈=像坏了) */}
+      {sendMut.isPending && (
+        <div className="px-3 py-1 text-xs text-text-muted flex items-center gap-1.5 border-t border-border">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          AI 处理中,请稍候(长任务可能需要数分钟)…
+        </div>
+      )}
+
       {/* 输入区 */}
       <div className="relative border-t border-border p-2">
         {showAC && (
@@ -338,9 +346,9 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
             placeholder="输入消息,@ 引用已上传文件..."
             className="flex-1 px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary"
           />
-          <Button type="button" size="sm" onClick={handleSend} disabled={!input.trim()}>
-            <Send className="w-4 h-4 mr-1" />
-            发送
+          <Button type="button" size="sm" onClick={handleSend} disabled={!input.trim() || sendMut.isPending}>
+            {sendMut.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
+            {sendMut.isPending ? '发送中' : '发送'}
           </Button>
         </div>
       </div>

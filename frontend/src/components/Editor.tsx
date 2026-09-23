@@ -7,7 +7,12 @@
  */
 
 import { useRef, useCallback, useEffect } from 'react'
-import Editor, { type OnMount } from '@monaco-editor/react'
+import Editor, { loader, type OnMount } from '@monaco-editor/react'
+// BUG-UI-065:默认走 jsdelivr CDN 加载 monaco,受限网络下 ERR_CONNECTION_RESET(编辑器空白)。
+// 本地安装 monaco-editor 并 loader.config 指向本地包,vite 打包随应用分发,不再依赖 CDN。
+import * as monaco from 'monaco-editor'
+
+loader.config({ monaco })
 
 interface EditorProps {
   value: string

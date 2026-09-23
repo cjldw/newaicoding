@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Square, RotateCcw, CheckCircle2, ClipboardList, FileText, Maximize2, Minimize2, Save } from 'lucide-react'
+import { Square, RotateCcw, CheckCircle2, ClipboardList, FileText, Maximize2, Minimize2, Save, GitBranch, Box, Server } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import CodeEditor from '@/components/Editor'
@@ -23,6 +23,7 @@ import {
   useTaskDiff, useTaskChanges,
 } from '@/api/files'
 import { createTerminalSession } from '@/api/terminal'
+import { useDragSash } from '@/hooks/useDragSash'
 
 const statusBadge: Record<string, { label: string; variant: 'default' | 'primary' | 'success' | 'error' | 'secondary' | 'outline' }> = {
   pending: { label: '等待中', variant: 'outline' },
@@ -52,6 +53,15 @@ export default function TaskDetail() {
   const [fullscreen, setFullscreen] = useState<'chat' | 'terminal' | 'editor' | null>(null)
   // 编辑器当前草稿(供工具栏「保存」按钮显式保存;自动保存链路保留)
   const [editorDraft, setEditorDraft] = useState<string | null>(null)
+
+  // R4.F2:三栏/终端条拖拽尺寸
+  const [leftW, onLeftSashDown] = useDragSash(250, { min: 220, max: 480 })
+  const [rightW, onRightSashDown] = useDragSash(400, { min: 320, max: 640, invert: true })
+  const [termH, onTermSashDown] = useDragSash(200, {
+    min: 120,
+    max: Math.round(window.innerHeight * 0.6),
+    horizontal: false,
+  })
 
   // Esc 退出全屏
   useEffect(() => {
@@ -101,10 +111,10 @@ export default function TaskDetail() {
     return () => clearInterval(timer)
   }, [task?.status, refetchChanges])
 
-  function currentDiff(): { old: string; new: string } {
+  function currentDiff(): { old: string; new: string } | null {
     const files = diffData?.files ?? []
     const hit = files.find((f) => f.path === diffPath)
-    if (!hit) return { old: '', new: '' }
+    if (!hit) return null
     const oldLines: string[] = []
     const newLines: string[] = []
     for (const ln of hit.diff.split('\n')) {
@@ -128,6 +138,16 @@ export default function TaskDetail() {
           <Badge variant={tp.variant}>{tp.label}</Badge>
           <Badge variant={st.variant}>{st.label}</Badge>
           {task.error_message && <span className="text-xs text-error">{task.error_message}</span>}
+          {/* R4.F2:分支/容器/Runner 状态 chips(对齐 vp wb-head) */}
+          <span className="ml-2 hidden lg:flex items-center gap-1.5">
+            <span className="chip"><GitBranch className="w-3 h-3" />{task.work_branch}</span>
+            <span className={`chip${task.container_id ? ' !text-green-700' : ''}`}>
+              <Box className="w-3 h-3" />{task.container_id ? `容器 ${task.container_id.slice(0, 7)}` : '无容器'}
+            </span>
+            <span className={`chip${task.runner_id ? ' !text-green-700' : ''}`}>
+              <Server className="w-3 h-3" />{task.runner_id ? `Runner ${task.runner_id.slice(0, 8)}` : '未分配'}
+            </span>
+          </span>
         </div>
         <div className="flex items-center gap-2">
           {(task.status === 'running' || task.status === 'pending') && (
@@ -143,7 +163,15 @@ export default function TaskDetail() {
           {task.status === 'running' && (
             <Button
               variant="primary" size="sm"
-              onClick={() => { refetchChanges(); setCenterView('diff') }}
+              onClick={() => {
+                refetchChanges()
+                // BUG-UI-065:未选变更文件时自动取第一个变更,不再落"在左侧选择"占位
+                if (!diffPath) {
+                  const first = changesData?.repos?.[0]?.files?.[0]?.path
+                  if (first) setDiffPath(first)
+                }
+                setCenterView('diff')
+              }}
             >
               <CheckCircle2 className="w-4 h-4 mr-1" /> 查看 Diff
             </Button>
@@ -167,10 +195,10 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      {/* 三栏主体 */}
-      <div className="flex-1 flex min-h-0">
+      {/* 三栏主体(p-2 呼吸感;sash 拖拽调宽/高,R4.F2) */}
+      <div className="flex-1 flex min-h-0 p-2">
         {/* 左:文件树 */}
-        <div className="w-[250px] shrink-0 border-r border-border overflow-y-auto">
+        <div style={{ width: leftW }} className="shrink-0 overflow-y-auto">
           <FileTree
             mode="task"
             files={filesData?.items ?? []}
@@ -181,6 +209,11 @@ export default function TaskDetail() {
             onRefresh={() => { refetchFiles(); refetchChanges() }}
           />
         </div>
+        {/* 左 sash(拖拽调左栏宽) */}
+        <div
+          onMouseDown={onLeftSashDown}
+          className="w-1 shrink-0 cursor-col-resize rounded bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors"
+        />
 
         {/* 中:编辑器 / Diff / 预览 */}
         <div className="flex-1 flex flex-col min-w-0">
@@ -225,12 +258,19 @@ export default function TaskDetail() {
             {centerView === 'editor' && (
               selectedPath ? (
                 <div className={fullscreen === 'editor' ? 'fixed inset-0 z-[60] bg-[#1e1e1e] p-2 flex flex-col' : 'flex-1 min-h-0 flex flex-col'}>
-                  <CodeEditor
-                    value={fileData?.content ?? ''}
-                    path={selectedPath}
-                    onSave={(v) => saveFile.mutate({ taskId, path: selectedPath, content: v })}
-                    onChange={(v) => setEditorDraft(v)}
-                  />
+                  <div className="flex-1 min-h-0">
+                    <CodeEditor
+                      value={fileData?.content ?? ''}
+                      path={selectedPath}
+                      onSave={(v) => saveFile.mutate({ taskId, path: selectedPath, content: v })}
+                      onChange={(v) => setEditorDraft(v)}
+                    />
+                  </div>
+                  {/* 编辑器状态栏(R4.F2:治"底部贴边"观感 + 保存态可视) */}
+                  <div className="h-6 shrink-0 flex items-center justify-between px-3 text-[11px] text-text-muted bg-surface border-t border-border">
+                    <span className="truncate">{selectedPath}</span>
+                    <span className="shrink-0 ml-3">{saveFile.isPending ? '保存中…' : editorDraft === null ? '未修改' : '已保存'}</span>
+                  </div>
                 </div>
               ) : (
                 <div className="flex-1 flex items-center justify-center text-text-muted">在左侧选择文件</div>
@@ -238,9 +278,16 @@ export default function TaskDetail() {
             )}
             {centerView === 'diff' && (
               diffPath ? (
-                (() => { const d = currentDiff(); return (
-                  <DiffViewer oldValue={d.old} newValue={d.new} oldTitle={diffPath} newTitle={diffPath} />
-                ) })()
+                (() => {
+                  const d = currentDiff()
+                  // BUG-UI-065:无匹配 diff 时给明确空态,不再渲染双空 DiffViewer
+                  if (!d) return (
+                    <div className="flex-1 flex items-center justify-center text-text-muted">该文件暂无变更(diff 数据未就绪或文件不在变更列表)</div>
+                  )
+                  return (
+                    <DiffViewer oldValue={d.old} newValue={d.new} oldTitle={diffPath} newTitle={diffPath} />
+                  )
+                })()
               ) : (
                 <div className="flex-1 flex items-center justify-center text-text-muted">在左侧变更列表选择文件</div>
               )
@@ -249,8 +296,13 @@ export default function TaskDetail() {
           </div>
         </div>
 
+        {/* 右 sash(向左拖增宽右栏) */}
+        <div
+          onMouseDown={onRightSashDown}
+          className="w-1 shrink-0 cursor-col-resize rounded bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors"
+        />
         {/* 右:对话框 + 活动流/终端 */}
-        <div className="w-[400px] shrink-0 border-l border-border flex flex-col min-h-0">
+        <div style={{ width: rightW }} className="shrink-0 flex flex-col min-h-0">
           <div className="flex-1 min-h-0 overflow-hidden">
             <TaskChat
               taskId={taskId}
@@ -263,7 +315,12 @@ export default function TaskDetail() {
             <div className="flex-1 min-h-0">
               <ActivityStream taskId={taskId} />
             </div>
-            <div className="h-[200px] border-t border-border">
+            {/* 终端 sash(拖拽调终端条高) */}
+            <div
+              onMouseDown={onTermSashDown}
+              className="h-1 shrink-0 cursor-row-resize rounded bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors"
+            />
+            <div style={{ height: termH }}>
               <TerminalPanel
                 createSession={() => createTerminalSession(taskId)}
                 fullscreen={fullscreen === 'terminal'}

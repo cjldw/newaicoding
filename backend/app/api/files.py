@@ -16,6 +16,8 @@ from app.services import file_service, project_member_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["文件"])
+# BUG-UI-065:WS 独立无前缀 router
+ws_router = APIRouter(tags=["文件"])
 
 # 项目 → 项目对象解析(共用小工具)
 async def _project_or_404(db: AsyncSession, project_id: str) -> Project:
@@ -154,7 +156,7 @@ async def task_file_changes(
 from fastapi import Query as _Query  # noqa: E402
 
 
-@router.websocket("/ws/tasks/{task_id}/files")
+@ws_router.websocket("/ws/tasks/{task_id}/files")
 async def task_files_ws(
     websocket: WebSocket,
     task_id: str,

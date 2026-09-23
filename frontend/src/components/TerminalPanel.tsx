@@ -51,17 +51,13 @@ export function TerminalPanel({ createSession, onClose, fullscreen = false, onTo
 
   const handleClose = useCallback(
     (sessionId: string) => {
-      setTabs((prev) => prev.filter((t) => t.sessionId !== sessionId))
-      if (activeId === sessionId) {
-        setTabs((prev) => {
-          const next = prev.filter((t) => t.sessionId !== sessionId)
-          setActiveId(next[0]?.sessionId ?? null)
-          return prev
-        })
-      }
+      // BUG-UI-065:原实现两次 setTabs 且第二次 return prev 覆盖过滤结果(tab 关不掉)
+      const next = tabs.filter((t) => t.sessionId !== sessionId)
+      setTabs(next)
+      if (activeId === sessionId) setActiveId(next[0]?.sessionId ?? null)
       onClose?.(sessionId)
     },
-    [activeId, onClose],
+    [tabs, activeId, onClose],
   )
 
   // 导出当前会话日志(BUG-UI-064:序列化 xterm buffer 为 .log 下载)
