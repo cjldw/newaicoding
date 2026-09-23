@@ -64,6 +64,7 @@
 | BUG-029 | verified | R8(Runner clone) | 功能缺陷 | rd-fix 本地 E2E 实测 2026-09-23 | 容器内 git clone 裸 URL 无认证(fatal: could not read Username);平台 env 已注入 GITLAB_TOKEN 但 Runner 未使用;修复分片 R8.F3(认证重试 + remote 洗净;round3/4 clone 成功+0 残留实证) |
 | BUG-030 | verified | R8(平台回报处理) | 功能缺陷 | rd-fix 本地 E2E round3 实测 2026-09-23 | container_started 回报只更新 containers 表,tasks.container_id/runner_id 恒空;修复 container_service.handle_container_started 回填 tasks 行(round4 实测回填成功),修复点并入 R8.F3 记录 |
 | BUG-UI-064 | fixed | R4(任务工作台;波及 R9/R11 面板) | 功能增强(用户指令) | 用户指令 2026-09-23 | 任务页三面板(Terminal/AI 对话/文本编辑器)补齐全屏、保存、滚动,修复分片 R4.F1(tsc+build 过,verified 待浏览器) |
+| BUG-UI-065 | fixed | R4(工作台;波及 R9/R11) | 功能缺陷批(用户实测) | 用户指令 2026-09-23 | terminal 不行(WS 无代理+tab 关不掉)/diff 不行(不设 diffPath)/对话无反馈态/编辑器底部贴边,修复分片 R4.F2(tsc+build 过,verified 待浏览器;**vite dev 需重启加载 /ws 代理**) |
 
 ## BUG-015
 
