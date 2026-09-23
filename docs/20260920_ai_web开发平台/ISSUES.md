@@ -156,3 +156,16 @@
 - **根因**:`dashboard_views.py` 需求端点返回 `req_id`、任务端点返回 `task_id`,前端 `DimensionItem` 契约为 `key` → `item.key` 永远 undefined,`key.slice(0, 8)` 崩溃。此前列表恒空未触发,有真实项目/需求数据即白屏
 - **修复**:后端两端点 items 补 `"key"` 字段(保留原字段兼容),前端契约零改动
 - **回归证据(2026-09-22 实测)**:pytest dashboard 8/8;`GET /dashboard/requirements` items 含 key;浏览器实测 /manage/requirements 渲染 2 行不崩(含用户此前触发崩溃的数据),tasks/tests/releases 三维同验不崩;截图 fix-dimension-page.png
+
+## R25 审计接入·无实现宿主事件口径登记(2026-09-23)
+
+> R25 分片明确:以下 4 项审计事件**无实现宿主/端点,本次不接代码**,登记口径防止后续被当遗漏重报;宿主实现时补接。
+
+| 事件 | 不接原因 | 补接时机 |
+|---|---|---|
+| auth.logout(登出) | JWT 无状态,无 logout 端点 | 若 V2 增加服务端登出/token 撤销端点 |
+| runner.enable(Runner 启用) | Runner API 仅 disable,无 enable 端点(禁用后经 create 重建或直接改库) | 若增加 enable 端点 |
+| container.force_push_audit(销毁前强制 push) | 全库未见"销毁前强制 push"实现点(分片 R8 后续项),审计无处挂 | R8 销毁前强制 push 实现时(container_service 留 TODO 已注明) |
+| invitation.consume(邀请消费) | `consume_invitation` 函数存在但全库无调用方(注册流程未消费 invitation_token,邀请注册链路未接线) | 注册流程接线 invitation_token 消费时 |
+
+**另留痕(R25 顺带修复)**:`users_admin.py` 原 `_session_factory_holder` 机制无任何注入调用方,致 R19 的 user.disable/enable 审计此前**从不落库**;R25 改为直接引用模块级 `async_session_factory` 修复,并补 pytest 断言。

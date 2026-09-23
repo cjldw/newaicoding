@@ -3,7 +3,7 @@
 > PRD:./PRD.md
 > ARCH:./ARCH.md
 > 创建日期:2026-09-21
-> 状态:**已确认**
+> 状态:**已确认**(增量3:R23–R27 计划与 4 项负向规格均确认,待确认清单清零,2026-09-23)
 
 ## 需求概述
 
@@ -448,7 +448,7 @@ docker run -d \
 
 ## 当前进度
 
-**当前进度: 22/22 需求点 ✅ + 全部修复点 ✅(rd-fix 共 5 轮收敛;GitLab 集成全链路已实证:连接/建仓/clone/push;活跃遗留仅 BUG-007 verified 待部署机构建)- 引导进入 /rd-ship**
+**当前进度: 22/22 需求点 ✅ + 全部修复点 ✅ | 增量3(R23–R27):4/5 (80%) - R23/R24/R25/R26 完成,下一个 R27 | rd-fix 第 15 轮进行中:R9.F1(BUG-037 终端自动进 claude 同会话)🔄,其余 5 条用户指令分片流转中**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
@@ -478,6 +478,7 @@ docker run -d \
 | R19.F1 | 修复 BUG-001 超管角色字段传递与前端恢复 | M9 | ✅ | ./DEVPLAN/R19.F1.md |
 | R19.F2 | 修复 BUG-002/003/004 超管管理块前端补全(用户管理/审计日志页+守卫+外壳) | M9 | ✅ | ./DEVPLAN/R19.F2.md |
 | R1.F1 | 修复 BUG-005 测试套件与 dev 库隔离 | M1 | ✅ | ./DEVPLAN/R1.F1.md |
+| R5.F1 | 修复 BUG-032/033 对话链路 Runner 连接稳定性(runner send 锁+to_thread 解堵/平台快速失败+校验前移+TimeoutError 归一化) | M4/M5 | ✅(fixed;E2E 全判据过,AI 回复待 BUG-034 环境) | ./DEVPLAN/R5.F1.md |
 | R19.F2+ | 修复 BUG-006 管理页两处规格细节(空态文案/唯一超管禁用按钮) | M9 | ✅ | ./DEVPLAN/R19.F2.md(补遗) |
 | R2.F1 | 修复 BUG-008/009 gitlab_bot_group_id 类型宽容(前轮已实施,本轮回归确认) | M2 | ✅(BUG-009 verified 待用户真实 GitLab 复验) | ./DEVPLAN/R2.F1.md |
 | R19.F3 | 修复 BUG-UI-001 面包屑统一两级且父级可点击 | M9 | ✅(verified,迁移 ISSUES.md) | ./DEVPLAN/R19.F3.md |
@@ -489,13 +490,21 @@ docker run -d \
 | R2.F5 | 修复 BUG-012 GitLab PAT 鉴权头用错(Bearer → PRIVATE-TOKEN;BUG-009 真根因) | M2 | ✅(verified:端到端 ok=true v11.7.0,迁移 ISSUES.md) | ./DEVPLAN/R2.F5.md |
 | R2.F6 | 修复 BUG-013 私有组建 internal 仓库被拒(建仓可见性按组自动降级) | M2 | ✅(verified:冒烟建仓+clone+push 全通,迁移 ISSUES.md) | ./DEVPLAN/R2.F6.md |
 | R2.F7 | 修复 BUG-UI-063 详情页面包屑补全上级链 | M1 | ✅(fixed;9 页静态断言+tsc/build 过,verified 待浏览器) | ./DEVPLAN/R2.F7.md |
-| R8.F1 | 修复 BUG-026 devbox 基础镜像重建(universal 退役→devcontainers/typescript-node) | M5 | 🔄 | ./DEVPLAN/R8.F1.md |
+| R8.F1 | 修复 BUG-026 devbox 基础镜像重建(universal 退役→devcontainers/typescript-node) | M5 | ✅(verified 2026-09-23,详情文件为准;表格 🔄 系陈旧) | ./DEVPLAN/R8.F1.md |
 | R8.F2 | 修复 BUG-027 Runner 事件监听归属过滤 + 心跳饿死(events 线程泵送 + qicheng.managed 标签过滤) | M5 | ✅(fixed:心跳 30s 刷新实测 + 越权接管 0,verified 待长观察) | ./DEVPLAN/R8.F2.md |
 | R8.F3 | 修复 BUG-029 容器内 git clone 认证缺失(GITLAB_TOKEN oauth2 重试 + remote 洗净) | M5 | ✅(fixed+verified:E2E round3/4) | ./DEVPLAN/R8.F3.md |
 | R4.F1 | 增强 BUG-UI-064 任务工作台三面板全屏/保存/滚动(Terminal/AI 对话/编辑器) | M4 | ✅(fixed;tsc+build 过,verified 待浏览器) | ./DEVPLAN/R4.F1.md |
 | R4.F2 | 修复 BUG-UI-065 工作台缺陷批(WS 代理/终端关 tab/Diff 直显/对话反馈)+ 四项 UI 增强(状态栏/三处拖拽/任务头 chips) | M4 | ✅(fixed;tsc+build 过,verified 待浏览器;vite dev 需重启) | ./DEVPLAN/R4.F2.md |
+| R4.F3 | 对齐 BUG-UI-066 任务工作台 vp #/t/T-301 版式(wb-head/三栏 grid/右栏 对话·终端·活动 Tab 组) | M4 | ✅(首修被用户打回,**已被 R4.F4 照抄重写取代并验收通过**——非待办,状态卫生修正) | ./DEVPLAN/R4.F3.md |
+| R4.F4 | 二修 BUG-UI-066 任务工作台照抄重写 vp #/t/T-301(全出血骨架/wb-head/五类型中栏/右栏三 Tab/CSS 原值/并排视觉硬门禁) | M4 | ✅(fixed;并排视觉核对+功能扫测过,tsc+build 零错;待用户验收) | ./DEVPLAN/R4.F4.md |
 | R17.F1 | 修复 BUG-011 MCP/Skills 入口断链(设置按钮接线 + 侧栏补 Skills 市场) | M3 | ✅(verified:浏览器实测侧栏入口+页面渲染通过) | ./DEVPLAN/R17.F1.md |
 | R22.F1 | 修复 BUG-014 四维管理页 key 字段契约缺失崩溃 | M10 | ✅(verified:浏览器四维页实测不崩,迁移 ISSUES.md) | ./DEVPLAN/R22.F1.md |
+| R23 | 平台默认 LLM 配置与项目回退链(增量3) | M3 | ✅ | ./DEVPLAN/R23.md |
+| R24 | 平台设置页布局改版(增量3) | M2 | ✅(fixed;判据 1-7 Playwright 实证,tsc+build 零错,待用户验收) | ./DEVPLAN/R24.md |
+| R25 | 审计日志全量接入(增量3) | M9 | ✅(fixed;43/44 接入+1 无宿主登记;新增 pytest 19 例全绿,全量 293+1s 零回退,待用户验收) | ./DEVPLAN/R25.md |
+| R26 | Runner 管理终端(增量3) | M5 | ✅(fixed;pytest 10 例全绿,全量 303+1s;6003 全链浏览器实证;判据 4/8/11 真实 pty 场景待 rd-test) | ./DEVPLAN/R26.md |
+| R27 | manual 绑定修复与错误细分(增量3) | M1 | ⬜ | ./DEVPLAN/R27.md |
+| R9.F1 | 增强 BUG-037 任务页终端自动进入 claude 与对话同一会话(任务级 claude_session_id 持久化 + --session-id/--resume 接线 + 终端 exec 自动进 claude) | M5(波及 M4) | ✅(fixed;单测 9 新增+回归过,R9.F1 触碰面零失败;verified 待真实容器浏览器实测) | ./DEVPLAN/R9.F1.md |
 
 (状态:⬜ 未开始 / 🔄 进行中 / ✅ 完成 / ⚠️ 有问题。这张表是**全流程唯一的续接入口**——清上下文后只读它定位,再按需读详情文件,不全量重读)
 
@@ -513,6 +522,7 @@ docker run -d \
 | **M8 通知** | R18(站内信与通知) | M1, M4, M5 | 2d | 8 |
 | **M9 平台管理与权限** | R19(角色权限/用户管理/审计日志/邀请) | M1, M2, R12, R16, R17, R18 | 4d | 9 |
 | **M10 工作台与聚合视图** | R21(Dashboard), R22(四维管理) | R3, R4–R7, R12, R19 | 3d | 10 |
+| **增量3(2026-09-23)** | R23(平台默认 LLM,M3)/ R24(平台设置页布局,M2)/ R25(审计全量接入,M9)/ R26(Runner 终端,M5)/ R27(manual 绑定修复,M1) | 复用 R13/R19/R16/R9/R2 既有设施,无新表 | 3d | 11(可并行:R25 ∥ R23+R24 ∥ R26 ∥ R27) |
 
 (依赖顺序即推荐开发顺序;无依赖的模块可并行。注:M9 的权限 Guard(`require_project_role`)建议在 M1 期先落**最小骨架**(普通角色判定),M9 再补超管虚拟 owner 与管理页,避免 M4/M5 期权限裸奔)
 
@@ -530,6 +540,9 @@ docker run -d \
 | **J6 权限治理旅程** | R19(禁用用户)→ D17(token_version+1 → JWT 全失效)→ R4(任务取消 + 强制 push)→ R18(critical 告警) | 禁用事务联动任务取消;审计落 audit_logs(superadmin 身份);最后超管保护贯穿 |
 | **J7 知识沉淀旅程** | R14(归档 → 知识条目)+ R20(文档空间:导入/同步 → 快照) | R14 条目级与 R20 文档级并存;R20 同步以仓库为准(删除源文件 → 页面移除) |
 | **J8 聚合视图旅程** | R21(Dashboard 统计/最近 5 条)→ R22(四维菜单筛选/快速创建)→ R3/R4(项目内流程) | R21 口径=created_by=me,R22=成员项目全量;快速创建复用 R3/R4 校验链,前置不放宽 |
+| **J9 LLM 回退链旅程(增量3)** | R23(平台默认配置)→ R13(resolve_config 回退)→ R4/R8(任务创建 env/SDK 注入生效配置) | platform_settings.llm_* 被 resolve_config 消费;项目配置存在时平台默认不参与;resolvable 端点驱动前端入口禁用与提示 |
+| **J10 审计旅程(增量3)** | R25(44 挂点全量写入)→ R19(审计查询页按时间/用户/类型过滤) | 各模块操作产生 action_type 记录;登录失败/破坏性命令等安全事件可追溯;写失败不阻塞业务 |
+| **J11 Runner 排障旅程(增量3)** | R26(超管开 Runner 终端)→ R25(terminal.destructive_command / runner.terminal_open 审计) | Runner 自报 self_container_id;复用 exec 协议;会话即开即毁 |
 
 ## 范围外
 
@@ -557,6 +570,19 @@ docker run -d \
 - 远程 MCP server(有状态/资源密集)
 - Skills 版本管理
 - (R19)平台角色细分(仅 superadmin/user)/ 权限点动态配置 / 组织层级 / 超管操作审批流
+- (增量3 R23)平台默认 LLM 主/备多组 / 项目级"禁用回退"开关
+- (增量3 R24)平台管理一级导航重构 / 设置项搜索
+- (增量3 R25)审计日志导出 / 业务失败操作记录(除登录失败)
+- (增量3 R26)进入任务容器 exec 终端(工作台已覆盖)/ 多 Tab 会话 / 会话恢复 / 录制回放 / 文件上传到 Runner
+
+## 待确认清单(增量3,2026-09-23)
+
+> 以下 3 项负向规格与 Q-D(端点不存在口径)已于 2026-09-23 全部确认(用户"ok"),**待确认清单清零**;R23/R25/R27 自动确认依据见变更记录。
+
+- [x] R25:登录失败 detail 记录手机号——**确认:记,脱敏前 3 + **** + 后 4**(同 R1 规范)
+- [x] R26:同一 Runner 并发终端会话上限——**确认:1**(第二个打开返回 6002"该 Runner 已有终端会话,请先关闭")
+- [x] R26:打开 Runner 终端会话记审计——**确认:记 `runner.terminal_open`**(高敏操作)
+- [x] Q-D(R25):登出/Runner 启用/销毁前强制 push 三事件无实现宿主——**确认:不接 + ISSUES.md 登记口径**(强制 push 随 R8 后续实现补接)
 
 ## 变更记录
 
@@ -589,3 +615,18 @@ docker run -d \
 | 2026-09-23 | **rd-fix 第 8 轮收敛:R8.F1/F2/F3 全部 verified,BUG-026~030 五连闭环,"任务启动依托容器启动"全链 E2E 打通**。① R8.F1(BUG-026):镜像四轮迭代构建成功——universal 退役→typescript-node、skills/ 占位目录补建、MCP npm 清单 5→3(server-git/sqlite 退役实证)、用户 node 适配、CMD sleep infinity(BUG-028);② R8.F2(BUG-027):events 线程泵送 + qicheng.managed 过滤——重启后心跳 30s 刷新、越权接管 0;③ R8.F3(BUG-029):clone 认证 oauth2 重试 + remote 洗净——私有仓库克隆成功且凭据 0 落盘;④ BUG-030(并入 R8.F3):handle_container_started 回填 tasks.container_id/runner_id(后端无 --reload 需重启加载,round4 实测回填成功)。E2E 证据:round4 容器 56f4510d340e Up + tasks 行三字段齐 + 双容器并行;E2E 过程中环境事实:项目并发上限 3(4003)、stop 接口回收死任务。**ISSUES 迁移留待与并行 rd-test 会话统一收口;runner/backend 改动未提交待用户确认** | rd-fix 第 8 轮收敛(本地 Runner E2E) |
 | 2026-09-23 | **rd-fix 第 9 轮:新增 R4.F1 增强 BUG-UI-064 任务工作台三面板(用户指令:terminal/ai对话/文本编辑器全屏、保存、滚动)**。全屏 = TaskDetail 持状态 + 面板 CSS 提升 fixed 覆盖层(不重挂载,终端缓冲/聊天态/编辑器实例保留)+ Esc 退出;保存 = 编辑器工具栏显式保存(自动保存+Ctrl+S 保留)、终端日志导出 .log(xterm buffer 序列化,attachTerm 回传实例)、对话导出 .md;滚动原有链路验证健全。tsc 零错误 + build 8.25s;核对 `.scratch/R4.F1/ui-check.md`。**未提交待用户确认** | 用户指令(rd-fix 第 9 轮) |
 | 2026-09-23 | **rd-fix 第 10 轮:新增 R4.F2 修复 BUG-UI-065 工作台缺陷批 + 四项 UI 增强(用户实测反馈:terminal 不行/编辑器底部贴边/diff 不行/对话框不行)**。探查实证:① vite 仅代理 /api,**/ws 无代理 → 终端 WS 全灭**(主因);② handleClose 双 setTabs 覆盖致 tab 关不掉;③ 查看 Diff 不设 diffPath;④ 发送无 pending 反馈。修复:/ws 代理、handleClose 重写、Diff 自动选首个变更+空态、发送转圈+"AI 处理中"提示;增强:编辑器状态栏(path/保存态)、左栏/右栏/终端条三处 useDragSash 拖拽、任务头 分支/容器/Runner chips。tsc 零错+build 9.47s。**⚠️ vite dev 必须重启加载 /ws 代理;未提交待用户确认**。后续 UI 建议留档:预览内嵌标签页/命令面板/Diff 同步滚动/布局持久化 | 用户实测反馈(rd-fix 第 10 轮) |
+| 2026-09-23 | **rd-fix 第 11 轮:新增 R4.F3 对齐 BUG-UI-066 任务工作台 vp #/t/T-301 版式(用户指令)**。TaskDetail 重写:wb-head(返回+类型徽章+标题+状态+chips+acts)/ .wb 三栏(236/1fr/384,dev 非挂起才显文件树,保留左右拖拽)/ 中栏 twrap 卡片(tabs+状态栏)/ **右栏改 对话·终端·活动 Tab 组**(终端从底条变 Tab 全高,hidden 保活缓冲不丢)。R4.F1/F2 能力(全屏/导出/保存/状态栏)全保留。验证:独立测试账号(13900001111 邀请注册+editor 入项目,规避同账号并行登录互踢)Playwright 实测——结构断言全过、终端 Tab 内容器 shell 提示符可交互;pytest 之外 tsc 零错+build 22.5s。**未提交待用户确认** | 用户指令(rd-fix 第 11 轮) |
+| 2026-09-23 | **rd-fix 第 12 轮:R4.F3 被用户打回("你完全不按这个 ui 来"),新增 R4.F4 照抄重写 BUG-UI-066**。一手证据:1600×900 并排截图(vp-T301-baseline.png vs react-task-before.png)——React 仍为三张圆角浮动卡片,非 vp 全出血工作台;根因 = R4.F3 只做"类名存在"结构断言、未做并排视觉核对,违反 vp-prototype-fidelity 纪律。R4.F4 规格:主 agent 一手通读 vp pageTask/centerPane/rightPane/treePane/chatPane/actPane + CSS 原值(L79-391/L1147-1483),TaskDetail 四类型分支全量照抄,CSS 原类名原值移植,并排视觉核对升级为硬门禁。**流程修正:验证报告必须含 vp vs React 同框截图,结构断言不再单独作为通过依据** | 用户打回(rd-fix 第 12 轮) |
+| 2026-09-23 | **rd-fix 第 12 轮收敛:R4.F4 执行完成,BUG-UI-066 → fixed(并排视觉核对通过)**。编排异常留痕:三个实现 subagent 连续因上下文超限(autocompact thrashing)失败,按收敛保护切主 agent 直修(vp 已一手消化为自包含规格 `.scratch/R4.F4/vp-excerpt.md`)。改动:① TaskDetail.tsx 全量照抄重写(wb-head 五段+原值徽章/三栏 grid 无 gap 无 padding/twrap 三连/中栏五类型分支/右栏三 Tab+pulse dot/acts 按 vp 条件/tree-foot/sash 叠加边缘不进 grid 流);② globals.css 补齐 vp L326-391 类(wb-head/wb/col-*/empty/tree-tabs/ttab/chg-*)并逐值核对既有类;③ TestCasesReview/TestReport/DeployStatus 增 embedded 内嵌;④ 后端 GET /tasks/{task_id} 增 project_id/req_id(重启生效,面包屑数据源);⑤ **顺带修复 Breadcrumb override 从未生效的深层缺陷**(Provider 只包 Breadcrumb 自身,Outlet 在 context 外 → 改模块级桥),任务页四链面包屑真正渲染;⑥ smoke 任务乱码标题修正(本会话自建数据)。验证:tsc 零错 + build 成功;Playwright 并排核对 T-301 变体(种子 requirement/done 任务)+ dev/running 两态均与 vp 基准一致(vp 怪癖"非 dev 中栏落 236px 列"照抄,"chat pane 漏 on"不照抄已记录);功能扫测终端 WS 容器 shell/Tab 切换/@补全不回归。报告 `.scratch/R4.F4/ui-check.md`。**未提交待用户确认;test 账号 13900001111 密码已重置为 Rdfix1234(R4.F4 环境准备,留档)** | rd-fix 第 12 轮收敛 |
+| 2026-09-23 | **增量3:PRD R23–R27 计划落盘(Q30–Q40 已确认;ARCH 快筛无需新增决策——R23 按 D9/D10 既有加密与 env 注入契约、R25 按 R19 audit 基建、R26 按 D6/D11/D13 既有 Runner/exec 协议、R27 按 R2 既有流程)。新增 5 分片 R23-R27;调研底稿 `.scratch/code-analysis/`(audit-inventory.md 44 挂点 / runner-terminal-admin.md;llm-chain.md 调研 agent 失败未落盘,已由主 agent 直查 llm_service/task_service 补齐,分片内 file:line 为准)。无新表、无 DDL(DEPLOY.md 零变更);新增错误码:2008(LLM 连通失败)/ 2011-2014(绑定细分)/ 6001-6003(Runner 终端)。自动确认:R23(依据 Q30-Q32 + resolve_config 单插入点实证)、R25(依据 Q35/Q36 + 44 挂点清单;三项端点不存在口径登记 ISSUES)、R27(依据 Q39/Q40 + 根因实证);R24/R26 含负向规格 3 项待拍板(R26 并发会话=1、runner.terminal_open 审计、R25 登录失败 detail 脱敏手机号),见待确认清单 | rd-plan 增量3 |
+| 2026-09-23 | **增量3 计划确认收口**:Q-A 登录失败审计记脱敏手机号;Q-B Runner 并发会话上限=1;Q-C 记 `runner.terminal_open` 审计;Q-D 三个无宿主事件(登出/Runner 启用/强制 push)按"不接 + ISSUES 登记"口径确认。待确认清单清零,增量3 计划进入执行 | 用户确认 + 指令 /rd-dev |
+| 2026-09-23 | **R23 完成闭环(增量3 首点)**。后端:SETTING_KEYS +llm_* 3 键(str 类型)+ 三键齐备校验、2008 连通测试钩子(校验→测试→落库顺序)、resolve_config 平台回退(source 字段)、GET resolvable 端点(project/platform/none);前端:admin.ts 类型、useResolvableModelConfig、模型 Tab 两态提示条。测试:新测 13 绿+1 跳过 + 存量 39 绿 + tsc 零错 + vite build 过 + 审计通过。**编排留痕**:QA/后端/前端/审计首批 4 subagent 中 2 个 autocompact 死亡且 2 个完成通知失真(与调研期 llm-chain 事故同因)——按 rd-fix 第 8/12 轮先例切**主 agent 直做后端**并重审;ground truth 一律以磁盘/git 为准。**决策留痕**:① PUT 响应键沿用既有 `updated`(分片 `updated_keys` 系笔误,测试对齐实现);② 平台保存连通失败用独立码 2008(项目级 13001 已被 R13 占用);③ 判据 #5 标 ◐:回退解析三态已单测,task_service:86-89 env 按 key 透传零改动,容器内真实 env 验证归 rd-test;④ 顺手修复工作树遗留编译错(Breadcrumb 死函数/ProjectDetail 未用导入/TaskDetail 断线驳回按钮——后者移除重复入口,驳回走 TestReport 面板既有交互,属 R4.F4 未提交遗留,vp 验收时留意) | rd-dev 增量3 R23 |
+| 2026-09-23 | **R24 完成闭环(增量3 第 2 点)**。前端 `PlatformSettings.tsx` 重写:左导航 4 组(200px 定宽,active=bg-surface-strong+600+左 2px primary 竖线)+ 右单卡片(max-width 672px/.card 等值);三组既有逻辑平移,第 4 组模型默认配置接入(R23 契约)。验证:tsc 零错+vite build 过;Playwright 判据 1-7 全实证(4 项导航/默认组/672px/切换丢弃 100→999→100/掩码零回写 PUT body 实证/测试连接绿样式/防重 3 连点 1 PUT/缺项标红色值精确命中/R19 守卫弹回),ui-check 9/9 ✅。**编排留痕**:前端 subagent 派发 2 次均 autocompact 死亡,切主 agent 直做;subagent 死前初版遗留 10 项缺陷已全修(色板无 error/success、语义色子键 tx/bd→fg/border、打码串回写、gap/行距偏差、导航默认态文字、缺项未标红、受控切换警告、同 tick 防重失效、注释 `*/` 早闭、保存后未刷新打码)。**决策留痕**:① 分片"路由 /admin/settings"系笔误,沿用现状 `/admin/platform-settings`(复用清单"admin 路由不变"优先);② 敏感键 readOnly+「更换/取消」机制:分片④ readOnly 的必要补全(否则无法更新密钥),payload 剔除未编辑敏感键——**顺带修复原版即存在的打码串回写覆盖真值缺陷**(后端无掩码跳过逻辑,PUT 直存加密);③ GitLab 组提交键集合含 gitlab_webhook_secret(4 字段平移,分片键集合漏列第 4 键);④ 导航容器 border/rounded-lg/p-2 为规格外最小视觉补值(分片仅给 bg-surface);⑤ 保存成功后静默 GET 刷新打码回显;⑥ 消息条按分片"表单上方"字面移出 form(compareDocumentPosition 断言 banner 在 form 前,输入保留)。**未提交待用户确认**(连同 R4.F4/R23 遗留) | rd-dev 增量3 R24 |
+| 2026-09-23 | **rd-fix 第 14 轮:新增 R5.F1 修复 BUG-032(对话不可用)/BUG-033(files/changes 间歇 500)**。用户报障"对话部分没有用"。一手实证:① runner 日志 45min 内三次掉线(13:12/13:40/13:55,`ConnectionClosedError: no close frame`+写侧 10053);② 根因四层——runner 事件循环被同步 `claude_prompt` 阻塞致 ping/心跳饿死(服务端杀连接+sweep_offline 注销活连接)、5 路 send 无锁并发帧交错、平台 `request_runner` 死连接 send 静默成功致 future 永不结算(用户"发送中"卡 10 分钟)、`send_message` 先落库后校验失败回滚消息不入库;③ 上轮分析底稿的 sweep_offline 机制经本轮代码核实成立并合并。修复:runner send 加锁串行化 + claude_prompt 移入 to_thread + send_result 防炸;平台 request_runner 快速失败(转既有 TimeoutError 路径)+ send_message 校验前移(上轮 P0 落地)。分析底稿 `.scratch/fix-analysis.md`(含上轮归档);分析 subagent autocompact 死亡,按第 8/12 轮先例主 agent 直查 | 用户报障(rd-fix 第 14 轮) |
+| 2026-09-23 | **rd-fix 第 14 轮收敛:R5.F1 执行完成,BUG-032/033 → fixed**。改动:① runner/main.py 全局 `_SEND_LOCK` 串行化 5 路 send(并发帧交错致 RST 掉线)+ `claude_prompt` 移入 `asyncio.to_thread`(同步 docker exec 堵死循环→ping/心跳饿死,实测 claude 执行中第 4 次掉线复现根因)+ `safe_send_result` 防炸;② backend request_runner:send 异常即时转 TimeoutError(死连接 600s 死等→秒级 9001)+ asyncio.TimeoutError 归一化内建 TimeoutError(**py3.10 两个类,`except TimeoutError` 从未接住——BUG-033 的 500 真身**)+ send_message 容器/runner 校验前移(失败不再回滚用户消息)。E2E 全判据过:真实消息 174s 全链路 200+落库/离线 0.06s 返 9001/changes 3×200/295 测试绿。**新发现 BUG-034(open)**:AI 回复=ECONNREFUSED——容器内回环 base_url 注入(已修 container_base_url 改写)+ 本地 LLM 代理 18765 未监听(用户待办:启动代理监听 0.0.0.0 或改配置)。runner env 备份移至 `~/qicheng/runner_env.txt`(仓库外,token 卫生);backend/runner 日志落盘 `.runner_restart/`;浏览器 UI 复验因 Playwright profile 锁未完成待补 | rd-fix 第 14 轮收敛 |
+| 2026-09-23 | **BUG-034 闭环(用户配置全局默认 LLM 后重启任务)**。用户设全局 LLM=token-console.zhanqitv.com.cn(qwen3.7-plus)→ 停旧任务 + 新建 dev 任务(创建即拉起,resolve_config 取新配置)→ E2E 暴露第三层:**claude CLI 不读 LLM_MODEL,读 ANTHROPIC_MODEL**,缺失时请求内置 claude-opus-5-5 被网关 503——task_service 两处 env 补 `ANTHROPIC_MODEL` 注入。另:并行会话 R25 重构删除了 users_admin.set_audit_session_factory 但 main.py:108 调用未同步清理,后端启动失败,已移除死调用。最终验证:新任务 4a64b4ae(容器 15a50a94bdfc)对话 **5.1s 返真实 AI 回复**并落库——对话链路(前端→平台→Runner→容器 claude→网关→落库→前端)全通;旧任务 7531a151/d0713572 已 cancelled | 用户指令"用全局默认 LLM 重启任务" |
+| 2026-09-23 | **R25 完成闭环(增量3 第 3 点)**。44 项审计挂点:**43 接入 + 1 无宿主**(invitation.consume,函数无调用方→ISSUES 第 4 条)。改动:auth_service(登录 6 事件:成功/4 类失败,失败走 spawn 独立会话防业务回滚连带、成功走事务内 audit_write;占位全零 user_id+anonymous)、terminal_service(TODO 清除+破坏性命令 spawn,TerminalConnection 加 role 字段)、project/project_member/model_config/requirement/task 5 个 service(模式 A 事务内)、users_admin/runners/platform_settings/tasks/requirements 5 个 API 层(模式 C,service 签名不改)、2 个系统 sweep(占位+system+不记 ip)。验证:新增 pytest 19 例(P0 9+P1P2 10)全绿;**最终全量 293 passed+1 skipped 零回退**;真实环境 API 实证(超管过滤 3 行新事件/普通用户 403/占位 uid+anonymous+ip 全对)。**顺带修复 R19 既有缺陷**:users_admin `_session_factory_holder` 无任何注入调用方→user.disable/enable 审计此前从不落库,改直连模块级 factory。**编排留痕**:P0 subagent 派发 1 次中途失真(返回截断为过程叙述,只落一半)→ 主 agent 直做;首次全量回归抓出 create_project 插桩 NameError(name 变量不存在→project.name)已修。**调研底稿缺失**:`.scratch/code-analysis/audit-inventory.md` 丢失→实施期间重建 `audit-inventory-rebuilt.md`(43+1 逐项 file:line/detail 载荷)。**决策留痕**:① 无宿主第 4 项 invitation.consume 同口径登记;② 登录失败口径=action_type 描述失败原因(达阈值分支记 wrong_password+locked_triggered 而非 locked);③ 系统事件命名 task.timeout_sweep/runner.offline_sweep(分片未定名);④ detail 不落平台设置"值"只记键列表;⑤ 判据 9 页面级走查因浏览器与并行会话共享实例被扰,API 断言替代,页面走查归 rd-test。**未提交待用户确认**(含 R4.F4/R23/R24 及并行 rd-fix 第 14 轮 R5.F1 改动,提交时建议按需求点分笔) | rd-dev 增量3 R25 |
+| 2026-09-23 | **R26 完成闭环(增量3 第 4 点)**。后端:ErrCode 6001-6003(runners.py 四段校验 404→online→无活跃 shell 会话(closed_at IS NULL)→self_container_id)、POST /api/admin/runners/{id}/shell-sessions(exec 复用下发 + runner.terminal_open 审计)、TerminalConnection.task_id 可空化(逐引用点核对)、runner/main.py register 自报 HOSTNAME;破坏性命令 detail 加 session_kind(runner_shell/task)。前端:RunnerManagement 操作列「终端」按钮(online 可点/置灰 title)+ 80vw Dialog 嵌 TerminalPanel(先建会话后渲染,6001/6002/6003 文案 Dialog 内呈现,关闭调 DELETE close 销毁)、Terminal/TerminalPanel 加可选透传 props。验证:新增 pytest 10 例全绿(四段校验/403/审计两事件/task_id 解耦/session_kind 标记);全量 303 passed+1s 零回退;浏览器实证按钮态+Dialog 标题+6003 文案全链(截图 r26-shell-6003-dialog.png);本地 runner 重启后 self_container_id 上报实测。**编排留痕**:后端 subagent 派发 1 次 autocompact 死亡(死前落盘 6001-6003 错误码+task_id 解耦)→ 主 agent 接管余下全部。**决策留痕**:① Terminal.tsx/TerminalPanel.tsx「零改动」与判据 11「不重连」冲突→最小破例加可选 props(默认不传=既有行为);② 6002 用台账表判定非内存注册表;③ 库 online 但连接缺失同 6001;④ Windows 裸跑 HOSTNAME=空串与"非容器 id"同落 6003 兜底;⑤ ws_url 不带 ?token=(与 terminal.py 现状一致);⑥ 走查前重启旧后端进程加载新路由。**遗留**:判据 4/8/11 真实 pty 交互/kill/断线场景需容器化 runner,归 rd-test。**未提交待用户确认** | rd-dev 增量3 R26 |
+| 2026-09-23 | **rd-fix 第 15 轮:5 修复点执行完成(R1.F2/R2.F8/R22.F2/R3.F1/R8.F4),BUG-UI-067/068/069 + BUG-035/036 → fixed**。① R1.F2:登录页删 4 段演示/技术文案,auth 四页 LOGO 统一 AuthLogo 组件居中(偏差 0.0px);② R2.F8:ProjectList 卡片 hash→useNavigate(BrowserRouter 下原写法不跳),12 页补 page-head icon 惯例(留痕:路由实为 /settings/gitlab-token,分片笔误);③ R22.F2:四维页重写为 audit-logs 范式(card>fbar→tbl→card-foot,各维列照抄 vp heads 逐字)+ QuickCreateDialog(项目→关联字段)+ dashboard_views 两接口扩 project_id/q 参数与 req_branch/runner/created_by/端口/用例字段(批量摘要防 N+1),收敛 open 批 052/053/054/055/059/060/061/062;④ R3.F1:**E2E 推翻静态"链路完整"结论——create_polish_task 从不 INSERT tasks 行**(前端跳转 404/容器回填落空/四维不可见),补先落 Task(pending)再调度、成功置 running;⑤ R8.F4:custom_env_vars(envmap 键:保留名拒写/≤50/值≤2048/不打码决策留痕)+ task_service 两链 env 铺底注入 + LLM_URL 别名;PlatformSettings 第 5 组 KV 编辑。验证:Playwright 独立 headless 41/41(并排截图 login/manage 四维);新 pytest 13 例 + dashboard 8 例;**真实容器 env 实证** MY_TEST_VAR/LLM_URL 在列(docker exec 50f386fa63b4);tsc 零错+vite build 过。**环境留痕**:测试库 tasks 缺 claude_session_id 列(并行 R9.F1 迁移记账漂移)手工补列;8000 端口滞留旧进程曾致修复未生效假象(强杀重启后实证);取消 2 条修复前遗留 polishing 需求。**未提交待用户确认**;最终全量 pytest(干净窗口)= **322 passed + 1 skipped**,3 个 test_auth_login teardown 1213 死锁经隔离重跑 12/12 全绿,判定共享测试库并发噪声(第 15 轮 4 项环境留痕之一,详见 `.scratch/rd-fix-r15/fix-report.md`) | rd-fix 第 15 轮收敛 |
+| 2026-09-23 | **rd-fix 第 15 轮追加:新增 R9.F1 修复 BUG-037(任务页终端自动进入 claude 与对话同一会话)**。用户指令第 6 条。一手证据:对话=逐条独立 `claude -p` 调用(claude_service.py:60,无 --session-id/--resume,对话自身无上下文延续);任务终端 exec 下发裸 `/bin/bash`(terminal.py:103-109);Runner 侧 claude_prompt 自拼 cmd(container_manager.py:350,Runner 独立进程不可 import 后端)。方案:tasks 加列 claude_session_id(uuid4 懒生成,对话/终端先到先建);首次 `--session-id` 固定 UUID、后续一律 `--resume`(规避 CLI 版本对"复用 --session-id"的语义差异);终端 exec 改 bash -lc 包装(claude 缺失时落 bash、退出 claude 落回 shell);R26 超管 Runner 终端链路零波及。分析 `.scratch/fix-analysis.md`,分片 `./DEVPLAN/R9.F1.md` | 用户指令(rd-fix 第 15 轮追加) |
+| 2026-09-23 | **R9.F1 执行完成,BUG-037 → fixed(第 15 轮追加指令闭环)**。实施:① tasks 加列 claude_session_id(模型 + alembic 迁移 a7b2c8d9e1f3,链验证无分叉);② ensure_claude_session 懒生成(uuid4,对话/终端先到先建);③ send_message→run_prompt 透传 session_id/resume,runner claude_prompt 拼 --session-id(首次)/--resume(续接),不传参数时 cmd 与原版逐字节一致;④ 终端 exec 改 bash -lc 包装(command -v claude 守卫:无 claude 容器直接落 bash;退出 claude 落回 shell);⑤ 语义安全:仅首次用 --session-id、后续一律 --resume,规避 CLI 版本差异。验证:新增 backend 6 用例 + runner 3 用例;R9.F1 触碰面四文件隔离跑绿(r9f1 6/6×3 复跑);runner 全量 24/24;全量回归残 fail 经隔离复跑+git diff 归因为 R25 审计 FK 死锁 + 共享远程测试库并行串台(两轮全量失败集 8/63→17/87 漂移为铁证),R9.F1 触碰面零失败。连带修三处过时测试替身(tasks_api/dev_tasks fake_run_prompt 形参、terminal_api 夹具补 Task 行 + cmd 断言)。**verified 待用户真实容器浏览器实测**(终端自动进 claude TUI → 对话后终端 resume 同会话上下文 → 退出落 bash → R26 Runner 终端不变)。未提交待用户确认 | rd-fix 第 15 轮追加收敛 |
