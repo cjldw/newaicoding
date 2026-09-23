@@ -78,3 +78,6 @@ dash.png
 *.stackdump
 resp.json
 report/
+
+# codegraph 索引产物(codegraph-mcp)
+.codegraph/
