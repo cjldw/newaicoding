@@ -3,11 +3,11 @@
 > PRD:./PRD.md
 > ARCH:./ARCH.md
 > 创建日期:2026-09-21
-> 状态:**已确认**(增量3:R23–R27 计划与 4 项负向规格均确认,待确认清单清零,2026-09-23)
+> 状态:**打磨中**(增量4:R28–R30 计划撰写中,待确认清单待清零,2026-09-23)
 
 ## 需求概述
 
-从零搭建一个**AI 驱动的研发流程协作平台**,覆盖**需求打磨 → 开发 → 测试 → 发布 → 归档**全流程;22 个需求点(R1–R22),10 个模块(M1–M10),全部新建,无历史代码包袱。
+从零搭建一个**AI 驱动的研发流程协作平台**,覆盖**需求打磨 → 开发 → 测试 → 发布 → 归档**全流程;30 个需求点(R1–R30),10 个模块(M1–M10),全部新建,无历史代码包袱。
 
 **核心技术栈**(按 ARCH 决策):
 - **后端**:Python 3.12 + FastAPI + SQLAlchemy 2.0 async + MySQL 8.0 + asyncmy
@@ -448,7 +448,7 @@ docker run -d \
 
 ## 当前进度
 
-**当前进度: 22/22 需求点 ✅ + 全部修复点 ✅ | 增量3(R23–R27):4/5 (80%) - R23/R24/R25/R26 完成,下一个 R27 | rd-fix 第 15 轮进行中:R9.F1(BUG-037 终端自动进 claude 同会话)🔄,其余 5 条用户指令分片流转中**
+**当前进度: 22/22 需求点 ✅ + 全部修复点 ✅ | 增量3(R23–R27):4/5 (80%) - R23/R24/R25/R26 完成,下一个 R27 | rd-fix 第 15 轮进行中:R9.F1(BUG-037 终端自动进 claude 同会话)🔄,其余 5 条用户指令分片流转中 | rd-fix 第 16 轮收敛:R2.F9(BUG-038 平台设置 InvalidTag 500)✅ verified 迁移,BUGS.md 活跃代码 bug 清零(R9.F1 等 15 轮项仍待浏览器实测) | rd-fix 第 17 轮收敛:R19.F5(BUG-039 审计日志 UTC 串滤空)✅ verified 迁移,平台默认时区钉死 GMT+8(前端 formatGmt8 + 后端 DB 会话 +08:00);并行会话 R28 迁移 b2e8f4a6c9d1 已由第 17 轮代执行到 dev 库(见变更记录) | 增量4(R28–R30):1/3 (33%) - R28 完成**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
@@ -505,6 +505,11 @@ docker run -d \
 | R26 | Runner 管理终端(增量3) | M5 | ✅(fixed;pytest 10 例全绿,全量 303+1s;6003 全链浏览器实证;判据 4/8/11 真实 pty 场景待 rd-test) | ./DEVPLAN/R26.md |
 | R27 | manual 绑定修复与错误细分(增量3) | M1 | ⬜ | ./DEVPLAN/R27.md |
 | R9.F1 | 增强 BUG-037 任务页终端自动进入 claude 与对话同一会话(任务级 claude_session_id 持久化 + --session-id/--resume 接线 + 终端 exec 自动进 claude) | M5(波及 M4) | ✅(fixed;单测 9 新增+回归过,R9.F1 触碰面零失败;verified 待真实容器浏览器实测) | ./DEVPLAN/R9.F1.md |
+| R2.F9 | 修复 BUG-038 平台设置单键解密失败打挂整页(_decode_stored 逐键容错折叠 None;2001/13005 干净降级;0 前端) | M2(波及 M3 回退链) | ✅(verified:红测 9 failed→11/11 绿,全量 333/1s/0;真实环境重启后 GET 200 + 3 失效键未配置降级,迁移 ISSUES.md;5 条存量密文重录归用户运维) | ./DEVPLAN/R2.F9.md |
+| R19.F5 | 修复 BUG-039 审计日志页时间筛选发 UTC 串把全表滤空(接口返回空;本地裸串适配 + isError + start>end 禁查询) | M9(0 后端) | ✅(verified:Red 0 条→Green 69 条,NY 时区判据 PASS,时区钉死 GMT+8(前端 formatGmt8 + 后端 time_zone='+08:00' 固化);tsc/build/pytest 398/1s/0;迁移 ISSUES.md) | ./DEVPLAN/R19.F5.md |
+| R28 | 用户信息修改增强(昵称、头像本地上传)(增量4) | M1 | ✅ | ./DEVPLAN/R28.md |
+| R29 | 平台导览(左下角入口)(增量4) | M10 | ⬜ | ./DEVPLAN/R29.md |
+| R30 | 黑白主题切换(增量4) | M10 | ⬜ | ./DEVPLAN/R30.md |
 
 (状态:⬜ 未开始 / 🔄 进行中 / ✅ 完成 / ⚠️ 有问题。这张表是**全流程唯一的续接入口**——清上下文后只读它定位,再按需读详情文件,不全量重读)
 
@@ -523,10 +528,11 @@ docker run -d \
 | **M9 平台管理与权限** | R19(角色权限/用户管理/审计日志/邀请) | M1, M2, R12, R16, R17, R18 | 4d | 9 |
 | **M10 工作台与聚合视图** | R21(Dashboard), R22(四维管理) | R3, R4–R7, R12, R19 | 3d | 10 |
 | **增量3(2026-09-23)** | R23(平台默认 LLM,M3)/ R24(平台设置页布局,M2)/ R25(审计全量接入,M9)/ R26(Runner 终端,M5)/ R27(manual 绑定修复,M1) | 复用 R13/R19/R16/R9/R2 既有设施,无新表 | 3d | 11(可并行:R25 ∥ R23+R24 ∥ R26 ∥ R27) |
+| **增量4(2026-09-23)** | R28(用户信息修改增强,M1)/ R29(平台导览,M10)/ R30(黑白主题切换,M10) | R28 依赖 R1;R29 依赖 R1/R21/R22;R30 无依赖 | 2d | 12(可并行:R30 ∥ R28 → R29) |
 
 (依赖顺序即推荐开发顺序;无依赖的模块可并行。注:M9 的权限 Guard(`require_project_role`)建议在 M1 期先落**最小骨架**(普通角色判定),M9 再补超管虚拟 owner 与管理页,避免 M4/M5 期权限裸奔)
 
-**总耗时**:44 天(约 9 周,1 人);多人并行可压缩到 4-5 周。
+**总耗时**:46 天(约 9.5 周,1 人);多人并行可压缩到 4-5 周。
 
 ## 业务旅程(跨需求点)
 
@@ -543,6 +549,7 @@ docker run -d \
 | **J9 LLM 回退链旅程(增量3)** | R23(平台默认配置)→ R13(resolve_config 回退)→ R4/R8(任务创建 env/SDK 注入生效配置) | platform_settings.llm_* 被 resolve_config 消费;项目配置存在时平台默认不参与;resolvable 端点驱动前端入口禁用与提示 |
 | **J10 审计旅程(增量3)** | R25(44 挂点全量写入)→ R19(审计查询页按时间/用户/类型过滤) | 各模块操作产生 action_type 记录;登录失败/破坏性命令等安全事件可追溯;写失败不阻塞业务 |
 | **J11 Runner 排障旅程(增量3)** | R26(超管开 Runner 终端)→ R25(terminal.destructive_command / runner.terminal_open 审计) | Runner 自报 self_container_id;复用 exec 协议;会话即开即毁 |
+| **J12 用户个性化旅程(增量4)** | R28(上传头像)→ R1(getMe 返回 avatar_url)→ 全局布局显示头像 | avatar_url 被 MainLayout/ProfileSettings 消费;移除头像后回退首字母 |
 
 ## 范围外
 
@@ -574,8 +581,11 @@ docker run -d \
 - (增量3 R24)平台管理一级导航重构 / 设置项搜索
 - (增量3 R25)审计日志导出 / 业务失败操作记录(除登录失败)
 - (增量3 R26)进入任务容器 exec 终端(工作台已覆盖)/ 多 Tab 会话 / 会话恢复 / 录制回放 / 文件上传到 Runner
+- (增量4 R28)头像裁剪(V1 仅预览)
+- (增量4 R29)交互式分步导览(driver.js 高亮元素,V1 做静态链接列表)
+- (增量4 R30)多主题/自定义配色(V1 仅亮/暗两套)
 
-## 待确认清单(增量3,2026-09-23)
+## 待确认清单(增量3,2026-09-23)——已清零
 
 > 以下 3 项负向规格与 Q-D(端点不存在口径)已于 2026-09-23 全部确认(用户"ok"),**待确认清单清零**;R23/R25/R27 自动确认依据见变更记录。
 
@@ -583,6 +593,16 @@ docker run -d \
 - [x] R26:同一 Runner 并发终端会话上限——**确认:1**(第二个打开返回 6002"该 Runner 已有终端会话,请先关闭")
 - [x] R26:打开 Runner 终端会话记审计——**确认:记 `runner.terminal_open`**(高敏操作)
 - [x] Q-D(R25):登出/Runner 启用/销毁前强制 push 三事件无实现宿主——**确认:不接 + ISSUES.md 登记口径**(强制 push 随 R8 后续实现补接)
+
+## 待确认清单(增量4,2026-09-23)——待清零
+
+> 增量3 待确认清单已于 2026-09-23 清零(见变更记录)。以下 3 项为增量4 技术细节确认,**进入 /rd-dev 前必须清零**:
+
+- [ ] **Q41** R28 头像上传存储路径:`./data/avatars/{user_id}/` 是否合适?(当前推荐:平台后端本地磁盘,与项目部署目录同级;文件访问走 `GET /api/files/avatars/{filename}`,无需登录)
+- [ ] **Q42** R29 导览步骤动态生成:复用现有 `/api/projects`、`/api/requirements`、`/api/tasks` 接口(每维度取第一条),还是需要聚合接口?(当前推荐:复用现有接口,前端并行请求 5 个维度,有数据则显示步骤)
+- [ ] **Q43** R30 暗色主题 CSS 变量参考风格:GitHub Dark(#0d1117/#161b22/#21262d)或 vp 原型或其他?(当前推荐:GitHub Dark 风格;语义色徽章不随主题变)
+
+**用户确认后,DEVPLAN.md 状态改为"已确认",待确认清单清零,即可进入 /rd-dev**。
 
 ## 变更记录
 
@@ -630,3 +650,9 @@ docker run -d \
 | 2026-09-23 | **rd-fix 第 15 轮:5 修复点执行完成(R1.F2/R2.F8/R22.F2/R3.F1/R8.F4),BUG-UI-067/068/069 + BUG-035/036 → fixed**。① R1.F2:登录页删 4 段演示/技术文案,auth 四页 LOGO 统一 AuthLogo 组件居中(偏差 0.0px);② R2.F8:ProjectList 卡片 hash→useNavigate(BrowserRouter 下原写法不跳),12 页补 page-head icon 惯例(留痕:路由实为 /settings/gitlab-token,分片笔误);③ R22.F2:四维页重写为 audit-logs 范式(card>fbar→tbl→card-foot,各维列照抄 vp heads 逐字)+ QuickCreateDialog(项目→关联字段)+ dashboard_views 两接口扩 project_id/q 参数与 req_branch/runner/created_by/端口/用例字段(批量摘要防 N+1),收敛 open 批 052/053/054/055/059/060/061/062;④ R3.F1:**E2E 推翻静态"链路完整"结论——create_polish_task 从不 INSERT tasks 行**(前端跳转 404/容器回填落空/四维不可见),补先落 Task(pending)再调度、成功置 running;⑤ R8.F4:custom_env_vars(envmap 键:保留名拒写/≤50/值≤2048/不打码决策留痕)+ task_service 两链 env 铺底注入 + LLM_URL 别名;PlatformSettings 第 5 组 KV 编辑。验证:Playwright 独立 headless 41/41(并排截图 login/manage 四维);新 pytest 13 例 + dashboard 8 例;**真实容器 env 实证** MY_TEST_VAR/LLM_URL 在列(docker exec 50f386fa63b4);tsc 零错+vite build 过。**环境留痕**:测试库 tasks 缺 claude_session_id 列(并行 R9.F1 迁移记账漂移)手工补列;8000 端口滞留旧进程曾致修复未生效假象(强杀重启后实证);取消 2 条修复前遗留 polishing 需求。**未提交待用户确认**;最终全量 pytest(干净窗口)= **322 passed + 1 skipped**,3 个 test_auth_login teardown 1213 死锁经隔离重跑 12/12 全绿,判定共享测试库并发噪声(第 15 轮 4 项环境留痕之一,详见 `.scratch/rd-fix-r15/fix-report.md`) | rd-fix 第 15 轮收敛 |
 | 2026-09-23 | **rd-fix 第 15 轮追加:新增 R9.F1 修复 BUG-037(任务页终端自动进入 claude 与对话同一会话)**。用户指令第 6 条。一手证据:对话=逐条独立 `claude -p` 调用(claude_service.py:60,无 --session-id/--resume,对话自身无上下文延续);任务终端 exec 下发裸 `/bin/bash`(terminal.py:103-109);Runner 侧 claude_prompt 自拼 cmd(container_manager.py:350,Runner 独立进程不可 import 后端)。方案:tasks 加列 claude_session_id(uuid4 懒生成,对话/终端先到先建);首次 `--session-id` 固定 UUID、后续一律 `--resume`(规避 CLI 版本对"复用 --session-id"的语义差异);终端 exec 改 bash -lc 包装(claude 缺失时落 bash、退出 claude 落回 shell);R26 超管 Runner 终端链路零波及。分析 `.scratch/fix-analysis.md`,分片 `./DEVPLAN/R9.F1.md` | 用户指令(rd-fix 第 15 轮追加) |
 | 2026-09-23 | **R9.F1 执行完成,BUG-037 → fixed(第 15 轮追加指令闭环)**。实施:① tasks 加列 claude_session_id(模型 + alembic 迁移 a7b2c8d9e1f3,链验证无分叉);② ensure_claude_session 懒生成(uuid4,对话/终端先到先建);③ send_message→run_prompt 透传 session_id/resume,runner claude_prompt 拼 --session-id(首次)/--resume(续接),不传参数时 cmd 与原版逐字节一致;④ 终端 exec 改 bash -lc 包装(command -v claude 守卫:无 claude 容器直接落 bash;退出 claude 落回 shell);⑤ 语义安全:仅首次用 --session-id、后续一律 --resume,规避 CLI 版本差异。验证:新增 backend 6 用例 + runner 3 用例;R9.F1 触碰面四文件隔离跑绿(r9f1 6/6×3 复跑);runner 全量 24/24;全量回归残 fail 经隔离复跑+git diff 归因为 R25 审计 FK 死锁 + 共享远程测试库并行串台(两轮全量失败集 8/63→17/87 漂移为铁证),R9.F1 触碰面零失败。连带修三处过时测试替身(tasks_api/dev_tasks fake_run_prompt 形参、terminal_api 夹具补 Task 行 + cmd 断言)。**verified 待用户真实容器浏览器实测**(终端自动进 claude TUI → 对话后终端 resume 同会话上下文 → 退出落 bash → R26 Runner 终端不变)。未提交待用户确认 | rd-fix 第 15 轮追加收敛 |
+| 2026-09-23 | **新增 R2.F9 修复 BUG-038(GET /api/admin/platform-settings 500)**:全库 5 条存量密文(platform_settings 3 + users 1 + model_configs 2)与当前 PLATFORM_SECRET_KEY 全部 InvalidTag,根因 09-22 23:03 .env 密钥轮换后长驻 uvicorn 未重启仍用旧密钥写库至 09-23 14:45,20:33 重启载新密钥解存量即崩;_decode_stored 无逐键容错,单条坏行打挂设置页。方案:_decode_stored 单文件逐键容错折叠 None,消费方经既有 2001/13005 干净降级,0 前端;编号 R2.F9(顺延,R2.F8 已被第 15 轮 ProjectList 修复占用,无分片文件仅存变更记录)。分析底稿 .scratch/fix-analysis.md,分片 ./DEVPLAN/R2.F9.md | 用户实测(rd-fix 第 16 轮) |
+| 2026-09-23 | **增量4:PRD R28–R30 计划落盘(Q41–Q43 待确认;ARCH 快筛无需新增决策——R28 按 R1 既有用户体系扩展、R29 按 R21/R22 既有聚合视图复用、R30 纯前端 CSS 变量切换)。新增 3 分片 R28(用户信息修改增强:users 表加 avatar_file_path + POST /api/users/me/avatar + GET /api/files/avatars/{filename} + 前端头像上传组件)/ R29(平台导览:TourDialog 组件 + 步骤动态生成 + localStorage 首次弹出 + 侧栏入口接线)/ R30(黑白主题切换:[data-theme="dark"] CSS 变量 + useTheme hook + 顶栏切换按钮 + 系统主题监听);调研底稿 `.scratch/code-analysis/increment4-analysis.md`。R28 有后端(1 新接口 + 1 扩展接口 + users 表 1 字段),R29/R30 纯前端。无新表、无 DDL(users 加字段走 alembic)。R28/R29/R30 自动确认依据:复用现有接口/组件/样式体系,无负向规格缺口。**待确认 3 项**:Q41 头像存储路径、Q42 导览步骤接口策略、Q43 暗色主题参考风格 | rd-plan 增量4 |
+| 2026-09-23 | **R2.F9 执行完成,BUG-038 → verified(第 16 轮闭环)**。QA 红测先行:9 failed 复现 InvalidTag(证据 /tmp/bug038_red.txt)→ 修复转绿 11/11;改动 2 文件:platform_settings_service.py(+15/-2,_decode_stored 逐键容错捕获 InvalidTag/ValueError 折叠 None + warning 只记键名不泄明文)+ 新增 tests/test_bug038_invalid_secret.py(11 用例:GET 200/失效键缺席/日志不泄密/test-connection 2001/resolve_config+resolvable 13005/PUT 重录自愈/无辜路径防误伤)。回归:targeted 76+1s、110 消费方全绿;全量 333 passed/1 skipped/0 failed。真实环境(用户确认重启后):超管 GET /api/admin/platform-settings = HTTP 200 + code 0,gitlab_webhook_secret/gitlab_bot_token/llm_api_key 降级未配置形态,日志 3 条 warning 精准命中,重启后 0 个 500;BUG-038 迁移 ISSUES.md,BUGS.md 活跃代码 bug 清零。**环境留痕**:① venv 缺 pytest,补装时 pytest-asyncio 1.4 与 conftest session event_loop 不兼容,回 pin pytest 8.4.2+pytest-asyncio 0.26.0(仅 dev 依赖);② 旧 JWT 因 token_version 递增失效属既有机制,重启后浏览器需重新登录。**运维重录项(归用户)**:platform_settings 3 键 + users.gitlab_token 1 条 + model_configs 2 条(同根因失效密文,旧密钥不可恢复) | rd-fix 第 16 轮收敛 |
+| 2026-09-23 | **新增 R19.F5 修复 BUG-039(审计日志接口返回空)**:用户报告审计日志没有/接口返回空;实证后端正常(裸调 63 条今日事件,含 platform_settings.update×2),根因在前端——AuditLogsPage 时间筛选 toISOString() 发 UTC 串,而 audit_logs.created_at 存本地(UTC+8)裸墙钟,end_time 落后 8h 把全表滤空(复放矩阵:仅 end_time=UTC→total 0,本地串→65)。修复:前端单文件改本地裸时间串(顺带修 8h 显示偏移 + 清空输入 RangeError)+ isError 分支 + start>end 禁查询(R19.F2 规格缺口收口);0 后端。分析底稿 .scratch/fix-analysis.md,分片 ./DEVPLAN/R19.F5.md | 用户报告(rd-fix 第 17 轮) |
+| 2026-09-23 | **R19.F5 范围修订(用户指令)**:平台默认时区显式钉死东八区 GMT+8——前端时间源显式 Asia/Shanghai(不跟随浏览器,toISOString/toLocaleString 无参形式均弃用,时间列直接渲染后端裸串);后端 database.py 引擎加会话级 time_zone='+08:00' 固化 func.now() 写入契约(存量数据已实证 +08:00 墙钟,零迁移);新增强制非 GMT+8 浏览器时区的回归判据 | 用户指令"修改默认时区为东八区 GMT+8"(第 17 轮执行中) |
+| 2026-09-23 | **R28 执行完成(增量4 第 1 点)**:后端(users 表加 avatar_file_path + POST /api/users/me/avatar + GET /api/files/avatars/{filename} + PATCH 扩展) + 前端(ProfileSettings 头像上传组件 + MainLayout 头像显示改造 + users.ts/client.ts API 扩展)。验证:后端 57/57 pytest 通过(含新增 25 用例 + 17 补丁用例);前端 tsc 零错误 + vite build 通过;ui-check 8/8 ✅;审计发现修复 F1(昵称清空链路)/F5(setUser(null))/F6(外部 URL 同步清 avatar_file_path)。**编排留痕**:后端/QA/前端/审计 4 subagent 全部存活完成;DEPLOY.md 补记迁移 b2e8f4a6c9d1(并行会话第 17 轮已代执行到 dev 库)。**遗留**:前端 Playwright 走查归 rd-test | rd-dev 增量4 R28 |

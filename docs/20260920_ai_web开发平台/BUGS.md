@@ -1,8 +1,8 @@
 # BUGS.md — 活跃问题清单
 
-> 项目:ai_web开发平台 | 更新:2026-09-23(rd-fix 第 15 轮启动:用户 5 条修复指令)
+> 项目:ai_web开发平台 | 更新:2026-09-23(rd-fix 第 17 轮收敛:BUG-039 verified 迁移 ISSUES.md;平台默认时区钉死 GMT+8)
 > 状态流转:open → fixed → verified(verified 后迁移至 ISSUES.md)
-> 已 verified 迁移:第 3 轮 BUG-UI-001/003/004/005/006;第 4 轮 BUG-010;第 5 轮 BUG-009/011/012/013(见 ISSUES.md)
+> 已 verified 迁移:第 3 轮 BUG-UI-001/003/004/005/006;第 4 轮 BUG-010;第 5 轮 BUG-009/011/012/013;第 16 轮 BUG-038;第 17 轮 BUG-039(见 ISSUES.md)
 
 | BUG | 状态 | 关联需求点 | 类型 | 来源 | 摘要 |
 |---|---|---|---|---|---|

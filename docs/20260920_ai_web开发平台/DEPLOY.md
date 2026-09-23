@@ -708,6 +708,30 @@ CREATE TABLE IF NOT EXISTS `users` (
 - **部署动作**:main.py lifespan 挂心跳巡检与审计异步注入(已实现);/api/admin/* 建议网关层加 60 req/min 频控(19004 预留)
 - **回滚方案**:`DROP TABLE invitations; DROP TABLE audit_logs;`(顺序不可反)
 
+## 2026-09-23 R9.F1 任务页终端自动进入 claude 与对话同一会话
+
+- **类型**:数据库(alembic revision `a7b2c8d9e1f3`,down_revision `f2a7c9e4b8d1`)
+- **数据库**:
+
+  ```sql
+  ALTER TABLE tasks ADD COLUMN claude_session_id VARCHAR(64) NULL DEFAULT NULL COMMENT '任务级 claude 会话 ID(uuid4,对话/终端共享)';
+  ```
+
+- **影响范围**:R9.F1 任务级 claude_session_id 持久化(--session-id/--resume 接线)
+- **回滚方案**:`ALTER TABLE tasks DROP COLUMN claude_session_id;`
+
+## 2026-09-23 R28 用户信息修改增强(昵称、头像本地上传)
+
+- **类型**:数据库(alembic revision `b2e8f4a6c9d1`,down_revision `a7b2c8d9e1f3`)
+- **数据库**:
+
+  ```sql
+  ALTER TABLE users ADD COLUMN avatar_file_path VARCHAR(255) NULL DEFAULT NULL COMMENT '本地上传的文件存储路径';
+  ```
+
+- **影响范围**:R28 头像上传/访问/移除链路(POST /api/users/me/avatar、GET /api/files/avatars/{filename}、PATCH /api/users/me avatar_url=null 双清空)
+- **回滚方案**:`ALTER TABLE users DROP COLUMN avatar_file_path;`(代码回滚后旧列不碍事)
+
 ## 2026-09-22 R21+R22 工作台与四维管理菜单
 
 - **类型**:纯代码(无 DB 变更——聚合查询直查 requirements/tasks/project_members/projects)
