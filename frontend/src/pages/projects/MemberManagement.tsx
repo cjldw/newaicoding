@@ -250,7 +250,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
                       variant="ghost"
                       size="sm"
                       disabled={isLastOwner}
-                      className={isLastOwner ? '' : 'text-error hover:text-error'}
+                      className={isLastOwner ? '' : 'text-red-fg hover:text-red-fg'}
                       onClick={() => { setRemoveTarget(m); setError(null) }}
                     >
                       移除
@@ -282,7 +282,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
               />
               {searching && <div className="text-xs text-text-muted">搜索中...</div>}
               {searchNoResult && !searching && (
-                <div className="text-xs text-error">该手机号未注册</div>
+                <div className="text-xs text-red-fg">该手机号未注册</div>
               )}
               {searchedUser && (
                 <div className="flex items-center gap-2 p-2 border border-border rounded-md">
@@ -308,6 +308,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
               取消
             </Button>
             <Button
+              variant="primary"
               disabled={!searchedUser || inviteMember.isPending}
               onClick={handleInvite}
             >
@@ -345,6 +346,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
           <DialogFooter>
             <Button variant="ghost" onClick={() => setChangeTarget(null)}>取消</Button>
             <Button
+              variant="primary"
               disabled={changeRole.isPending || newRole === changeTarget?.role}
               onClick={handleChangeRole}
             >
@@ -366,8 +368,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRemoveTarget(null)}>取消</Button>
             <Button
-              variant="primary"
-              className="bg-error hover:bg-error/90"
+              variant="danger"
               disabled={removeMember.isPending}
               onClick={handleRemove}
             >
@@ -389,6 +390,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
           <DialogFooter>
             <Button variant="ghost" onClick={() => setTransferTarget(null)}>取消</Button>
             <Button
+              variant="primary"
               disabled={transferOwnership.isPending}
               onClick={handleTransfer}
             >

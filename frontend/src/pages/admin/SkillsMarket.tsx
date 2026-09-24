@@ -140,7 +140,7 @@ export function SkillsMarket() {
                 <TableHead>描述</TableHead>
                 <TableHead>创建人</TableHead>
                 <TableHead>创建时间</TableHead>
-                <TableHead className="w-[150px]">操作</TableHead>
+                <TableHead className="ops">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -150,15 +150,17 @@ export function SkillsMarket() {
                   <TableCell className="font-medium text-text">
                     <span className="chip"><Plug className="w-3 h-3" />{skill.name}</span>
                   </TableCell>
-                  <TableCell className="text-text-muted">{skill.description}</TableCell>
+                  <TableCell className="text-text-muted">
+                    <span className="cell-txt">{skill.description}</span>
+                  </TableCell>
                   <TableCell className="text-text-muted">
                     {skill.created_by?.username ?? '-'}
                   </TableCell>
                   <TableCell className="text-text-muted">
                     {skill.created_at ? formatDate(skill.created_at) : '-'}
                   </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
+                  <TableCell className="ops">
+                    <div className="flex gap-2 justify-end">
                       {/* §6.4 #3:操作按钮改 .btn.btn-sm / .btn.btn-sm.btn-danger */}
                       <button className="btn btn-sm" onClick={() => handleEdit(skill)}>
                         <Pencil className="w-4 h-4 mr-1" />
@@ -226,11 +228,11 @@ export function SkillsMarket() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)}>
+            <Button variant="ghost" onClick={() => setDialogOpen(false)}>
               取消
             </Button>
             <Button
-              size="sm"
+              variant="primary"
               onClick={handleSubmit}
               disabled={createSkill.isPending || updateSkill.isPending}
             >
@@ -250,11 +252,10 @@ export function SkillsMarket() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)}>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
               取消
             </Button>
             <Button
-              size="sm"
               variant="danger"
               onClick={handleDelete}
               disabled={deleteSkill.isPending}

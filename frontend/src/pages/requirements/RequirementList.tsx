@@ -142,7 +142,7 @@ export function RequirementList() {
                 <TableHead>优先级</TableHead>
                 <TableHead>创建人</TableHead>
                 <TableHead>创建时间</TableHead>
-                <TableHead className="w-[80px]">操作</TableHead>
+                <TableHead className="ops w-[80px]">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -152,7 +152,7 @@ export function RequirementList() {
                 return (
                   <TableRow key={item.req_id}>
                     <TableCell className="font-medium text-text">
-                      {item.title}
+                      <span className="cell-txt">{item.title}</span>
                     </TableCell>
                     <TableCell>
                       <Badge variant={st.variant}>{st.label}</Badge>
@@ -166,7 +166,7 @@ export function RequirementList() {
                     <TableCell className="text-text-muted">
                       {new Date(item.created_at).toLocaleDateString('zh-CN')}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="ops">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -181,34 +181,29 @@ export function RequirementList() {
             </TableBody>
           </Table>
           </div>
-          </div>
 
-          {/* 分页 */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <span className="text-sm text-text-muted">
-                共 {total} 个需求,第 {page}/{totalPages} 页
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage(p => p - 1)}
-                >
-                  上一页
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage(p => p + 1)}
-                >
-                  下一页
-                </Button>
-              </div>
+          {/* 分页:与表格同卡 foot-split(左统计右分页,替换原裸 tailwind mt-4 分页) */}
+          <div className="card-foot foot-split">
+            <span className="small faint">共 {total} 个需求</span>
+            <div className="flex items-center gap-2">
+              <span className="small">第 {page} / {totalPages} 页</span>
+              <button
+                className="btn btn-sm"
+                disabled={page <= 1}
+                onClick={() => setPage(p => p - 1)}
+              >
+                上一页
+              </button>
+              <button
+                className="btn btn-sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage(p => p + 1)}
+              >
+                下一页
+              </button>
             </div>
-          )}
+          </div>
+          </div>
         </>
       )}
 
@@ -224,7 +219,7 @@ export function RequirementList() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-text mb-1.5">
-                标题 <span className="text-error">*</span>
+                标题 <span className="text-red-fg">*</span>
               </label>
               <Input
                 value={formData.title}
@@ -248,7 +243,7 @@ export function RequirementList() {
             </div>
             <div>
               <label className="block text-sm font-medium text-text mb-1.5">
-                描述 <span className="text-error">*</span>
+                描述 <span className="text-red-fg">*</span>
               </label>
               <Textarea
                 value={formData.description}
@@ -287,7 +282,7 @@ export function RequirementList() {
               />
             </div>
             {formError && (
-              <div className="text-sm text-error">{formError}</div>
+              <div className="text-sm text-red-fg">{formError}</div>
             )}
           </div>
           <DialogFooter>

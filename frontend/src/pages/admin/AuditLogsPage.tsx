@@ -131,87 +131,96 @@ export default function AuditLogsPage() {
         </div>
       </div>
 
-      {/* 筛选条 */}
-      <div className="fbar">
-        <span className="bdg b-zinc">最近 7 天</span>
-        <input
-          type="datetime-local"
-          className="input"
-          value={startTime}
-          onChange={(e) => {
-            setStartTime(e.target.value)
-            setPage(1)
-          }}
-        />
-        <input
-          type="datetime-local"
-          className="input"
-          value={endTime}
-          onChange={(e) => {
-            setEndTime(e.target.value)
-            setPage(1)
-          }}
-        />
-        <select
-          className="input"
-          value={userIdFilter}
-          onChange={(e) => {
-            setUserIdFilter(e.target.value)
-            setPage(1)
-          }}
-        >
-          <option value="">全部操作人</option>
-          {users.map((u) => (
-            <option key={u.user_id} value={u.user_id}>
-              {u.nickname || u.phone}
-            </option>
-          ))}
-        </select>
-        <select
-          className="input"
-          value={actionTypeFilter}
-          onChange={(e) => {
-            setActionTypeFilter(e.target.value)
-            setPage(1)
-          }}
-        >
-          {actionTypeOptions.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <button
-          className="btn btn-sm"
-          onClick={() => {
-            const range = getDefaultDateRange()
-            setStartTime(range.start_time)
-            setEndTime(range.end_time)
-            setUserIdFilter('')
-            setActionTypeFilter('')
-            setPage(1)
-          }}
-        >
-          重置
-        </button>
-        <button
-          className="btn btn-sm btn-primary"
-          disabled={!!startTime && !!endTime && startTime > endTime}
-          title={!!startTime && !!endTime && startTime > endTime ? '开始时间晚于结束时间' : undefined}
-          onClick={() => refetch()}
-        >
-          查询
-        </button>
-        {/* 统计文案:fbar 右侧 */}
-        <span className="small faint" style={{ marginLeft: 'auto' }}>
-          共 {total} 条 · created_at 倒序 · 20/页
-        </span>
-      </div>
-
-      {/* 日志列表 */}
+      {/* 日志列表(筛选条 .fbar 归入卡片内顶部,对齐 DimensionPage 范式) */}
       <div className="card">
+        <div className="fbar">
+          <span className="bdg b-zinc">最近 7 天</span>
+          <input
+            type="datetime-local"
+            className="input"
+            value={startTime}
+            onChange={(e) => {
+              setStartTime(e.target.value)
+              setPage(1)
+            }}
+          />
+          <input
+            type="datetime-local"
+            className="input"
+            value={endTime}
+            onChange={(e) => {
+              setEndTime(e.target.value)
+              setPage(1)
+            }}
+          />
+          <select
+            className="input"
+            value={userIdFilter}
+            onChange={(e) => {
+              setUserIdFilter(e.target.value)
+              setPage(1)
+            }}
+          >
+            <option value="">全部操作人</option>
+            {users.map((u) => (
+              <option key={u.user_id} value={u.user_id}>
+                {u.nickname || u.phone}
+              </option>
+            ))}
+          </select>
+          <select
+            className="input"
+            value={actionTypeFilter}
+            onChange={(e) => {
+              setActionTypeFilter(e.target.value)
+              setPage(1)
+            }}
+          >
+            {actionTypeOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn btn-sm"
+            onClick={() => {
+              const range = getDefaultDateRange()
+              setStartTime(range.start_time)
+              setEndTime(range.end_time)
+              setUserIdFilter('')
+              setActionTypeFilter('')
+              setPage(1)
+            }}
+          >
+            重置
+          </button>
+          <button
+            className="btn btn-sm btn-pri"
+            disabled={!!startTime && !!endTime && startTime > endTime}
+            title={!!startTime && !!endTime && startTime > endTime ? '开始时间晚于结束时间' : undefined}
+            onClick={() => refetch()}
+          >
+            查询
+          </button>
+          {/* 统计文案:fbar 右侧 */}
+          <span className="small faint" style={{ marginLeft: 'auto' }}>
+            共 {total} 条 · created_at 倒序 · 20/页
+          </span>
+        </div>
+
         <div className="scrollx">
           <Table className="tbl">
+            {/* 宽屏列宽:固定列定宽,目标列自适应吸收剩余空间,避免全宽拉稀 */}
+            <colgroup>
+              <col style={{ width: 150 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 110 }} />
+              <col style={{ width: 110 }} />
+              <col />
+              <col style={{ width: 90 }} />
+              <col style={{ width: 110 }} />
+            </colgroup>
             <TableHeader>
               <TableRow>
                 <TableHead>时间</TableHead>
@@ -257,7 +266,7 @@ export default function AuditLogsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        <span className="small">
+                        <span className="small cell-txt">
                           {log.operator_nickname || log.user_id.slice(0, 8)}
                         </span>
                         {log.operator_role === 'superadmin' && (
@@ -281,9 +290,11 @@ export default function AuditLogsPage() {
                       {log.project_id ? log.project_id.slice(0, 8) : '—'}
                     </TableCell>
                     <TableCell className="text-text-muted">
-                      {log.target_type && log.target_id
-                        ? `${log.target_type}:${log.target_id.slice(0, 8)}`
-                        : '—'}
+                      <span className="cell-txt">
+                        {log.target_type && log.target_id
+                          ? `${log.target_type}:${log.target_id.slice(0, 8)}`
+                          : '—'}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {log.detail ? (

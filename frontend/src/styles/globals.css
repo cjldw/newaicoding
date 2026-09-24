@@ -101,7 +101,8 @@
   .btn--primary { @apply bg-primary text-white border-primary; }
   .btn--primary:hover { @apply bg-[#27272a]; }
 
-  .card { @apply bg-surface text-text border border-border rounded-lg shadow-sm p-6; }
+  /* .card 双定义清理:此处原带 p-6 的 .card 已删,统一走下方 vp 区段的无 padding 版
+     (padding 由 card-body/fbar/card-foot 或调用方 p-6 提供,避免结构卡片双重内边距) */
 
   .input { @apply w-full box-border text-text text-sm px-3 py-2 bg-surface border border-border rounded-md; }
   .input::placeholder { @apply text-text-muted; }
@@ -217,6 +218,8 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .page-head h1{font-size:19px;letter-spacing:-.01em;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .page-head .sub{color:var(--muted);font-size:13px;margin-top:3px}
 .page-head .acts{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+/* 页面级加载态(配合 lucide Loader2 的 animate-spin) */
+.page-loading{display:flex;align-items:center;justify-content:center;gap:8px;padding:60px 20px;color:var(--muted);font-size:13px}
 /* ===== buttons ===== */
 .btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;padding:6px 13px;border-radius:var(--vp-radius-sm);border:1px solid var(--border);background:var(--surface);cursor:pointer;box-shadow:var(--shadow-sm);transition:background .12s;white-space:nowrap}
 .btn:hover{background:var(--surface-2)}
@@ -267,6 +270,8 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .card-body{padding:16px}
 .card-body.tight{padding:0}
 .card-foot{border-top:1px solid var(--border);padding:9px 16px;font-size:12px;color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+/* 分页底栏:左统计右分页,两端对齐不换行 */
+.card-foot.foot-split{justify-content:space-between;align-items:center;flex-wrap:nowrap}
 .kvs{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--border);border-radius:var(--vp-radius);background:var(--surface);box-shadow:var(--shadow-sm);overflow:hidden}
 .kv{padding:10px 16px;border-right:1px solid var(--border);min-width:130px;flex:1}
 .kv:last-child{border-right:none}
@@ -280,6 +285,11 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .tbl tr:last-child td{border-bottom:none}
 .tbl tbody tr:hover td{background:var(--surface-2)}
 .tbl .rowclick{cursor:pointer}
+/* 表格工具类:长文本省略 / 操作列右对齐 / 内联编辑约束 / 数字列对齐 */
+.tbl .cell-txt{display:block;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl th.ops,.tbl td.ops{text-align:right;white-space:nowrap}
+.tbl textarea{width:100%;box-sizing:border-box}
+.tbl .num{font-variant-numeric:tabular-nums}
 /* ===== tabs ===== */
 .twrap{min-width:0}
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
@@ -303,6 +313,11 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .stp.cur .d::after{content:"";width:7px;height:7px;border-radius:999px;background:var(--primary)}
 .stp span{font-size:11.5px;color:var(--muted);white-space:nowrap}
 .stp.done span,.stp.cur span{color:var(--text);font-weight:500}
+/* stepper 补缺:.stps 为备用容器类(.stepper 已有横向 flex+滚动,此处供无 padding 场景);
+   .stp.on 为当前步骤变体(语义同 cur:描边加粗高亮,done=圆点填充 --primary 已有) */
+.stps{display:flex;gap:0;overflow-x:auto}
+.stp.on .d{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
+.stp.on span{color:var(--text);font-weight:500}
 /* ===== grid layouts ===== */
 .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 .grid-sb{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:start}
@@ -488,14 +503,72 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .wb-head .ttl{font-weight:600;font-size:14.5px;display:flex;align-items:center;gap:8px;min-width:0}
 .wb-head .acts{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .wb{display:grid;grid-template-columns:236px minmax(0,1fr) 384px;flex:1;min-height:0}
+/* 工作台两栏变体:无左树时中栏占满,右栏固定 384px */
+.wb.n2{grid-template-columns:minmax(0,1fr) 384px}
+/* 大屏高度写死 calc(100vh - 108px):魔法数耦合顶部 topbar+面包屑高度(108px),
+   彻底解耦需动 layout 结构,本次不动 */
 @media (min-width:1181px){ .wb{height:calc(100vh - 108px);min-height:600px} }
 .wb .col-tree .tree{flex:1;min-height:0;overflow:auto}
 .wb>section{min-width:0;min-height:0;display:flex;flex-direction:column}
-.wb .col-tree{border-right:1px solid var(--border)}
-.wb .col-right{border-left:1px solid var(--border)}
+/* col-tree 相对定位 + 裁切供左 sash 叠加;col-right 相对定位供右 sash 叠加 */
+.wb .col-tree{border-right:1px solid var(--border);position:relative;overflow:hidden}
+.wb .col-right{border-left:1px solid var(--border);position:relative}
 .wb .pane{flex:1;min-height:0}
 .wb-mid{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .empty{padding:40px 20px;text-align:center;color:var(--faint);font-size:13px}
+/* ===== wb 内联样式收敛(TaskDetail 静态样式落库;拖拽实时宽度/树层级缩进等动态值仍留内联)===== */
+/* 工作台全出血纵向页根:.page.wide 只给 max-width:none,此处补 flex 铺满与零底距 */
+.page-fill{display:flex;flex-direction:column;flex:1;min-height:0;padding-bottom:0}
+/* 中栏/右栏工作面板卡:铺满 flex 列 + 消灭 card 圆角/边框/阴影(vp twrap 三连) */
+.twrap-fill{flex:1;min-height:0;display:flex;flex-direction:column;border-radius:0;border:none;box-shadow:none}
+/* wb 内 Tab 条:左右 10px、与栏同底色 */
+.wb .tabs{padding:0 10px;background:var(--surface)}
+/* Diff 内容滚动区:纵向 flex + 上下 8px */
+.diff-body{padding:8px 0;display:flex;flex-direction:column}
+/* 徽章迷你号(tab 内 HMR 端口 / 模式角标) */
+.bdg-mini{font-size:10px;padding:0 6px}
+/* card-foot 推底变体 + foot 内右侧操作簇 */
+.card-foot.mt-auto{margin-top:auto}
+.foot-acts{margin-left:auto;display:flex;align-items:center;gap:8px}
+/* 空态铺满变体(编辑器未选文件)/ 卡片铺满变体(dev pending)/ 图标下副文案间距 */
+.empty-fill{flex:1;display:flex;flex-direction:column;justify-content:center}
+.card-fill{flex:1}
+.empty-tip{margin-top:8px}
+/* 流程 stepper 挂带(head 与 wb 之间)+ 步骤卡内边距 */
+.stps-band{padding:12px 16px}
+.stps-card{padding:12px 16px 8px}
+/* 发布日志 pane:12px 内边距(flex 铺满已由 .pane.on.fill 提供) */
+.pane-pad{padding:12px}
+/* 右栏三 pane 保活容器(hidden 保活;显示态纵向铺满,终端加 12px、活动加滚动) */
+.rpane{flex:1;min-height:0;display:flex;flex-direction:column}
+.rpane.pad-12{padding:12px}
+.rpane.scroll-y{overflow:auto}
+/* kvs 无阴影变体(嵌在 card-body 内不再叠加浮起) */
+.kvs.plain{box-shadow:none}
+/* 纵向堆叠(配置面板 12 / 变更面板 10 间距) */
+.vstack-12{display:flex;flex-direction:column;gap:12px}
+.vstack-10{display:flex;flex-direction:column;gap:10px;overflow:auto}
+/* 左右分栏拖拽 sash(叠加栏缘不进 grid 流;外探 3px 形成半宽热区) */
+.sash{position:absolute;top:0;width:7px;height:100%;cursor:col-resize;z-index:5}
+.sash.sash-l{right:-3px}
+.sash.sash-r{left:-3px}
+/* 树节点可点态(.tnode 基类为 cursor:default)/ 左树滚动容器 / 终端绿 pulse 点 */
+.tnode.click{cursor:pointer}
+.tree-scroll{flex:1;min-height:0;overflow:auto}
+.dot-ok{color:var(--green-tx)}
+/* 红色提示文本(head 内失败信息) */
+.err-txt{color:var(--red-tx)}
+/* 变更表路径单元格:mono 12px */
+.tbl .cell-txt.path{font-family:var(--mono);font-size:12px}
+/* ===== .md — renderMarkdown(共享)输出的排版作用域(值照抄原 TaskDetail 内联)===== */
+.md{font-size:13.5px;line-height:1.7}
+.md h1{font-size:17px;margin:18px 0 10px}
+.md h2{font-size:15.5px;margin:16px 0 8px}
+.md>h2:first-child{margin-top:0} /* 需求标题为容器首元素,不留顶距 */
+.md h3{font-size:14px;margin:14px 0 6px}
+.md p{margin:8px 0}
+.md li{margin-left:18px}
+.md code{font-family:var(--mono);font-size:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
 /* ===== login ===== */
 .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px;background:
  radial-gradient(900px 480px at 80% -10%, var(--blue-bg), transparent 60%),
@@ -545,6 +618,7 @@ select.input{cursor:pointer}
 /* ===== responsive ===== */
 @media (max-width:1180px){
   .wb{grid-template-columns:minmax(0,1fr)}
+  .wb.n2{grid-template-columns:minmax(0,1fr)}
   .wb .col-tree{border-right:none;border-bottom:1px solid var(--border);max-height:230px}
   .wb .col-right{border-left:none;border-top:1px solid var(--border)}
   .wb .tree{max-height:170px;overflow:auto}

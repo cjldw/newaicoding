@@ -883,3 +883,28 @@
   - 后端 `POST /api/admin/runners/{id}/shell-sessions?force=true`(runners.py):6002 判定处 force 时遍历该 Runner 活跃 shell 会话逐一复用 terminal.py 关闭语义(通知 `terminal_close` kill pty;WS 不在跳过 + 置 `closed_at`)后放行;不带 force 零变化
   - 前端:createRunnerShellSession 加 force 参;Dialog 错误分支按 shellErrCode===6002 渲染「强制关闭并新建」主按钮 → openShell(r, true)
 - **验证记录**:① tdd Red→Green,test_r26_runner_shell.py **12/12**(新用例:无 force 6002 维持/force 后旧会话收 terminal_close+closed_at 置值+新会话独立 open);② 真机 API 三步:创建 A=code0 → 再建无 force=6002 原文 → force=true=code0;③ runner 日志实证「宿主 shell 已关闭 A → 已创建 NEW」;④ DB:A closed_at 置值、NEW open;⑤ tsc 0 错;前端按钮的可视化确认归用户一瞥(两会话超管互踢致浏览器驻留不稳)
+
+## UI 相关问题
+
+(2026-09-24 浏览器核对批次新增;五批 UI 改动走查截图见 `report/ui-overhaul-20260924/`)
+
+### BUG-UI-071 | GET /api/requirements/{req_id}/archive 全量 500(stray import) | open
+- **严重程度**:高(P1,归档页功能不可用 + 全站 console 噪音)
+- **关联页面**:后端 `backend/app/api/knowledge.py`(影响 /requirements/:reqId/archive 归档页);连带触发源 `frontend/src/hooks/useTourSteps.ts`(R29 导览,全站每页挂载)
+- **问题描述**:该端点对任意用户/任意需求恒返回 500。真机复现:超管与普通用户均 500;进程内 ASGITransport 复现拿到确 traceback——`app/api/knowledge.py:31` `from app.services.project_service import get_requirement_or_404 as _get_req` 抛 `ImportError: cannot import name 'get_requirement_or_404'`(该函数实际定义在 `requirement_service`,下一行已正确导入且使用之,此行为遗留无效 import,每请求执行必炸)。前端 R29 导览 hook `useTourSteps`(projects→第一条需求→fetchArchive 链)全局挂载,导致每个页面加载都打出一次该 500(走查 10 页 = 10 次 console error)
+- **建议方案**:① 删除 `knowledge.py:31` 该行 import(一行修复);② 评估 useTourSteps 的 archive/tasks 查询改为导览弹窗打开时才 enabled(`enabled: tourOpen && !!requirement`),避免未开导览也全站发链式请求
+- **状态**:open
+
+### BUG-UI-072 | 超管头像文件 404(users.avatar_url 指向已丢失文件) | open
+- **严重程度**:低(P3,视觉有回退不破相,仅 console 噪音)
+- **关联页面**:全站(topbar 头像);数据层 users 表
+- **问题描述**:每页 `GET /api/files/avatars/1f5868f7-84b3-4127-b8ec-4c3c7b4f14b9.png` 404——18767169856(超管)的 avatar 引用指向磁盘上不存在的文件(疑 R19 数据事故后文件未随 DB 恢复)。前端 onError 回退首字母粉色圆形头像,视觉无异常;代价是每次页面加载 1-2 条 404 console error,污染错误监控
+- **建议方案**:① 数据侧清理该用户的 avatar_url/avatar_file_path 引用(或补传文件);② 前端头像组件对 404 静默降级后不再重复请求(可记忆失败)
+- **状态**:open
+
+### BUG-UI-073 | 审计日志「详情」列「JSON 摘要」断词换行 | open
+- **严重程度**:最低(P4,纯视觉)
+- **关联页面**:/admin/audit-logs
+- **问题描述**:详情列宽不足,「JSON 摘要」链接文字换行为「JSON 摘/要」两行,观感破碎(见截图 10-admin-audit-logs.png 详情列)
+- **建议方案**:该列加 `white-space:nowrap`(或 colgroup 给足 min-width);文字亦可简化为「JSON」
+- **状态**:open

@@ -126,8 +126,7 @@ export default function DeployStatus({ taskIdProp, embedded = false }: { taskIdP
       {deployStatus === 'deployed' && (
         <div className="flex justify-end">
           <Button
-            variant="default"
-            className="bg-error hover:bg-error/90 text-white"
+            variant="danger"
             onClick={() => setShowConfirm(true)}
           >
             下线
@@ -149,8 +148,7 @@ export default function DeployStatus({ taskIdProp, embedded = false }: { taskIdP
               取消
             </Button>
             <Button
-              variant="default"
-              className="bg-error hover:bg-error/90 text-white"
+              variant="danger"
               onClick={handleOffline}
               disabled={offlineMut.isPending}
             >

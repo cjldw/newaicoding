@@ -23,23 +23,9 @@ import {
   useReviewRequirement, useCancelRequirement, getRequirementErrorMessage,
 } from '@/api/requirements'
 import type { RequirementStatus, RequirementPriority, RequirementTask } from '@/api/requirements'
-
-// Markdown 简易渲染(与 KnowledgeBaseView 保持一致)
-function renderMarkdown(content: string): string {
-  let html = content
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
-  html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold mt-5 mb-2">$1</h2>')
-  html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-6 mb-3">$1</h1>')
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="bg-surface-strong p-3 rounded my-2 overflow-x-auto"><code>$2</code></pre>')
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-surface-strong px-1 rounded">$1</code>')
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
-  html = html.replace(/^\- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
-  html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
-  html = html.replace(/\n\n/g, '</p><p class="my-2">')
-  return `<p class="my-2">${html}</p>`
-}
+// Markdown 简易渲染:共享实现(原本地版已并入 utils/markdown.ts,口径以更安全的 TaskDetail 版为准,
+// 排版由 globals.css `.md` 作用域类承接,见容器上的 md 类)
+import { renderMarkdown } from '@/utils/markdown'
 
 // 状态徽章映射
 const statusMap: Record<RequirementStatus, { label: string; variant: 'outline' | 'secondary' | 'primary' | 'success' | 'error' }> = {
@@ -212,7 +198,7 @@ export function RequirementDetail() {
                 <CheckCircle className="w-4 h-4 mr-2" />
                 评审通过
               </Button>
-              <Button variant="default" className="bg-error hover:bg-error/90 text-white" onClick={() => setRejectDialog(true)}>
+              <Button variant="danger" onClick={() => setRejectDialog(true)}>
                 <XCircle className="w-4 h-4 mr-2" />
                 驳回
               </Button>
@@ -246,7 +232,7 @@ export function RequirementDetail() {
 
       {/* 错误提示 */}
       {error && (
-        <div className="mb-4 p-3 bg-error/10 border border-error/20 rounded-md text-sm text-error">
+        <div className="mb-4 p-3 bg-red-bg border border-red-border rounded-md text-sm text-red-fg">
           {error}
         </div>
       )}
@@ -258,17 +244,17 @@ export function RequirementDetail() {
           {requirement.background && (
             <div>
               <label className="block text-sm font-medium text-text-muted mb-1">背景</label>
-              <div className="text-text prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMarkdown(requirement.background) }} />
+              <div className="text-text prose prose-sm max-w-none md" dangerouslySetInnerHTML={{ __html: renderMarkdown(requirement.background) }} />
             </div>
           )}
           <div>
             <label className="block text-sm font-medium text-text-muted mb-1">描述</label>
-            <div className="text-text prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMarkdown(requirement.description) }} />
+            <div className="text-text prose prose-sm max-w-none md" dangerouslySetInnerHTML={{ __html: renderMarkdown(requirement.description) }} />
           </div>
           {requirement.acceptance_criteria && (
             <div>
               <label className="block text-sm font-medium text-text-muted mb-1">验收标准</label>
-              <div className="text-text prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMarkdown(requirement.acceptance_criteria) }} />
+              <div className="text-text prose prose-sm max-w-none md" dangerouslySetInnerHTML={{ __html: renderMarkdown(requirement.acceptance_criteria) }} />
             </div>
           )}
           <div className="grid grid-cols-2 gap-4">
@@ -299,7 +285,7 @@ export function RequirementDetail() {
                 {requirement.reject_reason && (
                   <div>
                     <label className="block text-sm font-medium text-text-muted mb-1">驳回理由</label>
-                    <div className="text-error">{requirement.reject_reason}</div>
+                    <div className="text-red-fg">{requirement.reject_reason}</div>
                   </div>
                 )}
               </div>
@@ -363,7 +349,7 @@ export function RequirementDetail() {
           </DialogHeader>
           <div>
             <label className="block text-sm font-medium text-text mb-1.5">
-              驳回理由 <span className="text-error">*</span>
+              驳回理由 <span className="text-red-fg">*</span>
             </label>
             <Textarea
               value={rejectReason}
@@ -394,7 +380,7 @@ export function RequirementDetail() {
           </DialogHeader>
           <div>
             <label className="block text-sm font-medium text-text mb-1.5">
-              取消理由 <span className="text-error">*</span>
+              取消理由 <span className="text-red-fg">*</span>
             </label>
             <Textarea
               value={cancelReason}
@@ -407,7 +393,7 @@ export function RequirementDetail() {
             <Button variant="ghost" onClick={() => setCancelDialog(false)}>
               取消
             </Button>
-            <Button variant="primary" className="bg-error hover:bg-error/90" onClick={handleCancel} disabled={!cancelReason.trim()}>
+            <Button variant="danger" onClick={handleCancel} disabled={!cancelReason.trim()}>
               确认取消
             </Button>
           </DialogFooter>

@@ -159,26 +159,31 @@ export function NotificationCenter() {
               <div>暂无通知</div>
             </div>
           ) : (
-            <table className="tbl" style={{ marginBottom: 0 }}>
+            <table className="tbl">
+              {/* 列宽走 colgroup(极少量保留),其余回归 .tbl 体系 */}
+              <colgroup>
+                <col style={{ width: 80 }} />
+                <col />
+                <col style={{ width: 90 }} />
+                <col style={{ width: 100 }} />
+                <col style={{ width: 50 }} />
+              </colgroup>
               <thead>
                 <tr>
-                  <th style={{ width: 80 }}>级别</th>
+                  <th>级别</th>
                   <th>标题</th>
-                  <th style={{ width: 90 }}>类型</th>
-                  <th style={{ width: 100 }}>时间</th>
-                  <th style={{ width: 50 }}></th>
+                  <th>类型</th>
+                  <th>时间</th>
+                  <th className="ops"></th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => (
                   <tr
                     key={item.notification_id}
-                    className="rowclick"
+                    className={item.link ? 'rowclick' : undefined}
                     onClick={() => handleItemClick(item)}
-                    style={{
-                      opacity: item.read_at ? 0.6 : 1,
-                      cursor: item.link ? 'pointer' : 'default',
-                    }}
+                    style={{ opacity: item.read_at ? 0.6 : 1 }}
                   >
                     <td>
                       <span className={levelBadgeCls(item.level)}>
@@ -186,23 +191,17 @@ export function NotificationCenter() {
                       </span>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div className="flex items-center gap-1.5">
                         {!item.read_at && (
-                          <span className="dot pulse" style={{ background: 'var(--primary)', flexShrink: 0 }} />
+                          <span className="dot pulse" style={{ background: 'var(--primary)' }} />
                         )}
-                        <span style={{
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          fontWeight: item.read_at ? 400 : 500,
-                        }}>
+                        <span className={`cell-txt${item.read_at ? '' : ' font-medium'}`}>
                           {item.title}
                         </span>
-                        {item.link && <ExternalLink size={12} style={{ opacity: 0.3, flexShrink: 0 }} />}
+                        {item.link && <ExternalLink size={12} className="opacity-30 shrink-0" />}
                       </div>
                       {item.content && (
-                        <div className="small muted" style={{
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          marginTop: 2,
-                        }}>
+                        <div className="cell-txt small muted mt-0.5">
                           {item.content}
                         </div>
                       )}
@@ -213,12 +212,11 @@ export function NotificationCenter() {
                     <td>
                       <span className="small muted">{timeAgo(item.created_at)}</span>
                     </td>
-                    <td>
+                    <td className="ops">
                       <button
                         className="btn btn-ghost icon-btn"
                         title="删除"
                         onClick={(e) => handleDelete(e, item.notification_id)}
-                        style={{ width: 24, height: 24 }}
                       >
                         <Trash2 size={13} />
                       </button>
@@ -230,11 +228,11 @@ export function NotificationCenter() {
           )}
         </div>
 
-        {/* 分页 */}
+        {/* 分页:foot-split 左统计右分页 */}
         {totalPages > 1 && (
-          <div className="card-foot" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="card-foot foot-split">
             <span>共 {total} 条</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="flex items-center gap-1.5">
               <button
                 className="btn btn-sm"
                 disabled={page <= 1}

@@ -112,7 +112,7 @@ export function ProjectCreate() {
               {...register('name')}
             />
             {errors.name && (
-              <p className="text-xs text-error">{errors.name.message}</p>
+              <p className="text-xs text-red-fg">{errors.name.message}</p>
             )}
             {slugPreview && (
               <p className="text-xs text-text-muted">
@@ -129,7 +129,7 @@ export function ProjectCreate() {
               {...register('description')}
             />
             {errors.description && (
-              <p className="text-xs text-error">{errors.description.message}</p>
+              <p className="text-xs text-red-fg">{errors.description.message}</p>
             )}
           </div>
 
@@ -174,9 +174,9 @@ export function ProjectCreate() {
 
           {/* 错误提示 */}
           {error && (
-            <div className="flex items-start gap-2 p-3 rounded-md bg-error/10 border border-error/20">
-              <AlertCircle className="w-4 h-4 text-error mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-error">{error}</p>
+            <div className="flex items-start gap-2 p-3 rounded-md bg-red-bg border border-red-border">
+              <AlertCircle className="w-4 h-4 text-red-fg mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-red-fg">{error}</p>
             </div>
           )}
 

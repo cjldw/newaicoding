@@ -256,8 +256,8 @@ export function RunnerManagement() {
           <div className="sub">Runner 是容器执行的代理节点,主动 WebSocket 连接平台;调度策略:最少负载 · 部署任务固定 role=deploy</div>
         </div>
         <div className="acts">
-          {/* R31:本机快速创建(与远程 token 流程并存) */}
-          <Button variant="primary" onClick={() => { setLocalForm({ name: '', max_containers: 10 }); setLocalErr(null); setLocalOpen(true) }}>
+          {/* R31:本机快速创建(与远程 token 流程并存);acts 主按钮最多一个,快速创建降次级 */}
+          <Button onClick={() => { setLocalForm({ name: '', max_containers: 10 }); setLocalErr(null); setLocalOpen(true) }}>
             <Plus className="w-4 h-4 mr-1" />快速创建(本机)
           </Button>
           <Button variant="primary" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />新建 Runner</Button>
@@ -272,7 +272,7 @@ export function RunnerManagement() {
             <TableRow>
               <TableHead>名称</TableHead><TableHead>角色</TableHead><TableHead>状态</TableHead>
               <TableHead>当前容器数</TableHead><TableHead>机器信息</TableHead><TableHead>最后心跳</TableHead>
-              <TableHead className="text-right">操作</TableHead>
+              <TableHead className="ops">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -293,7 +293,7 @@ export function RunnerManagement() {
                   <TableCell>{r.current_containers}/{r.max_containers}</TableCell>
                   <TableCell className="text-text-muted">{formatMachine(r)}</TableCell>
                   <TableCell className="text-text-muted">{formatTime(r.last_heartbeat_at)}</TableCell>
-                  <TableCell className="text-right" style={{ whiteSpace: 'nowrap' }}>
+                  <TableCell className="ops">
                     {/* §6.3 #3:操作按钮改 .btn.btn-sm / .btn.btn-sm.btn-danger */}
                     {/* R26:终端按钮(仅 online 可点;非 online 置灰 title 提示)——本机/远程均可用 */}
                     <button

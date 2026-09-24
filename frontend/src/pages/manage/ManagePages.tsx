@@ -61,7 +61,7 @@ export function TasksManage() {
       title="任务管理"
       statusOptions={TASK_STATUS_OPTIONS}
       icon={Activity}
-      createLabel="新建任务"
+      createLabel="新建开发任务"
       desc="成员项目全量任务(四种类型)· 固定按更新时间倒序"
     />
   )

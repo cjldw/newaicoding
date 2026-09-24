@@ -3,12 +3,13 @@
  *
  * 版式 = vp pageTask 骨架逐元素照抄(docs/…/vp/index.html L1458-1483):
  *   .page.wide(全出血纵向 flex)
- *   └ .wb-head(返回 ghost icon-btn + .ttl 类型徽章/{短id} · {标题}/状态徽章 + .chip-row + .acts)
- *   └ .wb(grid 236px | minmax(0,1fr) | 384px,1px 分隔线,无 gap 无 padding)
- *      ├ col-tree  文件树(仅 dev 且非 pending;非 dev 任务不渲染节点 → 中栏按 vp 落入 236px 列)
+ *   └ .wb-head(返回 ghost icon-btn + .ttl 类型徽章/{短id} · {标题}/状态徽章 + .chip-row + .acts + 流程 stepper 卡(.stps 7 步,.on 当前/.done 已过))
+ *   └ .wb(grid;有树 236px | minmax(0,1fr) | 384px,无树 .n2 → minmax(0,1fr) | 384px;1px 分隔线,无 gap 无 padding)
+ *      ├ col-tree  文件树(仅 dev 且非 pending;非 dev 任务不渲染 → wb 加 .n2 两栏,中栏占 1fr 不再压窄)
  *      ├ col-center.wb-mid  中栏 centerPane:按 type/status 五分支(requirement/dev/dev pending/test/release)
  *      └ col-right  右栏 rightPane:恒为 对话/终端/活动 三 Tab
- * 所有 twrap 一律 vp 三连内联:border-radius:0 / border:none / box-shadow:none(消灭浮动卡片观感)
+ * 所有 twrap 三连(圆角/边框/阴影归零)已收敛为 .twrap-fill 类;其余静态内联样式见 globals.css「wb 内联样式收敛」区段,
+ * 仅拖拽实时宽度 / 树层级缩进等动态值保留内联。
  *
  * 能力保留(R4.F1/F2,零回归):面板全屏(fixed 覆盖层不重挂载)、显式保存+自动保存、
  * 终端/对话导出、终端多 tab、@ 补全、发送 pending、错误 toast、左右栏拖拽 sash(叠加在
@@ -22,7 +23,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Square, Sparkles, FileCode, FlaskConical, Rocket, GitBranch, Box, Server,
   GitCommit, Eye, FolderOpen, FileText, MessageSquare, Terminal, Activity, Maximize2, Minimize2,
-  Save, Clock, Check, ExternalLink,
+  Save, Clock, Check, ExternalLink, Loader2,
 } from 'lucide-react'
 import CodeEditor from '@/components/Editor'
 import DiffViewer from '@/components/DiffViewer'
@@ -48,6 +49,7 @@ import { useRequirementDetail } from '@/api/requirements'
 import { useOfflineTask } from '@/api/deploy'
 import { createTerminalSession } from '@/api/terminal'
 import { useDragSash } from '@/hooks/useDragSash'
+import { renderMarkdown } from '@/utils/markdown'
 
 /* ------------------------------------------------------------------ */
 /* vp 徽章/类型映射(vp L754-766,原值照抄;timeout 为 React 任务态补充) */
@@ -105,22 +107,21 @@ function TypeBadge({ type }: { type: string }) {
 const shortId = (id: string | null | undefined) => (id ? id.slice(0, 8) : '—')
 
 /**
- * 简易 markdown 渲染 —— 与 RequirementDetail.renderMarkdown 同款口径(BUG-019 先例),
- * 供 requirement 任务中栏「PRD 草稿(容器内)」面板渲染需求文档内容。
- * 仅支持标题/加粗/行内代码/列表/段落,输出经转义,无 XSS 面。
+ * 平台流程 7 步(创建→打磨→评审→已评审→开发→测试→发布)当前步计算,纯展示不跳转:
+ * requirement 按状态推进前四步(polishing→打磨 / reviewing→评审 / approved→已评审,running 视为打磨中);
+ * dev/test/release 类型任务即代表流程已走到对应阶段(开发/测试/发布),之前的步全部 done。
  */
-function renderMarkdown(md: string): string {
-  const esc = md
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return esc
-    .replace(/^### (.*)$/gm, '<h3 style="font-size:14px;margin:14px 0 6px">$1</h3>')
-    .replace(/^## (.*)$/gm, '<h2 style="font-size:15.5px;margin:16px 0 8px">$1</h2>')
-    .replace(/^# (.*)$/gm, '<h1 style="font-size:17px;margin:18px 0 10px">$1</h1>')
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/`([^`]+)`/g, '<code style="font-family:var(--mono);font-size:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 5px">$1</code>')
-    .replace(/^[-*] (.*)$/gm, '<li style="margin-left:18px">$1</li>')
-    .replace(/\n{2,}/g, '</p><p style="margin:8px 0">')
-    .replace(/\n/g, '<br/>')
+const FLOW_STEPS = ['创建', '打磨', '评审', '已评审', '开发', '测试', '发布']
+function mapStep(type: string, status: string): number {
+  if (type === 'dev') return 4
+  if (type === 'test') return 5
+  if (type === 'release') return 6
+  switch (status) { // requirement(及其余兜底)走前四步
+    case 'draft': case 'pending': return 0
+    case 'reviewing': return 2
+    case 'approved': return 3
+    default: return 1 // polishing / running / 其他未知态 → 打磨中
+  }
 }
 
 /** 从 unified diff 文本统计 +/- 行数(vp d-chip 的 +N −M 角标) */
@@ -256,14 +257,18 @@ export default function TaskDetail() {
   }, [project, req, taskId])
 
   if (!task) {
-    return <div className="page wide" style={{ padding: 24, color: 'var(--muted)' }}>加载中...</div>
+    return (
+      <div className="page wide">
+        <div className="page-loading"><Loader2 size={16} className="animate-spin" />加载中...</div>
+      </div>
+    )
   }
 
   const isRun = task.status === 'running'
   // vp L1465:文件树仅 dev 且非挂起显示
   const showTree = task.type === 'dev' && task.status !== 'pending'
-  // twrap 公共三连(vp 内联样式,消灭 card 圆角/边框/阴影)
-  const twrapStyle = { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', borderRadius: 0, border: 'none', boxShadow: 'none' } as const
+  // 流程 stepper 当前步(0-6,纯展示)
+  const curStep = mapStep(task.type, task.status)
   const tabCls = (key: CenterTab | RightTab, cur: string) => `tab${cur === key ? ' on' : ''}`
 
   /* ---------------- wb-head acts(vp L1462-1464 条件) ---------------- */
@@ -297,9 +302,14 @@ export default function TaskDetail() {
       <>
         <a
           className="btn"
-          onClick={() => {
-            if (previewItem?.preview_url) window.open(previewItem.preview_url, '_blank')
-            else showToast('info', '部署地址未就绪')
+          href={previewItem?.preview_url || undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => {
+            if (!previewItem?.preview_url) {
+              e.preventDefault()
+              showToast('info', '部署地址未就绪')
+            }
           }}
         >
           <ExternalLink size={13} />打开 :{previewItem?.port ?? '—'}
@@ -313,9 +323,9 @@ export default function TaskDetail() {
 
   /* ---------------- 中栏 centerPane 五分支(vp L1253-1377) ---------------- */
 
-  // 公共 Tab 条(vp:tabs padding:0 10px;background:var(--surface))
+  // 公共 Tab 条(vp:tabs padding:0 10px;background:var(--surface);样式由 .wb .tabs 承接)
   const tabsBar = (nodes: ReactNode) => (
-    <div className="tabs" style={{ padding: '0 10px', background: 'var(--surface)' }}>{nodes}</div>
+    <div className="tabs">{nodes}</div>
   )
 
   // ---- Diff 视图(dev/test 共用;vp diff pane 结构:d-chips + 内容 + card-foot) ----
@@ -338,7 +348,7 @@ export default function TaskDetail() {
           )
         })}
       </div>
-      <div className="ed-scroll" style={{ padding: '8px 0', display: 'flex', flexDirection: 'column' }}>
+      <div className="ed-scroll diff-body">
         {diffPath && currentDiff() ? (
           <DiffViewer oldValue={currentDiff()!.old} newValue={currentDiff()!.new} oldTitle={diffPath} newTitle={diffPath} />
         ) : (
@@ -352,7 +362,7 @@ export default function TaskDetail() {
   // ---- dev 工作区(编辑器/Diff/预览;vp L1254-1295;R4.F1/F2 能力挂载点) ----
   // vp 仅定义 dev 的 running/pending 两态;其余态(done/failed/cancelled)沿用本工作区(vu 无规格,见 ui-check 留痕)
   const devCenter = (
-    <div className="twrap card" style={twrapStyle}>
+    <div className="twrap card twrap-fill">
       {tabsBar(<>
         <button className={tabCls('edit', centerTab)} onClick={() => setCenterTab('edit')}><FileCode size={14} />编辑器</button>
         <button className={tabCls('diff', centerTab)} onClick={() => setCenterTab('diff')}>
@@ -360,7 +370,7 @@ export default function TaskDetail() {
         </button>
         <button className={tabCls('prev', centerTab)} onClick={() => setCenterTab('prev')}>
           <Eye size={14} />预览
-          {previewItem && <span className="bdg b-green" style={{ fontSize: 10, padding: '0 6px' }}>{previewItem.port} · HMR</span>}
+          {previewItem && <span className="bdg b-green bdg-mini">{previewItem.port} · HMR</span>}
         </button>
       </>)}
       {/* 编辑器 pane:on 态才渲染(fixed 全屏覆盖层时也保持挂载,不重挂实例) */}
@@ -379,10 +389,10 @@ export default function TaskDetail() {
               />
             </div>
             {/* card-foot(vp L1270)+ R4.F1/F2 保存/状态/全屏(右侧操作区) */}
-            <div className="card-foot" style={{ marginTop: 'auto' }}>
+            <div className="card-foot mt-auto">
               <Eye size={13} /> AI 修改实时同步(watcher)· 保存即写入容器 ·
-              <span className="bdg b-blue" style={{ fontSize: 10, padding: '0 6px' }}>任务模式 · 可编辑</span>
-              <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="bdg b-blue bdg-mini">任务模式 · 可编辑</span>
+              <span className="foot-acts">
                 <span className="small faint">{saveFile.isPending ? '保存中…' : editorDraft === null ? '未修改' : '已保存'}</span>
                 <button
                   type="button" title="保存文件(Ctrl+S 亦可)"
@@ -403,7 +413,7 @@ export default function TaskDetail() {
             </div>
           </div>
         ) : (
-          <div className="empty" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div className="empty empty-fill">
             在左侧选择文件
           </div>
         )
@@ -415,17 +425,17 @@ export default function TaskDetail() {
 
   // ---- dev pending 排队空态(vp L1296-1298 原文) ----
   const pendingCenter = (
-    <div className="card" style={{ flex: 1 }}>
+    <div className="card card-fill">
       <div className="card-body empty">
         <Clock size={20} />
-        <div style={{ marginTop: 8 }}>任务排队中 · 等待可用 Runner / 项目并发配额(单项目并发 running ≤ 3)</div>
+        <div className="empty-tip">任务排队中 · 等待可用 Runner / 项目并发配额(单项目并发 running ≤ 3)</div>
       </div>
     </div>
   )
 
   // ---- requirement 打磨(vp L1364-1376:PRD 草稿(容器内) / 工作区) ----
   const reqCenter = (
-    <div className="twrap card" style={twrapStyle}>
+    <div className="twrap card twrap-fill">
       {tabsBar(<>
         <button className={tabCls('prd', centerTab)} onClick={() => setCenterTab('prd')}><FileText size={14} />PRD 草稿(容器内)</button>
         <button className={tabCls('files', centerTab)} onClick={() => setCenterTab('files')}><FolderOpen size={14} />工作区</button>
@@ -435,11 +445,12 @@ export default function TaskDetail() {
           <div className="ed-scroll">
             <div className="card-body">
               {req ? (
-                <div style={{ fontSize: 13.5, lineHeight: 1.7 }}>
-                  <h2 style={{ fontSize: 15.5, margin: '0 0 8px' }}>{req.title}</h2>
-                  {req.background && <><h3 style={{ fontSize: 14, margin: '14px 0 6px' }}>背景</h3><div dangerouslySetInnerHTML={{ __html: renderMarkdown(req.background) }} /></>}
-                  {req.description && <><h3 style={{ fontSize: 14, margin: '14px 0 6px' }}>方案(AI 打磨生成)</h3><div dangerouslySetInnerHTML={{ __html: renderMarkdown(req.description) }} /></>}
-                  {req.acceptance_criteria && <><h3 style={{ fontSize: 14, margin: '14px 0 6px' }}>验收标准</h3><div dangerouslySetInnerHTML={{ __html: renderMarkdown(req.acceptance_criteria) }} /></>}
+                // PRD 排版统一走 .md 作用域类(globals.css);首 h2 为需求标题,顶距由 .md>h2:first-child 归零
+                <div className="md">
+                  <h2>{req.title}</h2>
+                  {req.background && <><h3>背景</h3><div dangerouslySetInnerHTML={{ __html: renderMarkdown(req.background) }} /></>}
+                  {req.description && <><h3>方案(AI 打磨生成)</h3><div dangerouslySetInnerHTML={{ __html: renderMarkdown(req.description) }} /></>}
+                  {req.acceptance_criteria && <><h3>验收标准</h3><div dangerouslySetInnerHTML={{ __html: renderMarkdown(req.acceptance_criteria) }} /></>}
                 </div>
               ) : (
                 <div className="empty">需求文档加载中…</div>
@@ -452,16 +463,16 @@ export default function TaskDetail() {
       {centerTab === 'files' && (
         <div className="ed-scroll">
           <div className="tree">
-            <div className="tnode dir"><FolderOpen size={14} /><span className="nm" style={{ fontFamily: 'var(--mono)' }}>/workspace/main</span></div>
+            <div className="tnode dir"><FolderOpen size={14} /><span className="nm mono">/workspace/main</span></div>
             {(filesData?.items ?? []).map((f) => (
               <div
                 key={f.path}
-                className={`tnode${selectedPath === f.path ? ' sel' : ''}`}
-                style={{ paddingLeft: 38, cursor: 'pointer' }}
+                className={`tnode click${selectedPath === f.path ? ' sel' : ''}`}
+                style={{ paddingLeft: 38 + (f.path.split('/').length - 1) * 14 }} // 层级缩进为动态值,保留内联
                 onClick={() => setSelectedPath(f.path)}
               >
                 <FileText size={14} />
-                <span className="nm" style={{ fontFamily: 'var(--mono)' }}>{f.path}</span>
+                <span className="nm mono">{f.path}</span>
               </div>
             ))}
             {(filesData?.items ?? []).length === 0 && <div className="empty">容器暂无文件</div>}
@@ -473,7 +484,7 @@ export default function TaskDetail() {
 
   // ---- test(vp L1299-1330:用例 / 测试报告 / Diff;内嵌既有子页组件,R4.F4 embedded 化) ----
   const testCenter = (
-    <div className="twrap card" style={twrapStyle}>
+    <div className="twrap card twrap-fill">
       {tabsBar(<>
         <button className={tabCls('cases', centerTab)} onClick={() => setCenterTab('cases')}><FlaskConical size={14} />用例</button>
         <button className={tabCls('report', centerTab)} onClick={() => setCenterTab('report')}><FileText size={14} />测试报告</button>
@@ -493,37 +504,57 @@ export default function TaskDetail() {
 
   // ---- release(vp L1331-1362:部署日志 / 配置 / 变更) ----
   const releaseCenter = (
-    <div className="twrap card" style={twrapStyle}>
+    <div className="twrap card twrap-fill">
       {tabsBar(<>
         <button className={tabCls('log', centerTab)} onClick={() => setCenterTab('log')}><Terminal size={14} />部署日志</button>
         <button className={tabCls('conf', centerTab)} onClick={() => setCenterTab('conf')}><Server size={14} />配置</button>
         <button className={tabCls('merge', centerTab)} onClick={() => setCenterTab('merge')}><GitCommit size={14} />变更<span className="n">merge</span></button>
       </>)}
       {centerTab === 'log' && (
-        <div className="pane on fill" style={{ padding: 12, display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+        <div className="pane on fill pane-pad">
           <DeployStatus taskIdProp={taskId} embedded />
         </div>
       )}
       {centerTab === 'conf' && (
         <div className="ed-scroll">
-          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="kvs" style={{ boxShadow: 'none' }}>
-              <div className="kv"><label>对外地址</label><div style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>{previewItem?.preview_url ?? '—'}</div></div>
-              <div className="kv"><label>端口</label><div style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>{previewItem?.port ?? '—'}(全平台唯一)</div></div>
-              <div className="kv"><label>容器</label><div style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>{task.container_id ? `${task.container_id.slice(0, 7)} · 保持运行(不销毁)` : '—'}</div></div>
+          <div className="card-body vstack-12">
+            <div className="kvs plain">
+              <div className="kv"><label>对外地址</label><div className="mono">{previewItem?.preview_url ?? '—'}</div></div>
+              <div className="kv"><label>端口</label><div className="mono">{previewItem?.port ?? '—'}(全平台唯一)</div></div>
+              <div className="kv"><label>容器</label><div className="mono">{task.container_id ? `${task.container_id.slice(0, 7)} · 保持运行(不销毁)` : '—'}</div></div>
             </div>
-            <div className="small" style={{ color: 'var(--muted)' }}>
+            <div className="small muted">
               对外域名默认 <span className="chip">{'{slug}.{deploy_base_domain}'}</span>(平台设置,超管可配),创建发布任务时可自定义覆盖;部署产物(CHANGELOG.md + deploy-log.txt)由平台 bot token commit 到 master。
             </div>
           </div>
         </div>
       )}
       {centerTab === 'merge' && (
-        <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div className="kvs" style={{ boxShadow: 'none' }}>
-            <div className="kv"><label>Merge</label><div style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>{task.work_branch} → master{task.last_commit_sha ? ` · ${task.last_commit_sha.slice(0, 7)}` : ''}</div></div>
-            <div className="kv"><label>执行者</label><div style={{ fontSize: 13 }}>平台 bot token(系统动作,不依赖用户在线)</div></div>
+        <div className="card-body vstack-10">
+          <div className="kvs plain">
+            <div className="kv"><label>Merge</label><div className="mono">{task.work_branch} → master{task.last_commit_sha ? ` · ${task.last_commit_sha.slice(0, 7)}` : ''}</div></div>
+            <div className="kv"><label>执行者</label><div>平台 bot token(系统动作,不依赖用户在线)</div></div>
           </div>
+          {/* 逐文件变更明细(changes 接口含 additions/deletions):文件 | +/- */}
+          {changedFiles.length > 0 && (
+            <table className="tbl">
+              <thead>
+                <tr><th>文件</th><th className="ops">+ / −</th></tr>
+              </thead>
+              <tbody>
+                {changedFiles.map((f) => (
+                  <tr key={f.path}>
+                    <td>
+                      <span className="cell-txt path" title={f.path}>{f.path}</span>
+                    </td>
+                    <td className="ops num">
+                      <span className="add">+{f.additions}</span> <span className="del">−{f.deletions}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </div>
@@ -539,11 +570,8 @@ export default function TaskDetail() {
 
   return (
     <BreadcrumbOverrideProvider crumbs={crumbs}>
-      {/* vp L1477:.page.wide 全出血纵向 flex(padding-bottom:0 / max-width:none) */}
-      <div
-        className="page wide"
-        style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, paddingBottom: 0, maxWidth: 'none' }}
-      >
+      {/* vp L1477:.page.wide 全出血纵向 flex;flex 铺满/零底距由 .page-fill 承接 */}
+      <div className="page wide page-fill">
         {/* vp L1466-1476:wb-head 五段 */}
         <div className="wb-head">
           <button className="btn btn-ghost icon-btn" title="返回需求" onClick={() => nav(-1)}>
@@ -555,7 +583,7 @@ export default function TaskDetail() {
             <StatusBadge status={task.status} pulse={isRun} />
             {/* React 补充:失败信息内联提示(vp 无此元素,保留功能性) */}
             {task.error_message && (
-              <span className="small" style={{ color: 'var(--red-tx)' }}>{task.error_message}</span>
+              <span className="small err-txt">{task.error_message}</span>
             )}
           </span>
           <span className="chip-row">
@@ -569,15 +597,30 @@ export default function TaskDetail() {
           <span className="acts">{acts}</span>
         </div>
 
-        {/* vp L1478-1481:.wb 三栏 grid(无 gap 无 padding;1px 分隔线由 col-* border 提供)
-            有树:拖拽宽度注入模板;无树:不注入 → 落 vp 类默认 236/1fr/384,中栏自然进 236px 列(vp T-301 真实渲染,照抄) */}
+        {/* 流程 stepper(head 与 wb 之间;.stps-band/.stps-card 内边距,.stps/.stp/.on/.done 为 globals.css 现成类) */}
+        <div className="stps-band">
+          <div className="card stps-card">
+            <div className="stps">
+              {FLOW_STEPS.map((label, i) => (
+                <div key={label} className={`stp${i === curStep ? ' on' : ''}${i < curStep ? ' done' : ''}`}>
+                  <span className="d">{i < curStep && <Check size={11} />}</span>
+                  <span>{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* vp L1478-1481:.wb 栏 grid(无 gap 无 padding;1px 分隔线由 col-* border 提供)
+            有树:三栏,拖拽宽度注入模板;无树(非 dev / dev pending):加 n2 类 → minmax(0,1fr)|384px 两栏,
+            col-center 无显式列指定,auto-flow 自然落第一列,不再压进 236px 窄列 */}
         <div
-          className="wb"
+          className={`wb${showTree ? '' : ' n2'}`}
           style={showTree ? { gridTemplateColumns: `${leftW}px minmax(0,1fr) ${rightW}px` } : undefined}
         >
           {showTree && (
-            <section className="col-tree" style={{ position: 'relative', overflow: 'hidden' }}>
-              <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <section className="col-tree">
+              <div className="tree-scroll">
                 <FileTree
                   mode="task"
                   files={filesData?.items ?? []}
@@ -596,10 +639,7 @@ export default function TaskDetail() {
                 <span><b>变更</b> 相对 {task.base_branch} 基线全部差异(已 commit + 未 commit)</span>
               </div>
               {/* 左 sash(R4.F2 拖拽;叠加右缘,不进 grid 流) */}
-              <div
-                onMouseDown={onLeftSashDown}
-                style={{ position: 'absolute', top: 0, right: -3, width: 7, height: '100%', cursor: 'col-resize', zIndex: 5 }}
-              />
+              <div className="sash sash-l" onMouseDown={onLeftSashDown} />
             </section>
           )}
 
@@ -607,8 +647,8 @@ export default function TaskDetail() {
           <section className="col-center wb-mid">{center}</section>
 
           {/* 右栏:col-right(vp L1433-1456 rightPane;恒三 Tab) */}
-          <section className="col-right" style={{ position: 'relative' }}>
-            <div className="twrap card" style={twrapStyle}>
+          <section className="col-right">
+            <div className="twrap card twrap-fill">
               {tabsBar(<>
                 <button className={tabCls('chat', rightTab)} onClick={() => setRightTab('chat')}>
                   <MessageSquare size={14} />对话
@@ -616,14 +656,14 @@ export default function TaskDetail() {
                 <button className={tabCls('term', rightTab)} onClick={() => setRightTab('term')}>
                   <Terminal size={14} />终端
                   {/* vp L1438:running 时终端 Tab 带 pulse dot(照抄) */}
-                  {isRun && <span className="dot pulse" style={{ color: 'var(--green-tx)' }} />}
+                  {isRun && <span className="dot pulse dot-ok" />}
                 </button>
                 <button className={tabCls('act', rightTab)} onClick={() => setRightTab('act')}>
                   <Activity size={14} />活动
                 </button>
               </>)}
               {/* 右栏 pane:hidden 保活(终端缓冲/聊天态不丢,R4.F1/F2);显示态 flex 铺满 */}
-              <div hidden={rightTab !== 'chat'} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <div hidden={rightTab !== 'chat'} className="rpane">
                 <TaskChat
                   taskId={taskId}
                   fullscreen={fullscreen === 'chat'}
@@ -631,23 +671,20 @@ export default function TaskDetail() {
                 />
               </div>
               {/* vp L1441:终端 pane 外层 padding:12 */}
-              <div hidden={rightTab !== 'term'} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 12 }}>
+              <div hidden={rightTab !== 'term'} className="rpane pad-12">
                 <TerminalPanel
                   createSession={() => createTerminalSession(taskId)}
                   fullscreen={fullscreen === 'term'}
                   onToggleFullscreen={() => toggleFullscreen('term')}
                 />
               </div>
-              <div hidden={rightTab !== 'act'} style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+              <div hidden={rightTab !== 'act'} className="rpane scroll-y">
                 <ActivityStream taskId={taskId} />
               </div>
             </div>
             {/* 右 sash(R4.F2 拖拽;仅在有树的 3 栏布局下生效 —— 无树时右栏占 1fr,拖拽无意义) */}
             {showTree && (
-              <div
-                onMouseDown={onRightSashDown}
-                style={{ position: 'absolute', top: 0, left: -3, width: 7, height: '100%', cursor: 'col-resize', zIndex: 5 }}
-              />
+              <div className="sash sash-r" onMouseDown={onRightSashDown} />
             )}
           </section>
         </div>

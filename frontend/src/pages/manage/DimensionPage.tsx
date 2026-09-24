@@ -18,6 +18,7 @@ import { requirementsApi } from '@/api/requirements'
 import { createTask, type CreateTaskPayload } from '@/api/tasks'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
 import { Alert } from '@/components/ui/Alert'
+import { Button } from '@/components/ui/Button'
 
 interface StatusOption {
   value: string
@@ -182,32 +183,33 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
           </table>
         </div>
 
-        {totalPages > 1 && (
-          <div className="card-foot" style={{ justifyContent: 'center' }}>
-            <button
-              className="btn btn-sm"
-              disabled={page <= 1}
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-            >
-              上一页
-            </button>
-            <span className="muted small">
-              第 {page} / {totalPages} 页,共 {data?.total ?? 0} 条
-            </span>
-            <button
-              className="btn btn-sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage(p => p + 1)}
-            >
-              下一页
-            </button>
+        {/* 脚注+分页合一条 foot-split:左权限说明,右分页 */}
+        <div className="card-foot foot-split">
+          <div className="flex items-center gap-1.5">
+            <Shield size={13} />
+            <span>归档 / 软删项目数据不出现;点击行进入详情</span>
           </div>
-        )}
-
-        {/* vp L1705 脚注 */}
-        <div className="card-foot">
-          <Shield size={13} />
-          归档 / 软删项目数据不出现;viewer 只读(新建按钮隐藏,API 写操作 403 前后端双重拦截)
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                className="btn btn-sm"
+                disabled={page <= 1}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+              >
+                上一页
+              </button>
+              <span className="muted small">
+                第 {page} / {totalPages} 页,共 {data?.total ?? 0} 条
+              </span>
+              <button
+                className="btn btn-sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage(p => p + 1)}
+              >
+                下一页
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -245,7 +247,12 @@ function DimensionCells({
   item: DimensionItem
   statusOptions: StatusOption[]
 }) {
-  const entityCell = <td><b>{item.key.slice(0, 8)}</b> · {item.title}</td>
+  const entityCell = (
+    <td>
+      {/* 标题列长文本省略(.tbl .cell-txt) */}
+      <div className="cell-txt"><b>{item.key.slice(0, 8)}</b> · {item.title}</div>
+    </td>
+  )
   const projCell = (
     <td><span className="chip"><Folder size={11} style={{ display: 'inline', verticalAlign: '-1px' }} /> {item.project.name}</span></td>
   )
@@ -493,14 +500,14 @@ function QuickCreateDialog({ open, dimension, onClose }: QuickCreateDialogProps)
         </div>
 
         <DialogFooter>
-          <button className="btn" onClick={close}>取消</button>
-          <button
-            className="btn btn-pri"
+          <Button variant="ghost" onClick={close}>取消</Button>
+          <Button
+            variant="primary"
             disabled={!canSubmit}
             onClick={() => { setErrorMsg(null); mutation.mutate() }}
           >
             {mutation.isPending ? '创建中…' : QUICK_DIALOG_NAME[dimension]}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -88,8 +88,9 @@ export function GitLabTokenSettings() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-text-muted" />
+      <div className="page-loading">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        加载中…
       </div>
     )
   }
@@ -98,7 +99,10 @@ export function GitLabTokenSettings() {
     <div>
       {/* R2.F8(BUG-UI-068):页头补 page-head + h1 + icon 惯例 */}
       <div className="page-head">
-        <h1 className="flex items-center gap-2"><KeyRound size={18} /> GitLab Token</h1>
+        <div>
+          <h1 className="flex items-center gap-2"><KeyRound size={18} /> GitLab Token</h1>
+          <div className="sub">绑定 GitLab Personal Access Token(需 api 权限)用于读取仓库与流水线 · Token 以 AES-256-GCM 加密存储,服务端不留明文</div>
+        </div>
       </div>
 
       {/* 提示 */}
@@ -201,19 +205,22 @@ export function GitLabTokenSettings() {
               )}
             </div>
 
-            <Button
-              type="submit"
-              variant="primary"
-              className="w-full gap-2"
-              disabled={bindMutation.isPending}
-            >
-              {bindMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Link2 className="w-4 h-4" />
-              )}
-              绑定
-            </Button>
+            {/* 提交:卡片底部右对齐常规宽度(与 ProfileSettings 统一,不再 w-full) */}
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                variant="primary"
+                className="gap-2"
+                disabled={bindMutation.isPending}
+              >
+                {bindMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Link2 className="w-4 h-4" />
+                )}
+                绑定
+              </Button>
+            </div>
           </form>
         </Card>
       )}

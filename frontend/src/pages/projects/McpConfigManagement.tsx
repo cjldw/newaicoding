@@ -223,10 +223,10 @@ export function McpConfigManagement({ projectId }: McpConfigManagementProps) {
                 ))}
               </div>
               <DialogFooter>
-                <Button variant="outline" size="sm" onClick={() => setSelectedTemplate(null)}>
+                <Button variant="ghost" onClick={() => setSelectedTemplate(null)}>
                   返回
                 </Button>
-                <Button size="sm" onClick={handleGenerate}>生成</Button>
+                <Button variant="primary" onClick={handleGenerate}>生成</Button>
               </DialogFooter>
             </div>
           )}
@@ -246,7 +246,7 @@ function ParamField({ param, value, onChange }: {
     <div className="space-y-1">
       <Label className="text-sm">
         {param.name}
-        {param.required && <span className="text-error ml-1">*</span>}
+        {param.required && <span className="text-red-fg ml-1">*</span>}
       </Label>
       <Input
         type={inputType}

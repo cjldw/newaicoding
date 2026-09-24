@@ -416,7 +416,7 @@ export function ModelConfigManagement({ projectId }: ModelConfigManagementProps)
             >
               {testing ? '测试中...' : '测试连接'}
             </Button>
-            <Button onClick={handleSubmit}>
+            <Button variant="primary" onClick={handleSubmit}>
               保存
             </Button>
           </DialogFooter>
@@ -437,8 +437,7 @@ export function ModelConfigManagement({ projectId }: ModelConfigManagementProps)
               取消
             </Button>
             <Button
-              variant="primary"
-              className="bg-error hover:bg-error/90"
+              variant="danger"
               onClick={handleDelete}
             >
               确定

@@ -4,10 +4,11 @@
  * - /register → 注册页
  * - /forgot-password → 找回密码(V2 占位)
  * - /reset-password → 重置密码(V2 占位)
- * - /settings → 设置页布局(左侧导航 + 右侧内容区)
- *   - /settings/profile → 个人资料设置
- *   - /settings/gitlab-token → GitLab token 设置
- * - / (MainLayout) → 工作台 / 项目 / 平台设置(superadmin)
+ * - / (MainLayout) → 工作台 / 项目 / 设置 / 平台设置(superadmin)
+ *   - /settings → 设置布局(嵌套于 MainLayout:全局侧栏/面包屑保留 + 左导航 + 右内容)
+ *     - /settings/profile → 个人资料设置
+ *     - /settings/gitlab-token → GitLab token 设置
+ *     - /settings/notifications → 通知设置
  * - /admin/platform-settings → 平台设置(superadmin)
  */
 
@@ -49,16 +50,6 @@ export const router = createBrowserRouter([
   { path: '/forgot-password', element: <ForgotPassword /> },
   { path: '/reset-password', element: <ResetPassword /> },
   {
-    path: '/settings',
-    element: <SettingsLayout />,
-    children: [
-      { index: true, element: <Navigate to="profile" replace /> },
-      { path: 'profile', element: <ProfileSettings /> },
-      { path: 'gitlab-token', element: <GitLabTokenSettings /> },
-      { path: 'notifications', element: <NotificationSettings /> },
-    ],
-  },
-  {
     path: '/',
     element: <MainLayout />,
     children: [
@@ -81,6 +72,18 @@ export const router = createBrowserRouter([
       { path: 'manage/tasks', element: <TasksManage /> },
       { path: 'manage/tests', element: <TestsManage /> },
       { path: 'manage/releases', element: <ReleasesManage /> },
+      // 设置路由 — 挂入 MainLayout 子路由(原顶层独立壳,进设置后脱离全局导航):
+      // MainLayout(侧栏/面包屑) > SettingsLayout(左导航) > 具体页,三层嵌套
+      {
+        path: 'settings',
+        element: <SettingsLayout />,
+        children: [
+          { index: true, element: <Navigate to="profile" replace /> },
+          { path: 'profile', element: <ProfileSettings /> },
+          { path: 'gitlab-token', element: <GitLabTokenSettings /> },
+          { path: 'notifications', element: <NotificationSettings /> },
+        ],
+      },
       // Admin routes — BUG-004: 移入 MainLayout 子路由;BUG-003: RequireRole 守卫
       {
         path: 'admin/platform-settings',

@@ -1,11 +1,16 @@
 /**
  * 通知设置页 /settings/notifications
- * - 个人资料设置的一部分(第三项)
- * - 钉钉 webhook 配置 + 通知渠道开关 + 测试发送按钮
+ * - 个人设置第三项:钉钉 webhook 配置 + 通知渠道开关 + 测试发送按钮
+ * - 全面回归平台体系:ui/Card、ui/Input、ui/Label、ui/Button(btn/btn-pri),
+ *   加载态走 .page-loading(与 Profile/GitLabToken 两页统一)
  */
 
 import { useState, useEffect } from 'react'
 import { Bell, Send, Loader2, Save } from 'lucide-react'
+import { Card } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Button } from '@/components/ui/Button'
+import { Label } from '@/components/ui/Label'
 import {
   useNotificationSettings, useUpdateNotificationSettings, useTestDingtalk,
 } from '@/api/notifications'
@@ -70,41 +75,41 @@ export function NotificationSettings() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 size={20} className="animate-spin" />
-        <span className="ml-2 text-sm text-text-muted">加载中…</span>
+      <div className="page-loading">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        加载中…
       </div>
     )
   }
 
   return (
     <div>
-      {/* R2.F8(BUG-UI-068):统一 page-head + h1 + icon 惯例(原 icon 行升格) */}
       <div className="page-head">
-        <h1 className="flex items-center gap-2"><Bell size={18} /> 通知设置</h1>
+        <div>
+          <h1 className="flex items-center gap-2"><Bell size={18} /> 通知设置</h1>
+          <div className="sub">配置钉钉机器人 Webhook 与站内 Toast 提醒 · 部署失败、Runner 离线等关键事件及时触达</div>
+        </div>
       </div>
 
       {/* 钉钉通知 */}
-      <div className="bg-surface border border-border rounded-lg p-5 mb-5">
-        <h3 className="text-sm font-medium mb-4">钉钉机器人通知</h3>
+      <Card className="p-6 mb-4">
+        <h3 className="text-lg font-medium text-text mb-4">钉钉机器人通知</h3>
 
-        <div className="mb-4">
-          <label className="block text-sm text-text-muted mb-1.5">
-            Webhook 地址
-          </label>
-          <input
+        <div className="space-y-2 mb-4">
+          <Label htmlFor="dingtalk-webhook">Webhook 地址</Label>
+          <Input
+            id="dingtalk-webhook"
             type="url"
-            className="w-full px-3 py-2 bg-bg border border-border rounded-md text-sm outline-none focus:border-primary transition-colors"
             placeholder="https://oapi.dingtalk.com/robot/send?access_token=..."
             value={webhook}
             onChange={(e) => { setWebhook(e.target.value); markDirty() }}
           />
-          <p className="text-xs text-text-muted mt-1">
+          <p className="text-xs text-text-muted">
             在钉钉群中添加「自定义机器人」,复制 Webhook 地址粘贴到此处
           </p>
         </div>
 
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <div className="text-sm font-medium">启用钉钉通知</div>
             <div className="text-xs text-text-muted">部署失败、Runner 离线等关键事件推送到钉钉群</div>
@@ -120,19 +125,20 @@ export function NotificationSettings() {
           </label>
         </div>
 
-        <button
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bg border border-border rounded-md hover:bg-surface transition-colors disabled:opacity-50"
+        <Button
+          type="button"
+          className="gap-2"
           onClick={handleTest}
           disabled={testDingtalk.isPending || !webhook.trim()}
         >
-          {testDingtalk.isPending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+          {testDingtalk.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           测试发送
-        </button>
-      </div>
+        </Button>
+      </Card>
 
       {/* 站内实时通知 */}
-      <div className="bg-surface border border-border rounded-lg p-5 mb-5">
-        <h3 className="text-sm font-medium mb-4">站内实时通知</h3>
+      <Card className="p-6">
+        <h3 className="text-lg font-medium text-text mb-4">站内实时通知</h3>
 
         <div className="flex items-center justify-between">
           <div>
@@ -149,18 +155,20 @@ export function NotificationSettings() {
             <div className="w-9 h-5 bg-border rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
           </label>
         </div>
-      </div>
+      </Card>
 
-      {/* 保存按钮 */}
-      <div className="flex justify-end">
-        <button
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-sm font-medium rounded-md hover:opacity-90 transition-opacity disabled:opacity-50"
+      {/* 保存:右对齐主色按钮(两个分区共用,置于卡片外底部一行) */}
+      <div className="flex justify-end" style={{ marginTop: 16 }}>
+        <Button
+          type="button"
+          variant="primary"
+          className="gap-2"
           onClick={handleSave}
           disabled={updateSettings.isPending || !dirty}
         >
-          {updateSettings.isPending ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          {updateSettings.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           保存设置
-        </button>
+        </Button>
       </div>
 
       {ToastEl}

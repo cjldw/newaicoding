@@ -68,6 +68,10 @@ const EXACT_MAP: Record<string, CrumbItem[]> = {
   '/admin/audit-logs': [{ label: '平台管理', href: '/admin/platform-settings' }, { label: '审计日志' }],
   '/admin/platform-settings': [{ label: '平台管理', href: '/admin/platform-settings' }, { label: '平台设置' }],
   '/admin/skills': [{ label: '平台管理', href: '/admin/platform-settings' }, { label: 'Skills 管理' }],
+  // /settings/* — 挂入 MainLayout 后补面包屑(「设置」无落地页,index 重定向到 profile,链接指向之)
+  '/settings/profile': [{ label: '设置', href: '/settings/profile' }, { label: '个人资料' }],
+  '/settings/gitlab-token': [{ label: '设置', href: '/settings/profile' }, { label: 'GitLab Token' }],
+  '/settings/notifications': [{ label: '设置', href: '/settings/profile' }, { label: '通知设置' }],
 }
 
 /**

@@ -308,8 +308,7 @@ export function ProjectList() {
               取消
             </Button>
             <Button
-              variant={confirmDialog?.type === 'delete' ? 'primary' : 'default'}
-              className={confirmDialog?.type === 'delete' ? 'bg-error hover:bg-error/90' : ''}
+              variant={confirmDialog?.type === 'delete' ? 'danger' : 'primary'}
               onClick={handleConfirm}
             >
               {confirmDialog?.type === 'delete' ? '删除' : '归档'}

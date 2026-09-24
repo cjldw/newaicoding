@@ -160,7 +160,7 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
                         variant="ghost"
                         size="sm"
                         onClick={() => setUninstallTarget(skill)}
-                        className="text-error hover:text-error"
+                        className="text-red-fg hover:text-red-fg"
                       >
                         <Trash2 className="w-4 h-4 mr-1" />
                         卸载
@@ -243,11 +243,11 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setUploadOpen(false)}>
+            <Button variant="ghost" onClick={() => setUploadOpen(false)}>
               取消
             </Button>
             <Button
-              size="sm"
+              variant="primary"
               onClick={handleUpload}
               disabled={!selectedFile || uploadSkill.isPending}
             >
@@ -280,13 +280,11 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setUninstallTarget(null)}>
+            <Button variant="ghost" onClick={() => setUninstallTarget(null)}>
               取消
             </Button>
             <Button
-              size="sm"
-              variant="primary"
-              className="bg-error hover:bg-error/90"
+              variant="danger"
               onClick={handleUninstall}
               disabled={uninstallSkill.isPending}
             >

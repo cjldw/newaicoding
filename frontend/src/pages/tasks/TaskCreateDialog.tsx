@@ -122,7 +122,7 @@ export function TaskCreateDialog({
         <div className="space-y-4 py-2">
           {/* 错误提示 */}
           {error && (
-            <div className="p-3 bg-error/10 border border-error/20 rounded-md text-sm text-error">
+            <div className="p-3 bg-red-bg border border-red-border rounded-md text-sm text-red-fg">
               {error}
             </div>
           )}
@@ -130,7 +130,7 @@ export function TaskCreateDialog({
           {/* 标题 */}
           <div>
             <label className="block text-sm font-medium text-text mb-1.5">
-              任务标题 <span className="text-error">*</span>
+              任务标题 <span className="text-red-fg">*</span>
             </label>
             <input
               type="text"
@@ -144,7 +144,7 @@ export function TaskCreateDialog({
           {/* 描述 */}
           <div>
             <label className="block text-sm font-medium text-text mb-1.5">
-              任务描述 <span className="text-error">*</span>
+              任务描述 <span className="text-red-fg">*</span>
             </label>
             <Textarea
               value={description}
@@ -207,7 +207,7 @@ export function TaskCreateDialog({
                   placeholder="10000-10099"
                 />
                 {portError && (
-                  <p className="text-xs text-error mt-1">{portError}</p>
+                  <p className="text-xs text-red-fg mt-1">{portError}</p>
                 )}
               </div>
               <div>
@@ -229,7 +229,7 @@ export function TaskCreateDialog({
                   placeholder={`默认 {slug}.{部署根域名}(平台设置),可自定义;仅 HTTP,需将域名解析到网关`}
                 />
                 {hostError && (
-                  <p className="text-xs text-error mt-1">{hostError}</p>
+                  <p className="text-xs text-red-fg mt-1">{hostError}</p>
                 )}
               </div>
             </>

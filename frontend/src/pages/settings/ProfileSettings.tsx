@@ -177,8 +177,9 @@ export function ProfileSettings() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-text-muted" />
+      <div className="page-loading">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        加载中…
       </div>
     )
   }
@@ -191,7 +192,10 @@ export function ProfileSettings() {
     <div>
       {/* R2.F8(BUG-UI-068):页头补 page-head + h1 + icon 惯例(与全部主页面统一) */}
       <div className="page-head">
-        <h1 className="flex items-center gap-2"><User size={18} /> 个人资料</h1>
+        <div>
+          <h1 className="flex items-center gap-2"><User size={18} /> 个人资料</h1>
+          <div className="sub">维护登录账号的昵称与头像 · 昵称最长 32 字 · 头像支持 JPG/PNG/WebP 且不超过 2MB · 手机号不可修改</div>
+        </div>
       </div>
 
       {errorMsg && (
@@ -303,21 +307,22 @@ export function ProfileSettings() {
             )}
           </div>
 
-          {/* 提交:区块上间距 24px */}
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-full gap-2"
-            style={{ marginTop: 24 }}
-            disabled={mutation.isPending || !isDirty}
-          >
-            {mutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            保存修改
-          </Button>
+          {/* 提交:卡片底部右对齐常规宽度(三页表单规范统一,不再 w-full) */}
+          <div className="flex justify-end" style={{ marginTop: 24 }}>
+            <Button
+              type="submit"
+              variant="primary"
+              className="gap-2"
+              disabled={mutation.isPending || !isDirty}
+            >
+              {mutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              保存修改
+            </Button>
+          </div>
         </form>
       </Card>
 

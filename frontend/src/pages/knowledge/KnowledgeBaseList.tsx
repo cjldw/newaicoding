@@ -135,7 +135,7 @@ export default function KnowledgeBaseList() {
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); setDeleteTarget(kb) }}
-                  className="text-text-muted hover:text-error transition-colors"
+                  className="text-text-muted hover:text-red-fg transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -227,7 +227,7 @@ export default function KnowledgeBaseList() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>取消</Button>
+            <Button variant="ghost" onClick={() => setShowCreate(false)}>取消</Button>
             <Button variant="primary" onClick={handleCreate} disabled={!name.trim() || createMut.isPending}>
               {createMut.isPending ? '创建中...' : '创建'}
             </Button>
@@ -245,8 +245,8 @@ export default function KnowledgeBaseList() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>取消</Button>
-            <Button variant="ghost" onClick={handleDelete} disabled={deleteMut.isPending}>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>取消</Button>
+            <Button variant="danger" onClick={handleDelete} disabled={deleteMut.isPending}>
               {deleteMut.isPending ? '删除中...' : '确定'}
             </Button>
           </DialogFooter>

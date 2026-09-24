@@ -210,13 +210,13 @@ export function RepoManagement({ projectId }: RepoManagementProps) {
                 {...register('gitlab_repo_url')}
               />
               {errors.gitlab_repo_url && (
-                <p className="text-xs text-error">{errors.gitlab_repo_url.message}</p>
+                <p className="text-xs text-red-fg">{errors.gitlab_repo_url.message}</p>
               )}
             </div>
             {error && (
-              <div className="flex items-start gap-2 p-3 rounded-md bg-error/10 border border-error/20">
-                <AlertCircle className="w-4 h-4 text-error mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-error">{error}</p>
+              <div className="flex items-start gap-2 p-3 rounded-md bg-red-bg border border-red-border">
+                <AlertCircle className="w-4 h-4 text-red-fg mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-red-fg">{error}</p>
               </div>
             )}
             <DialogFooter>
@@ -242,9 +242,9 @@ export function RepoManagement({ projectId }: RepoManagementProps) {
             </DialogDescription>
           </DialogHeader>
           {error && (
-            <div className="flex items-start gap-2 p-3 rounded-md bg-error/10 border border-error/20">
-              <AlertCircle className="w-4 h-4 text-error mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-error">{error}</p>
+            <div className="flex items-start gap-2 p-3 rounded-md bg-red-bg border border-red-border">
+              <AlertCircle className="w-4 h-4 text-red-fg mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-red-fg">{error}</p>
             </div>
           )}
           <DialogFooter>
@@ -252,8 +252,7 @@ export function RepoManagement({ projectId }: RepoManagementProps) {
               取消
             </Button>
             <Button
-              variant="primary"
-              className="bg-error hover:bg-error/90"
+              variant="danger"
               onClick={handleUnbind}
               disabled={unbindRepo.isPending}
             >

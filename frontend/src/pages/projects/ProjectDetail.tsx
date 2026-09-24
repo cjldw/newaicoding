@@ -102,7 +102,7 @@ export function ProjectDetail() {
                 归档
               </button>
               <button
-                className="flex items-center w-full px-3 py-2 text-sm hover:bg-surface-strong text-error"
+                className="flex items-center w-full px-3 py-2 text-sm hover:bg-surface-strong text-red-fg"
                 onClick={() => { setActionMenu(false); setConfirmDialog('delete') }}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
@@ -191,8 +191,7 @@ export function ProjectDetail() {
               取消
             </Button>
             <Button
-              variant={confirmDialog === 'delete' ? 'primary' : 'default'}
-              className={confirmDialog === 'delete' ? 'bg-error hover:bg-error/90' : ''}
+              variant={confirmDialog === 'delete' ? 'danger' : 'primary'}
               onClick={handleConfirm}
             >
               {confirmDialog === 'delete' ? '删除' : '归档'}

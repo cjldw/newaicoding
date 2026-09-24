@@ -437,7 +437,12 @@ export function PlatformSettings() {
 
   // ---- 加载态 ----
   if (loading) {
-    return <div className="page text-text-muted">加载中...</div>
+    return (
+      <div className="page-loading">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        加载中…
+      </div>
+    )
   }
 
   // ---- 通用 UI 片段 ----
@@ -821,7 +826,7 @@ export function PlatformSettings() {
 
   // ---- 主渲染 ----
   return (
-    <div className="page">
+    <div className="page wide">
       {/* 页头(R2.F2 规范:icon + 标题 + 说明) */}
       <div className="page-head">
         <div>
@@ -837,8 +842,8 @@ export function PlatformSettings() {
 
       {/* 主体:左导航(200px 定宽,hug 高,bg-surface)+ 右内容卡片(max-w 672px);区块间 16px(布局②) */}
       <div className="flex gap-4 items-start">
-        {/* 左导航 */}
-        <nav style={{ width: 200 }} className="flex-shrink-0">
+        {/* 左导航(200px 定宽,hug 高,bg-surface) */}
+        <nav className="w-[200px] flex-shrink-0">
           <ul className="space-y-1 bg-surface border border-border rounded-lg p-2">
             {navItems.map((item) => {
               const isActive = activeGroup === item.key
@@ -848,12 +853,11 @@ export function PlatformSettings() {
                   <button
                     type="button"
                     onClick={() => switchGroup(item.key)}
-                    className={`w-full flex items-center gap-2 text-sm text-left transition-colors border-l-2 ${
+                    className={`w-full flex items-center gap-2 text-sm text-left px-3 py-2 transition-colors border-l-2 ${
                       isActive
                         ? 'bg-surface-strong text-text font-semibold border-primary'
                         : 'border-transparent text-text hover:bg-surface-strong'
                     }`}
-                    style={{ padding: '8px 12px' }}
                   >
                     <Icon className="w-4 h-4" />
                     {item.label}
@@ -864,12 +868,9 @@ export function PlatformSettings() {
           </ul>
         </nav>
 
-        {/* 右内容区 */}
+        {/* 右内容区(单卡片,max-w 672px;区块间 16px,布局②) */}
         <div className="flex-1 min-w-0">
-          <div
-            className="bg-surface border border-border rounded-lg shadow-sm"
-            style={{ maxWidth: 672, padding: 24 }}
-          >
+          <div className="bg-surface border border-border rounded-lg shadow-sm max-w-[672px] p-6">
             {groupContent[activeGroup]()}
           </div>
         </div>

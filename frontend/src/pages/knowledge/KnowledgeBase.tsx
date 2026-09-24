@@ -302,7 +302,7 @@ export default function KnowledgeBase() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>
+            <Button variant="ghost" onClick={() => setShowCreate(false)}>
               取消
             </Button>
             <Button

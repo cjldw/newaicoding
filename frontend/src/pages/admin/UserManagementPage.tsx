@@ -31,9 +31,11 @@ import {
   DialogDescription,
 } from '@/components/ui/Dialog'
 import { adminUsersApi, adminInvitationsApi, type AdminUser } from '@/api/admin'
+import { useToast } from '@/hooks/useToast'
 
 export default function UserManagementPage() {
   const queryClient = useQueryClient()
+  const [, showToast, ToastEl] = useToast()
   const [statusFilter, setStatusFilter] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -93,13 +95,13 @@ export default function UserManagementPage() {
         d.status === 'disabled'
           ? `已禁用,取消 ${d.cancelled_tasks} 个进行中任务`
           : '已启用'
-      alert(msg)
+      showToast('ok', msg)
     },
     onError: (err: any) => {
       if (err.code === 19001) {
-        alert('最后一个超级管理员不可禁用')
+        showToast('err', '最后一个超级管理员不可禁用')
       } else {
-        alert(err.message || '操作失败')
+        showToast('err', err.message || '操作失败')
       }
     },
   })
@@ -111,7 +113,7 @@ export default function UserManagementPage() {
       setInvitationToken(resp.data.invitation_token)
       queryClient.invalidateQueries({ queryKey: ['admin-invitations'] })
     },
-    onError: (err: any) => alert(err.message || '生成邀请失败'),
+    onError: (err: any) => showToast('err', err.message || '生成邀请失败'),
   })
 
   const handleInvite = () => {
@@ -207,6 +209,16 @@ export default function UserManagementPage() {
         </div>
         <div className="scrollx">
           <Table className="tbl">
+            {/* 宽屏列宽:固定列定宽,昵称列自适应吸收剩余空间 */}
+            <colgroup>
+              <col style={{ width: 140 }} />
+              <col />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 90 }} />
+              <col style={{ width: 150 }} />
+              <col style={{ width: 90 }} />
+            </colgroup>
             <TableHeader>
               <TableRow>
                 <TableHead>手机号</TableHead>
@@ -215,7 +227,7 @@ export default function UserManagementPage() {
                 <TableHead>状态</TableHead>
                 <TableHead>GitLab</TableHead>
                 <TableHead>注册时间</TableHead>
-                <TableHead className="text-right">操作</TableHead>
+                <TableHead className="ops">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -269,7 +281,7 @@ export default function UserManagementPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-text-muted">{formatDate(user.created_at)}</TableCell>
-                    <TableCell className="text-right" style={{ whiteSpace: 'nowrap' }}>
+                    <TableCell className="ops">
                       {user.status === 'active' ? (
                         <button
                           className="btn btn-sm btn-danger"
@@ -299,11 +311,14 @@ export default function UserManagementPage() {
           </Table>
         </div>
 
-        {/* 脚注:分页 + 超管规则 */}
-        <div className="card-foot">
-          <span className="small faint">共 {total} 条 · created_at 倒序 · 20/页</span>
+        {/* 脚注:foot-split 左统计+规则 / 右分页(清理互挤的 marginLeft 内联) */}
+        <div className="card-foot foot-split">
+          <div className="flex items-center gap-3">
+            <span className="small faint">共 {total} 条 · created_at 倒序 · 20/页</span>
+            <span className="small faint">系统唯一超级管理员不可禁用</span>
+          </div>
           {totalPages > 1 && (
-            <div className="flex items-center gap-2" style={{ marginLeft: 'auto' }}>
+            <div className="flex items-center gap-2">
               <button
                 className="btn btn-sm"
                 disabled={page === 1}
@@ -321,9 +336,6 @@ export default function UserManagementPage() {
               </button>
             </div>
           )}
-          <span className="small faint" style={{ marginLeft: 'auto' }}>
-            系统唯一超级管理员不可禁用
-          </span>
         </div>
       </div>
 
@@ -372,7 +384,7 @@ export default function UserManagementPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
+            <Button variant="ghost" onClick={() => setInviteDialogOpen(false)}>
               关闭
             </Button>
           </DialogFooter>
@@ -393,7 +405,7 @@ export default function UserManagementPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDisableDialogOpen(false)}>
+            <Button variant="ghost" onClick={() => setDisableDialogOpen(false)}>
               取消
             </Button>
             <Button
@@ -406,6 +418,8 @@ export default function UserManagementPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {ToastEl}
     </div>
   )
 }
