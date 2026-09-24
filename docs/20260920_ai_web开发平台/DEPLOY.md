@@ -884,3 +884,16 @@ python3 main.py                            # 建议配 systemd unit:Restart=alwa
 - R20 知识库导入完成通知仅 logger 钩子(R18 通知已在,钩子待接)
 - 开发库历史由 create_all 维护 + alembic stamp 对齐;全新环境必须走 `alembic upgrade head`,勿混用两种方式
 - 网关 V1 仅 HTTP(HTTPS/CDN/WAF 范围外);Runner 机器不部署反代(直连形态)
+
+
+## R31 追加(2026-09-24,增量5)— runners 表加 is_local 列
+
+- **迁移**:`c7d3e9b5a2f4_r31_is_local.py`(down=b2e8f4a6c9d1);`alembic upgrade head` 幂等
+- **SQL(全新环境手写等价)**:
+  ```sql
+  ALTER TABLE runners ADD COLUMN is_local TINYINT(1) NOT NULL DEFAULT 0 COMMENT '本机快速创建标记(R31)';
+  ```
+- **存量行处理**:默认 0(=远程 token 型),无需回填
+- **已执行**:开发库 aicoding 已 upgrade(head=c7d3e9b5a2f4);测试库 aicoding_test 已手工补列(conftest create_all 不加列,环境陷阱#2)
+- **配置**:无新增;R31 本机 runner 的 PLATFORM_URL 固定注入 `ws://127.0.0.1:8000/ws/runner`(E1 已知限制:平台非 8000 端口/多网卡场景 V2 平台设置化)
+- **依赖**:无新增(runner 侧 docker/websockets 既有;preflight 运行时探测)

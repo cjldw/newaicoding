@@ -59,16 +59,25 @@ export function Terminal({ wsUrl, onOpen, attachTerm, reconnect = true, closeMes
     const webLinksAddon = new WebLinksAddon()
     term.loadAddon(fitAddon)
     term.loadAddon(webLinksAddon)
-    term.open(el)
-    // 初始 fit
-    requestAnimationFrame(() => fitAddon.fit())
-    // 回传实例(BUG-UI-064:面板导出日志用)
-    attachRef.current?.(term)
-
+    // BUG-046:open 延迟双 rAF(见下方 openFrame 注释),此处先建实例与监听
     let ws: WebSocket | null = null
     let disposed = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
+    // BUG-046:fit 统一守卫——Runner 终端 Dialog(150ms 动画)/面板布局期间容器
+    // 尺寸未稳,过早 fit 会撞上 xterm RenderService 未就绪
+    // (RenderService.ts dimensions undefined 崩溃);safeFit 统一守卫
+    const safeFit = () => {
+      if (disposed) return
+      // 尺寸守卫:容器未布局/动画中(width/height 为 0)绝不 fit
+      if (el.clientWidth <= 0 || el.clientHeight <= 0) return
+      try {
+        fitAddon.fit()
+        sendResize()
+      } catch {
+        // 渲染器尚未就绪:忽略本轮,ResizeObserver 下一帧会再次触发
+      }
+    }
     const sendResize = () => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -80,10 +89,9 @@ export function Terminal({ wsUrl, onOpen, attachTerm, reconnect = true, closeMes
     }
 
     // ResizeObserver → fit + 发送 resize
-    const ro = new ResizeObserver(() => {
-      fitAddon.fit()
-      sendResize()
-    })
+    // BUG-046:observe 后首帧立即回调 + Dialog 动画期间频繁回调,统一走 safeFit 守卫
+    // (此前无守卫,动画期 fit 直接抛 TypeError 导致终端白屏)
+    const ro = new ResizeObserver(() => safeFit())
     ro.observe(el)
 
     // xterm onData → 发送 input(本地不回显)
@@ -126,7 +134,21 @@ export function Terminal({ wsUrl, onOpen, attachTerm, reconnect = true, closeMes
       }
     }
 
-    connect()
+    // BUG-046:open 延迟双 rAF——① 等 Dialog 150ms 动画/布局稳定后再 open+fit;
+    // ② React StrictMode 开发期双挂载:首挂载若同步 open(),xterm Viewport 内部
+    // 调度的 rAF 刷新会在 dispose 后读已置空的 _renderService,抛同款
+    // dimensions undefined;延迟后首挂载 dispose 前未 open,rAF 回调按 disposed
+    // 跳过,僵尸实例不再产生(生产构建无 StrictMode,时序差异无感)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (disposed) return
+        term.open(el)
+        // 回传实例(BUG-UI-064:面板导出日志用)
+        attachRef.current?.(term)
+        safeFit()
+        connect()
+      })
+    })
 
     return () => {
       disposed = true

@@ -12,6 +12,7 @@ import pytest
 from app.models.container import Container
 from app.models.project import Project
 from app.models.runner import Runner
+from app.models.task import Task
 from app.services import runner_service
 
 
@@ -91,15 +92,23 @@ class TestRunnerAdmin:
     @pytest.mark.asyncio
     async def test_delete_runner_with_containers(self, client, superadmin_headers, auth_headers,
                                                  db_session, registered_user):
-        """Runner 上有运行中容器:删除失败 16001"""
+        """Runner 上有进行中任务(running)的运行中容器:删除失败 16001(R16.F3 收窄后语义)"""
         runner, _ = await _make_runner(db_session, "op")
         project = Project(name="p", slug=f"p-{uuid.uuid4().hex[:8]}", owner_id=registered_user["user_id"])
         db_session.add(project)
+        await db_session.flush()
+        task = Task(
+            req_id=str(uuid.uuid4()), project_id=project.project_id, type="dev",
+            title="t", description="d", base_branch="main", work_branch="main",
+            status="running", created_by=registered_user["user_id"],
+        )
+        db_session.add(task)
         await db_session.flush()
         db_session.add(Container(
             container_id=f"docker-{uuid.uuid4().hex[:10]}",
             runner_id=runner.runner_id,
             project_id=project.project_id,
+            task_id=task.task_id,
             status="running",
             exposed_ports=[5173, 8000],
         ))
@@ -119,6 +128,47 @@ class TestRunnerAdmin:
             headers=superadmin_headers,
         )
         assert resp.json()["code"] == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_runner_allows_non_running_task_containers(self, client, superadmin_headers,
+                                                                    auth_headers, db_session, registered_user):
+        """R16.F3/BUG-042:容器在但关联任务已非进行中(cancelled)→ 放行删除;
+        以及 task_id 为空的部署容器 → 放行"""
+        runner, _ = await _make_runner(db_session, "op")
+        project = Project(name="p", slug=f"p-{uuid.uuid4().hex[:8]}", owner_id=registered_user["user_id"])
+        db_session.add(project)
+        await db_session.flush()
+        task = Task(
+            req_id=str(uuid.uuid4()), project_id=project.project_id, type="dev",
+            title="t", description="d", base_branch="main", work_branch="main",
+            status="cancelled", created_by=registered_user["user_id"],
+        )
+        db_session.add(task)
+        await db_session.flush()
+        db_session.add(Container(
+            container_id=f"docker-{uuid.uuid4().hex[:10]}",
+            runner_id=runner.runner_id,
+            project_id=project.project_id,
+            task_id=task.task_id,
+            status="running",
+            exposed_ports=[5173],
+        ))
+        # 部署容器:task_id NULL(R7 deployed 常驻)
+        db_session.add(Container(
+            container_id=f"docker-{uuid.uuid4().hex[:10]}",
+            runner_id=runner.runner_id,
+            project_id=project.project_id,
+            task_id=None,
+            status="running",
+            exposed_ports=[80],
+        ))
+        await db_session.flush()
+
+        resp = await client.delete(
+            f"/api/admin/runners/{runner.runner_id}",
+            headers=superadmin_headers,
+        )
+        assert resp.json()["code"] == 0, resp.text
 
 
 # ---------------------------------------------------------------------------

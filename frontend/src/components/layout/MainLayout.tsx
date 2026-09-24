@@ -11,23 +11,18 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FolderKanban, ListChecks, Activity, FlaskConical, Rocket,
   BookOpen, Server, Users, ScrollText, Settings, Bell, LogOut, Blocks,
-  ExternalLink, CheckCheck, Loader2,
+  ExternalLink, CheckCheck, Loader2, Play, Sun, Moon,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { getAvColor, getInitial } from '@/utils/avatar'
 import { Breadcrumb } from './Breadcrumb'
 import { useUnreadCount, useNotificationList, useMarkNotificationRead, useMarkAllRead } from '@/api/notifications'
+import { TourDialog, isTourCompleted } from '@/components/TourDialog'
+import { useTheme } from '@/hooks/useTheme'
 
-function LogoMark({ size = 17 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden style={{ display: 'block' }}>
-      <rect x="7.2" y="6" width="2.6" height="21" rx="1.3" fill="#ffffff" />
-      <path d="M10.4 7.6 24 13.2 10.4 13.2Z" fill="#3b82f6" />
-      <path d="M10.4 13.2H24l-7 2.9h-6.6Z" fill="#d4d4d8" />
-      <path d="M10.4 16.1h6.6L10.4 19Z" fill="#a1a1aa" />
-    </svg>
-  )
-}
+import { OrangeMark } from '@/components/OrangeMark'
+
+// 品牌 Logo「旗橙」:橙子图标(OrangeMark);侧栏深色方块底由 .logo-mark 容器提供
 
 interface NavItem {
   to: string
@@ -101,10 +96,20 @@ export function MainLayout() {
   const bellRef = useRef<HTMLDivElement>(null)
   // R28:头像图加载失败时回退首字母;avatar_url 变化(上传/移除)后重置
   const [avatarError, setAvatarError] = useState(false)
+  // R29:平台导览弹窗开关(条件渲染 TourDialog,open 时才挂载/发请求)
+  const [tourOpen, setTourOpen] = useState(false)
+  // R30:黑白主题(挂载即写 <html data-theme>;顶栏按钮切换,localStorage 持久化)
+  const { theme, toggle: toggleTheme } = useTheme()
 
   useEffect(() => {
     setAvatarError(false)
   }, [user?.avatar_url])
+
+  // R29:首次登录自动弹出导览——localStorage 无 tour_completed 标记则打开;
+  // 完成/跳过后写入标记不再弹出;遮罩关闭不写标记,下次登录仍会弹出(分片控件联动)
+  useEffect(() => {
+    if (!isTourCompleted()) setTourOpen(true)
+  }, [])
 
   // 通知数据:未读数(60s 轮询)+ 最近 5 条
   const { data: unreadData } = useUnreadCount()
@@ -183,9 +188,9 @@ export function MainLayout() {
     <div className="shell">
       <aside className="sidebar">
         <div className="logo">
-          <span className="logo-mark"><LogoMark size={17} /></span>
+          <span className="logo-mark"><OrangeMark size={17} /></span>
           <span>
-            <b>旗程</b>
+            <b>旗橙</b>
             <span>AI 研发流程平台</span>
           </span>
         </div>
@@ -203,11 +208,11 @@ export function MainLayout() {
           </>
         )}
 
-        {/* 侧栏底部:平台导览(对齐 vp 原型 .tour,不再放用户信息) */}
+        {/* 侧栏底部:平台导览(对齐 vp 原型 .tour,不再放用户信息);常驻入口,无论是否已完成均可手动打开 */}
         <div className="tour">
-          <b className="small">平台导览</b>
+          <b className="small"><Play size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />平台导览</b>
           <div className="small muted">首次使用?花 2 分钟了解四维管理与任务工作台…</div>
-          <button className="btn btn-sm" style={{ marginTop: 8 }}>开始导览</button>
+          <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setTourOpen(true)}>开始导览</button>
         </div>
       </aside>
 
@@ -239,7 +244,7 @@ export function MainLayout() {
               {bellOpen && (
                 <div style={{
                   position: 'absolute', top: '100%', right: 0, marginTop: 4,
-                  width: 320, background: 'var(--card-bg, #fff)',
+                  width: 320, background: 'var(--surface)',
                   border: '1px solid var(--border, #e4e4e7)',
                   borderRadius: 'var(--vp-radius, 8px)',
                   boxShadow: '0 4px 16px rgba(0,0,0,.1)',
@@ -319,6 +324,17 @@ export function MainLayout() {
               )}
             </div>
 
+            {/* R30:主题切换按钮(铃铛后,32×32 icon-btn;亮显 Moon/暗显 Sun,React 状态驱动图标切换) */}
+            <button
+              type="button"
+              className="btn btn-ghost icon-btn"
+              title={theme === 'light' ? '切换到暗色主题' : '切换到亮色主题'}
+              onClick={toggleTheme}
+              style={{ marginLeft: 8 }}
+            >
+              {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+            </button>
+
             {/* 用户按钮:头像[姓名首字]+姓名+角色徽章,下拉含退出登录 */}
             <div className="user-btn-wrap" ref={userBtnRef}>
               <button className="user-btn" onClick={handleUserBtnClick} type="button">
@@ -339,6 +355,14 @@ export function MainLayout() {
               </button>
               {userMenuOpen && (
                 <div className="user-menu">
+                  {/* R28.F1(BUG-040):个人设置入口——头像编辑/资料/GitLab Token/通知设置唯一可达路径 */}
+                  <button
+                    className="user-menu-item"
+                    onClick={() => { setUserMenuOpen(false); navigate('/settings/profile') }}
+                  >
+                    <Settings size={15} />
+                    <span>个人设置</span>
+                  </button>
                   <button
                     className="user-menu-item"
                     onClick={() => { setUserMenuOpen(false); handleLogout() }}
@@ -353,6 +377,9 @@ export function MainLayout() {
         </header>
         <Outlet />
       </div>
+
+      {/* R29:平台导览弹窗(条件挂载,open 时才拉取步骤数据) */}
+      {tourOpen && <TourDialog onClose={() => setTourOpen(false)} />}
     </div>
   )
 }

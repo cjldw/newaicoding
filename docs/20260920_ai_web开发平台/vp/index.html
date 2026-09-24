@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
-<title>旗程 · AI 研发流程平台</title>
-<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="%2318181b"/><rect x="7.2" y="6" width="2.6" height="21" rx="1.3" fill="%23ffffff"/><path d="M10.4 7.6 24 13.2 10.4 13.2Z" fill="%233b82f6"/><path d="M10.4 13.2H24l-7 2.9h-6.6Z" fill="%23d4d4d8"/><path d="M10.4 16.1h6.6L10.4 19Z" fill="%23a1a1aa"/></svg>'>
+<title>旗橙 · AI 研发流程平台</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="%2318181b"/><defs><radialGradient id="ob" cx="38%25" cy="34%25" r="72%25"><stop offset="0%25" stop-color="%23fdba74"/><stop offset="55%25" stop-color="%23f97316"/><stop offset="100%25" stop-color="%23ea580c"/></radialGradient></defs><circle cx="16" cy="18.5" r="9.5" fill="url(%23ob)"/><ellipse cx="16" cy="10" rx="1.5" ry="0.9" fill="%23c2410c" opacity="0.55"/><rect x="15.4" y="6.8" width="1.2" height="2.9" rx="0.6" fill="%2392400e"/><path d="M17 7.9 C19.9 5.9 23.3 6.1 25.2 7.1 C23.8 9.7 20 10.6 17.5 9.4 Z" fill="%2316a34a"/><ellipse cx="12.2" cy="15.5" rx="2" ry="2.9" fill="%23ffffff" opacity="0.35" transform="rotate(-24 12.2 15.5)"/></svg>'>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
@@ -479,12 +479,14 @@ function toast(m){const w=document.getElementById('toasts');const t=document.cre
 function openModal(html){document.getElementById('modal-root').innerHTML=`<div class="modal-mask" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`;}
 function closeModal(){document.getElementById('modal-root').innerHTML='';}
 const go = h => { location.hash = h; };
-/* ================= 品牌 Logo:三段升旗(打磨→开发→发布,旗到顶即上线) ================= */
+/* ================= 品牌 Logo:旗橙——一颗橙子(用户定案 2026-09-24,替代三段升旗) ================= */
 const LOGO = (s=16) => `<svg width="${s}" height="${s}" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-  <rect x="6.6" y="3.4" width="2.8" height="25.2" rx="1.4" fill="#ffffff"/>
-  <path d="M9.4 5.2 25 11.6 9.4 11.6Z" fill="#3b82f6"/>
-  <path d="M9.4 11.6H25l-7.8 3.2H9.4Z" fill="#d4d4d8"/>
-  <path d="M9.4 14.8h7.8L9.4 18Z" fill="#a1a1aa"/>
+  <defs><radialGradient id="og${s}" cx="38%" cy="34%" r="72%"><stop offset="0%" stop-color="#fdba74"/><stop offset="55%" stop-color="#f97316"/><stop offset="100%" stop-color="#ea580c"/></radialGradient></defs>
+  <circle cx="16" cy="18.5" r="11" fill="url(#og${s})"/>
+  <ellipse cx="16" cy="8.6" rx="1.8" ry="1.1" fill="#c2410c" opacity="0.55"/>
+  <rect x="15.3" y="5.2" width="1.4" height="3.4" rx="0.7" fill="#92400e"/>
+  <path d="M17 6.6 C20.4 4.2 24.4 4.4 26.6 5.6 C25 8.6 20.6 9.6 17.6 8.2 Z" fill="#16a34a"/>
+  <ellipse cx="11.6" cy="15" rx="2.4" ry="3.4" fill="#ffffff" opacity="0.35" transform="rotate(-24 11.6 15)"/>
 </svg>`;
 /* ================= 模拟数据(静态演示) ================= */
 /* 平台角色(R19):plat=superadmin/user 双层叠加项目角色 role;phone 按 R1 打码 */
@@ -800,7 +802,7 @@ function shell(inner, crumb, active){
   const item = n => `<button class="sitem${active===n[0]?' on':''}" onclick="go('#/${n[0]}')">${ic(n[1])}<span class="lbl">${n[2]}</span>${n[3]!==''?`<span class="cnt">${n[3]}</span>`:''}</button>`;
   return `<div class="shell">
     <aside class="sidebar">
-      <div class="logo"><span class="logo-mark">${LOGO(17)}</span><span><b>旗程</b><span>AI 研发流程平台</span></span></div>
+      <div class="logo"><span class="logo-mark">${LOGO(17)}</span><span><b>旗橙</b><span>AI 研发流程平台</span></span></div>
       ${navTop.map(item).join('')}
       <div class="sgroup">项目管理</div>
       ${navProj.map(item).join('')}
@@ -843,7 +845,7 @@ const crumbLink = (h, t) => h ? `<a href="${h}">${t}</a>` : `<b>${t}</b>`;
 function pageLogin(){
   return `<div class="login-wrap"><div class="login-card">
     <div class="login-logo"><span class="logo-mark" style="width:38px;height:38px;border-radius:10px">${LOGO(22)}</span>
-      <span><b style="font-size:18px">旗程</b><span class="muted small" style="display:block">AI 研发流程平台 · 需求启程,一路旗程:需求 → 开发 → 测试 → 发布 → 归档</span></span></div>
+      <span><b style="font-size:18px">旗橙</b><span class="muted small" style="display:block">AI 研发流程平台 · 需求启程,一路旗橙:需求 → 开发 → 测试 → 发布 → 归档</span></span></div>
     <div class="login-box">
       <div><h2 style="font-size:17px">登录</h2><div class="muted small">手机号 + 密码登录(JWT · access 2h · 短信验证码 V2)</div></div>
       <div class="field"><label>手机号</label><input class="input" value="13800005678" id="lg-u"></div>

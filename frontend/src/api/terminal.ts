@@ -26,10 +26,11 @@ export async function closeTerminalSession(sessionId: string): Promise<void> {
   await api.delete(`/terminal-sessions/${sessionId}`)
 }
 
-/** R26:创建 Runner 宿主 shell 会话(超管;POST /api/admin/runners/{id}/shell-sessions) */
-export async function createRunnerShellSession(runnerId: string): Promise<TerminalSession> {
+/** R26:创建 Runner 宿主 shell 会话(超管;POST /api/admin/runners/{id}/shell-sessions)
+ *  R26.F2(BUG-047):force=true → 强制关闭该 Runner 活跃会话后新建(6002 时前端按钮用) */
+export async function createRunnerShellSession(runnerId: string, force = false): Promise<TerminalSession> {
   const res = await api.post<TerminalSession>(
-    `/admin/runners/${runnerId}/shell-sessions`,
+    `/admin/runners/${runnerId}/shell-sessions${force ? '?force=true' : ''}`,
     {},
   )
   return res.data

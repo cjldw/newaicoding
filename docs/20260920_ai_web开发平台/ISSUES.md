@@ -171,3 +171,46 @@
 | invitation.consume(邀请消费) | `consume_invitation` 函数存在但全库无调用方(注册流程未消费 invitation_token,邀请注册链路未接线) | 注册流程接线 invitation_token 消费时 |
 
 **另留痕(R25 顺带修复)**:`users_admin.py` 原 `_session_factory_holder` 机制无任何注入调用方,致 R19 的 user.disable/enable 审计此前**从不落库**;R25 改为直接引用模块级 `async_session_factory` 修复,并补 pytest 断言。
+
+## rd-fix 第 18 轮迁移(2026-09-24)
+
+| BUG | 状态 | 关联 | 根因与修复 | 验证 |
+|---|---|---|---|---|
+| BUG-040 | verified(用户浏览器复验待定) | R28.F1 | 个人设置入口断链:头像编辑/GitLab Token/通知设置页面均已实现但 UI 零入口(侧栏无、用户下拉仅退出登录);MainLayout 用户下拉补「个人设置」菜单项(复用 Settings 图标与 .user-menu-item 样式,零新增 CSS) | Playwright 实测:下拉两项 → /settings/profile → 「上传头像」控件在 → 三设置页导航齐;tsc 0 错 + build 过;截图 .scratch/R28.F1/profile-reachable.png |
+| BUG-041 | verified | R26.F1 | Runner 终端 6003 对非容器化 runner 误报「版本过旧」:Windows 裸跑无 HOSTNAME→self_container_id 空串,与"旧版镜像无键"折叠同文案;细分 message(键缺失=版本过旧 / 空串=非容器化部署),错误码 6003 不动,0 前端;response.py 枚举注释同步 | pytest 11/11(新增空串用例 Red→Green,既有键缺失用例不回退);真机接口复验(后端重启后):{"code":6003,"message":"该 Runner 未运行在容器中(非容器化部署),无法打开 Runner 终端"} |
+
+## 登记遗留(2026-09-24,rd-fix 第 19 轮)
+
+| 项 | 描述 | 建议归属 |
+|---|---|---|
+| 任务终态缺容器状态回写 | 任务取消/完成/超时链路不更新 containers.status(滞留 running),产生孤儿容器行——BUG-042 删除 Runner 被卡的直接数据源头(R16.F3 已在删除口径侧兜底) | 后续任务链增强(R4 系修复点或新需求),涉及 cancel/timeout/finish 三条链路 |
+
+## rd-fix 第 21 轮迁移(2026-09-24)
+
+| BUG | 状态 | 关联 | 根因与修复 | 验证 |
+|---|---|---|---|---|
+| BUG-042 | verified(真机删除实证) | R16.F3 | delete_runner 拦截收窄为容器(creating/running)且关联 Task.status='running'(项目"进行中"统一口径);部署容器 task_id NULL 自然放行;16001 文案改「Runner 上有进行中任务的容器,不可删除」 | pytest 11/11(Red→Green);真机实证:用户于 2026-09-24 14:33-15:00 间成功删除 local-win-test(runners 表行消失,随后旧 token 注册被拒「token 无效」,16001 卡死不复现;证据链见 BUGS.md BUG-044 旁证收获) |
+
+## rd-fix 第 22 轮迁移(2026-09-24)
+
+| BUG | 状态 | 关联 | 根因与修复 | 验证 |
+|---|---|---|---|---|
+| BUG-045 | verified | R16.F4 | collect_machine_info 内存采集用 `os.sysconf(SC_PAGE_SIZE/SC_PHYS_PAGES)`(仅 Unix 存在),Windows 必 AttributeError 被吞 → mem_total_gb 恒 0;Windows 分支改 `ctypes GlobalMemoryStatusEx`;并按用户指令扩充 os_version/hostname/ip(UDP connect 探默认路由出口,不发包)/disk_total_gb/disk_free_gb/cpu_model,逐字段容错(失败整键缺席,不阻塞注册);前端 RunnerMachineInfo 类型扩 6 可选字段 + formatMachine 两行展示(缺字段降级);后端零改动 | runner pytest 4 新增全绿(实机断言)+ 全量 31/31(与 R31 并行改动互不破坏);tsc 0 错;真机重启 runner 重注册后 DB 实证全字段落库:mem 31.8GB / ip 10.180.106.107 / hostname LUOWEN-CORP / os_version Windows-10-10.0.22621-SP0 / disk 2794.5GB(剩 143.7)/ cpu_model,status=online |
+
+## rd-fix 第 23/24 轮迁移(2026-09-24)
+
+| BUG | 状态 | 关联 | 根因与修复 | 验证 |
+|---|---|---|---|---|
+| BUG-UI-070 | verified | R9.F2 | xterm 终端无自定义滚动条,深色终端上原生滚动条突兀;globals.css 纯追加 `.xterm-viewport` 样式:WebKit 8px thumb(rgba(255,255,255,.18),4px 圆角,hover .32)+ track 透明,Firefox scrollbar-width thin + scrollbar-color;终端底色恒 #1e1e1e 双主题通用 | 真机浏览器计算样式实证:webkit width=8px / thumb 4px 圆角 rgba(255,255,255,0.18) / Firefox thin——PASS |
+
+## 登记遗留(2026-09-24,rd-fix 第 20 轮)
+
+| 项 | 描述 | 建议归属 |
+|---|---|---|
+| BUG-044(R31 并行会话工作区,未代修) | test_r31_local_runner 10 failed/2 errors:① delete local 链路把 AsyncMock/未序列化对象写入 audit_log.detail(JSON 序列化炸,PendingRollbackError 实证);② conftest 的 alembic upgrade 失败(fallback create_all,疑 R31 迁移记账漂移);③ runners.py 曾出现装饰器与注释粘行致 reset-token 404(本轮已修,疑两会话编辑碰撞) | R31 并行会话收口时处理 |
+
+## rd-fix 第 20 轮迁移(2026-09-24)
+
+| BUG | 状态 | 关联 | 根因与修复 | 验证 |
+|---|---|---|---|---|
+| BUG-043 | verified | R31.F1 | 非容器 runner 无终端通道(R26 终端=exec 进自身容器;R31 本机裸跑 runner 成一级能力后缺口凸显)。宿主 shell 降级通道:terminal_manager.py HostSession(subprocess,Windows=cmd.exe/Linux=bash,read1 防凑满阻塞)+ main.py exec "__host__" 哨兵分流 + runners.py 空串分支建 host 会话(键缺失仍 6003);审计 session_kind=runner_host;前端零改动 | runner 单测 6/6(真进程 echo/stdin/kill);后端 r26 11/11 + 触碰面 47 绿;真机:reset-token→新 token 重拉 runner-local→shell-sessions code=0(会话已关)。Windows 管道模式无 pty(resize/真 TTY 降级)接受 |

@@ -36,6 +36,7 @@ class RunnerItem(BaseModel):
     current_containers: int
     max_containers: int
     public_ip: Optional[str] = None
+    is_local: bool = False  # R31:本机快速创建标记
     created_at: datetime
 
 

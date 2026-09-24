@@ -118,6 +118,8 @@
     color: var(--color-text);
     background: var(--color-bg);
     -webkit-font-smoothing: antialiased;
+    /* R30:主题切换颜色淡入(reduced-motion 块统一压制) */
+    transition: background-color .2s ease, color .2s ease;
   }
   table { font: inherit; border-collapse: collapse; }
   button { font: inherit; color: inherit; }
@@ -195,7 +197,7 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .tour a:hover{color:var(--text);text-decoration:none}
 .tour .n{width:15px;height:15px;border-radius:999px;background:#fff;border:1px solid var(--border-strong);color:var(--muted);font-size:10px;display:grid;place-items:center;flex:none;font-family:var(--mono)}
 .main{min-width:0;display:flex;flex-direction:column}
-.topbar{display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(255,255,255,.92);backdrop-filter:blur(6px);z-index:20;min-height:50px}
+.topbar{display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(255,255,255,.92);backdrop-filter:blur(6px);z-index:20;min-height:50px;transition:background-color .2s ease}
 .crumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);min-width:0;flex-wrap:wrap}
 .crumb b{color:var(--text);font-weight:600}
 .crumb .sep{color:var(--faint)}
@@ -218,6 +220,12 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 /* ===== buttons ===== */
 .btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;padding:6px 13px;border-radius:var(--vp-radius-sm);border:1px solid var(--border);background:var(--surface);cursor:pointer;box-shadow:var(--shadow-sm);transition:background .12s;white-space:nowrap}
 .btn:hover{background:var(--surface-2)}
+/* R30 顺带修复(存量缺陷,主按钮不可读的必要前置):上行的 vp .btn
+   background:var(--surface) 未分层且靠后,同特异性压掉了 @layer 内
+   .btn--primary 的 bg-primary → 主按钮亮色即白底白字。以 (0,2,0) 特异性
+   在未分层区恢复主按钮深底;暗色下的反色覆盖见文件尾部 R30 块 */
+.btn.btn--primary{background:var(--color-primary);border-color:var(--color-primary);color:#fff}
+.btn.btn--primary:hover{background:var(--primary-hi);border-color:var(--color-primary)}
 .btn:active{background:var(--surface-3)}
 .btn-pri{background:var(--primary);border-color:var(--primary);color:#fff}
 .btn-pri:hover{background:var(--primary-hi)}
@@ -466,6 +474,13 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 /* ===== dialog 动画(Dialog.tsx 引用)===== */
 @keyframes dialogOverlayIn{from{opacity:0}to{opacity:1}}
 @keyframes dialogContentIn{from{opacity:0;transform:scale(0.95) translateY(4px)}to{opacity:1;transform:none}}
+/* ===== R29 平台导览弹窗(TourDialog,内容样式;遮罩复用 ui/Dialog)===== */
+.tour-dialog .tour-steps{display:flex;flex-direction:column;gap:4px;max-height:400px;overflow-y:auto}
+.tour-dialog .tour-step{display:flex;gap:8px;align-items:center;padding:8px 12px;border-radius:4px;background:none;border:none;cursor:pointer;color:var(--muted);font-size:12px;font-family:inherit;text-align:left}
+.tour-dialog .tour-step:hover{color:var(--text);background:var(--surface-2)}
+.tour-dialog .tour-step .n{width:15px;height:15px;border-radius:999px;background:#fff;border:1px solid var(--border);color:var(--muted);font-size:10px;display:grid;place-items:center;flex:none;font-family:var(--mono)}
+.tour-dialog .tour-dialog-foot{display:flex;justify-content:flex-end;gap:12px;margin-top:16px}
+@keyframes tourIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 /* ===== 头像淡入(R28 头像预览切换动效:opacity .3s ease-out)===== */
 @keyframes avatarFadeIn{from{opacity:0}to{opacity:1}}
 /* ===== workbench ===== */
@@ -549,6 +564,70 @@ select.input{cursor:pointer}
   .kv{min-width:45%}
 }
 @media (prefers-reduced-motion: reduce){
+  *{animation:none!important;transition:none!important}
 }
 
 }
+/* R30 块置于 @layer 之外(未分层):原生 cascade 中未分层规则优先级高于
+   任何 layer——否则下面的定点覆盖会输给 @layer components 的 .btn--primary
+   text-white 等,导致暗色下主按钮白底白字不可读 */
+/* ===================================================================
+   R30 黑白主题:暗色变量(GitHub Dark 风格,分片 R30.md 实现要点 1)
+   - 仅覆盖核心色板 + vp 扩展变量;语义色(--blue 系/--green 系等红绿蓝
+     琥珀紫)与终端(--term 系)刻意不在本块覆盖 → 不随主题变(判据 10/11)
+   - --surface 为分片暗色变量表遗漏项,依判据 6「侧栏 #161b22」补齐
+     (侧栏/卡片背景消费 var(--surface))
+   =================================================================== */
+[data-theme="dark"]{
+  /* shadcn 核心色板 */
+  --color-bg:#0d1117; --color-surface:#161b22; --color-surface-strong:#21262d;
+  --color-border:#30363d; --color-text:#f0f6fc; --color-text-muted:#9198a1;
+  --color-primary:#f0f6fc; --color-accent:#58a6ff; --color-ring:#8b949e;
+  /* vp 原型扩展变量 */
+  --bg:#0d1117; --surface:#161b22; --surface-2:#21262d; --surface-3:#30363d;
+  --border:#30363d; --border-strong:#444c56;
+  --text:#f0f6fc; --muted:#9198a1; --faint:#6e7681;
+  --primary:#f0f6fc; --primary-hi:#f0f6fc; --accent:#58a6ff;
+  --ring:rgba(139,148,158,.4);
+}
+/* 暗色定点覆盖:亮色下硬编码 #fff/#ececef 的元素(风险清单「inline style
+   硬编码」逐项处置;仅 dark 生效,亮色渲染零影响) */
+[data-theme="dark"] .topbar{background:rgba(13,17,23,.92)}
+[data-theme="dark"] .btn:active{background:var(--surface-3)}
+/* 主按钮反色:暗色下 --primary 变浅底 → 文字/图标改深色保证可读 */
+[data-theme="dark"] .btn--primary,
+[data-theme="dark"] .btn-pri,
+[data-theme="dark"] .logo-mark,
+[data-theme="dark"] .stp.done .d,
+[data-theme="dark"] .tl-item.done .tl-dot,
+[data-theme="dark"] .ckbox,
+[data-theme="dark"] .toast{color:#0d1117}
+[data-theme="dark"] .btn--primary:hover{background:#d0d7de;border-color:#d0d7de}
+/* 白底小圆点/徽章/容器 → 暗色面 */
+[data-theme="dark"] .sitem.on .cnt,
+[data-theme="dark"] .tour .n,
+[data-theme="dark"] .tour-dialog .tour-step .n,
+[data-theme="dark"] .stp .d,
+[data-theme="dark"] .tl-dot,
+[data-theme="dark"] .ckbox.off,
+[data-theme="dark"] .ttab .n{background:var(--surface-3)}
+[data-theme="dark"] .pv-app,
+[data-theme="dark"] .att{background:var(--surface)}
+[data-theme="dark"] .av-stack .av{border-color:var(--surface)}
+
+/* ============================================================
+   BUG-UI-070(rd-fix 第 23 轮):xterm 终端滚动条美化
+   终端底色恒为深色 #1e1e1e(Terminal.tsx 硬编码,不随主题),
+   滚动条用半透明白色细条,亮/暗主题下均成立;纯追加不改既有行
+   ============================================================ */
+.xterm-viewport{
+  scrollbar-width:thin; /* Firefox */
+  scrollbar-color:rgba(255,255,255,.18) transparent;
+}
+.xterm-viewport::-webkit-scrollbar{width:8px;height:8px}
+.xterm-viewport::-webkit-scrollbar-track{background:transparent}
+.xterm-viewport::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,.18);
+  border-radius:4px;
+}
+.xterm-viewport::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.32)}

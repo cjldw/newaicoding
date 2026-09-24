@@ -1,4 +1,4 @@
-"""旗程后端 FastAPI 应用入口"""
+"""旗橙后端 FastAPI 应用入口"""
 
 import asyncio
 import logging
@@ -94,7 +94,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """应用启动/关闭时的资源管理"""
     # 启动：初始化数据库连接
-    logger.info("旗程后端启动中... 环境=%s", settings.ENVIRONMENT)
+    logger.info("旗橙后端启动中... 环境=%s", settings.ENVIRONMENT)
     await init_db()
     logger.info("数据库连接池初始化完成")
 
@@ -109,7 +109,7 @@ async def lifespan(app: FastAPI):
     # 关闭：释放资源
     sweep_task.cancel()
     await close_db()
-    logger.info("旗程后端已关闭")
+    logger.info("旗橙后端已关闭")
 
 
 async def _runner_offline_sweep():
@@ -137,8 +137,8 @@ async def _runner_offline_sweep():
 # 创建 FastAPI 应用
 # -------------------------------------------------------------------
 app = FastAPI(
-    title="旗程 AI Web 开发平台",
-    description="旗程后端 API 文档",
+    title="旗橙 AI Web 开发平台",
+    description="旗橙后端 API 文档",
     version="0.1.0",
     lifespan=lifespan,
     docs_url="/docs",

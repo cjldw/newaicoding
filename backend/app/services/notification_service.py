@@ -126,7 +126,7 @@ async def test_dingtalk_webhook(webhook: str) -> tuple[bool, str]:
 
     payload = {
         "msgtype": "markdown",
-        "markdown": {"title": "旗程测试消息", "text": "### 旗程测试消息\n\n钉钉通知配置成功"},
+        "markdown": {"title": "旗橙测试消息", "text": "### 旗橙测试消息\n\n钉钉通知配置成功"},
     }
     try:
         async with _httpx.AsyncClient(timeout=10.0, verify=False) as client:

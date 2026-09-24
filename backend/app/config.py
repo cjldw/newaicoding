@@ -1,4 +1,4 @@
-"""旗程后端配置模块 - 基于 pydantic-settings"""
+"""旗橙后端配置模块 - 基于 pydantic-settings"""
 
 from pathlib import Path
 from typing import Optional

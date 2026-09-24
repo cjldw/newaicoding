@@ -3,11 +3,11 @@
 > PRD:./PRD.md
 > ARCH:./ARCH.md
 > 创建日期:2026-09-21
-> 状态:**打磨中**(增量4:R28–R30 计划撰写中,待确认清单待清零,2026-09-23)
+> 状态:**已确认**(增量3/增量4 收口见各行;**增量5(R31)已确认**,2026-09-24,A1–E1 用户确认;待确认清单空)
 
 ## 需求概述
 
-从零搭建一个**AI 驱动的研发流程协作平台**,覆盖**需求打磨 → 开发 → 测试 → 发布 → 归档**全流程;30 个需求点(R1–R30),10 个模块(M1–M10),全部新建,无历史代码包袱。
+从零搭建一个**AI 驱动的研发流程协作平台**,覆盖**需求打磨 → 开发 → 测试 → 发布 → 归档**全流程;31 个需求点(R1–R31),10 个模块(M1–M10),全部新建,无历史代码包袱。
 
 **核心技术栈**(按 ARCH 决策):
 - **后端**:Python 3.12 + FastAPI + SQLAlchemy 2.0 async + MySQL 8.0 + asyncmy
@@ -448,7 +448,7 @@ docker run -d \
 
 ## 当前进度
 
-**当前进度: 增量3(R23–R27):4/5 (80%) - R27 代码侧完成(判据 5 真机复现待用户重录 GitLab bot token) | 增量4(R28–R30):1/3 (33%) - R28 完成,下一个 R29**
+**当前进度: 增量3(R23–R27):4/5 (80%) - R27 代码侧完成(判据 5 真机复现待用户重录 GitLab bot token) | 增量4(R28–R30):3/3 (100%) - 全部完成,引导进入 /rd-check | 增量5(R31):1/1 (100%) - 完成,待提交与 /rd-check | rd-fix 第 22 轮:R16.F4(BUG-045 机器信息增强)已 verified 迁移 ISSUES.md**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
@@ -508,8 +508,16 @@ docker run -d \
 | R2.F9 | 修复 BUG-038 平台设置单键解密失败打挂整页(_decode_stored 逐键容错折叠 None;2001/13005 干净降级;0 前端) | M2(波及 M3 回退链) | ✅(verified:红测 9 failed→11/11 绿,全量 333/1s/0;真实环境重启后 GET 200 + 3 失效键未配置降级,迁移 ISSUES.md;5 条存量密文重录归用户运维) | ./DEVPLAN/R2.F9.md |
 | R19.F5 | 修复 BUG-039 审计日志页时间筛选发 UTC 串把全表滤空(接口返回空;本地裸串适配 + isError + start>end 禁查询) | M9(0 后端) | ✅(verified:Red 0 条→Green 69 条,NY 时区判据 PASS,时区钉死 GMT+8(前端 formatGmt8 + 后端 time_zone='+08:00' 固化);tsc/build/pytest 398/1s/0;迁移 ISSUES.md) | ./DEVPLAN/R19.F5.md |
 | R28 | 用户信息修改增强(昵称、头像本地上传)(增量4) | M1 | ✅ | ./DEVPLAN/R28.md |
-| R29 | 平台导览(左下角入口)(增量4) | M10 | ⬜ | ./DEVPLAN/R29.md |
-| R30 | 黑白主题切换(增量4) | M10 | ⬜ | ./DEVPLAN/R30.md |
+| R29 | 平台导览(左下角入口)(增量4) | M10 | ✅(fixed;tsc/build 零错,判据 1-10 Playwright 实测全过,审计 0 阻塞,待用户验收) | ./DEVPLAN/R29.md |
+| R30 | 黑白主题切换(增量4) | M10 | ✅(fixed;tsc/build 零错,判据 1-11 Playwright 实测全过;顺带修复主按钮白底白字存量缺陷;待用户验收) | ./DEVPLAN/R30.md |
+| R31 | Runner 本地快速创建与本机生命周期管理(增量5) | M5 | ✅(fixed;pytest 28+1s/runner 34/回归 58 零回退;真机 E2E 判据 1/4/5/6 过;待用户验收) | ./DEVPLAN/R31.md |
+| R28.F1 | 修复 BUG-040 个人设置入口断链(用户下拉补「个人设置」,头像编辑/GitLab Token/通知设置可达) | M1 | ✅(fixed;判据 1-5 Playwright 实测全过,tsc/build 零错;verified 待用户浏览器复验) | ./DEVPLAN/R28.F1.md |
+| R26.F1 | 修复 BUG-041 Runner 终端 6003 对非容器化 runner 误报"版本过旧"(细分文案:键缺失=版本过旧/空串=非容器化,码不动 0 前端) | M5 | ✅(verified 迁移 ISSUES.md;pytest 11/11 + 真机接口复验新文案,后端已重启) | ./DEVPLAN/R26.F1.md |
+| R16.F3 | 修复 BUG-042 删除 Runner 被孤儿容器行卡死(16001 收窄为容器关联任务 running;非进行中放行) | M5 | ✅(verified 迁移 ISSUES.md;第 21 轮真机删除实证:local-win-test 行消失+旧 token register_failed) | ./DEVPLAN/R16.F3.md |
+| R16.F4 | 修复 BUG-045 机器信息增强(Windows 内存采集 ctypes 修复 + os_version/hostname/ip/disk/cpu_model 字段扩充;前端 formatMachine 两行展示;后端零改动) | M5 | ✅(verified 迁移 ISSUES.md;runner pytest 4 新增+全量 31/31、tsc 0 错、真机重启后 DB 全字段落库 mem 31.8GB) | ./DEVPLAN/R16.F4.md |
+| R9.F2 | 修复 BUG-046 新建终端 xterm RenderService 崩溃(safeFit 统一守卫:双 rAF/尺寸>0/disposed/try-catch)+ BUG-UI-070 终端滚动条美化(.xterm-viewport 细条双主题) | M5(波及 R26 Runner 终端) | ✅(原崩溃真机实证消失;StrictMode 伪影根除;070 verified 迁移;浏览器零错终验归用户一瞥——两会话超管互踢致驻留不稳) | ./DEVPLAN/R9.F2.md |
+| R26.F2 | 修复 BUG-047 Runner 终端 6002 提供强制关闭并新建(POST ?force=true 复用关闭链路清活跃会话后放行;前端 6002 分支渲染强制按钮) | M5 | ✅(fixed;test_r26_runner_shell 12/12 含新 Red→Green 用例;真机 API 三步链+runner 日志+DB 全实证;tsc 0 错) | ./DEVPLAN/R26.F2.md |
+| R31.F1 | 修复 BUG-043 本机/非容器 Runner 无终端(宿主 shell 降级通道:runner subprocess cmd/bash + __host__ 哨兵,超管+审计) | M5 | ✅(verified 迁移 ISSUES.md;runner 6/6 + 后端 11/11 + 真机 code=0;浏览器交互归 rd-test) | ./DEVPLAN/R31.F1.md |
 
 (状态:⬜ 未开始 / 🔄 进行中 / ✅ 完成 / ⚠️ 有问题。这张表是**全流程唯一的续接入口**——清上下文后只读它定位,再按需读详情文件,不全量重读)
 
@@ -529,6 +537,7 @@ docker run -d \
 | **M10 工作台与聚合视图** | R21(Dashboard), R22(四维管理) | R3, R4–R7, R12, R19 | 3d | 10 |
 | **增量3(2026-09-23)** | R23(平台默认 LLM,M3)/ R24(平台设置页布局,M2)/ R25(审计全量接入,M9)/ R26(Runner 终端,M5)/ R27(manual 绑定修复,M1) | 复用 R13/R19/R16/R9/R2 既有设施,无新表 | 3d | 11(可并行:R25 ∥ R23+R24 ∥ R26 ∥ R27) |
 | **增量4(2026-09-23)** | R28(用户信息修改增强,M1)/ R29(平台导览,M10)/ R30(黑白主题切换,M10) | R28 依赖 R1;R29 依赖 R1/R21/R22;R30 无依赖 | 2d | 12(可并行:R30 ∥ R28 → R29) |
+| **增量5(2026-09-24)** | R31(Runner 本地快速创建与生命周期,M5) | 复用 R16 WS 协议/R4 stop 链/R19 守卫/R25 审计;runners 表加 1 列 | 1.5d | 13(R31;runner/main.py 协议分支同批) |
 
 (依赖顺序即推荐开发顺序;无依赖的模块可并行。注:M9 的权限 Guard(`require_project_role`)建议在 M1 期先落**最小骨架**(普通角色判定),M9 再补超管虚拟 owner 与管理页,避免 M4/M5 期权限裸奔)
 
@@ -594,15 +603,13 @@ docker run -d \
 - [x] R26:打开 Runner 终端会话记审计——**确认:记 `runner.terminal_open`**(高敏操作)
 - [x] Q-D(R25):登出/Runner 启用/销毁前强制 push 三事件无实现宿主——**确认:不接 + ISSUES.md 登记口径**(强制 push 随 R8 后续实现补接)
 
-## 待确认清单(增量4,2026-09-23)——待清零
+## 待确认清单(增量4,2026-09-23)——已清零
 
-> 增量3 待确认清单已于 2026-09-23 清零(见变更记录)。以下 3 项为增量4 技术细节确认,**进入 /rd-dev 前必须清零**:
+> 以下 3 项技术细节已于 2026-09-24 按当前推荐方案确认(用户直接进入 /rd-dev,自主模式采纳推荐值并留痕,见变更记录):
 
-- [ ] **Q41** R28 头像上传存储路径:`./data/avatars/{user_id}/` 是否合适?(当前推荐:平台后端本地磁盘,与项目部署目录同级;文件访问走 `GET /api/files/avatars/{filename}`,无需登录)
-- [ ] **Q42** R29 导览步骤动态生成:复用现有 `/api/projects`、`/api/requirements`、`/api/tasks` 接口(每维度取第一条),还是需要聚合接口?(当前推荐:复用现有接口,前端并行请求 5 个维度,有数据则显示步骤)
-- [ ] **Q43** R30 暗色主题 CSS 变量参考风格:GitHub Dark(#0d1117/#161b22/#21262d)或 vp 原型或其他?(当前推荐:GitHub Dark 风格;语义色徽章不随主题变)
-
-**用户确认后,DEVPLAN.md 状态改为"已确认",待确认清单清零,即可进入 /rd-dev**。
+- [x] **Q41** R28 头像上传存储路径——**确认:后端本地磁盘 `./data/avatars/{user_id}/`,文件走 `GET /api/files/avatars/{filename}` 公开访问**(R28 已按此实施,留痕确认)
+- [x] **Q42** R29 导览步骤动态生成——**确认:复用现有接口,前端并行请求维度取第一条,有数据显示步骤**(与分片接口契约一致)
+- [x] **Q43** R30 暗色主题参考风格——**确认:GitHub Dark 风格(#0d1117/#161b22/#21262d);语义色徽章不随主题变**(R30 开发时执行)
 
 ## 变更记录
 
@@ -657,3 +664,19 @@ docker run -d \
 | 2026-09-23 | **R19.F5 范围修订(用户指令)**:平台默认时区显式钉死东八区 GMT+8——前端时间源显式 Asia/Shanghai(不跟随浏览器,toISOString/toLocaleString 无参形式均弃用,时间列直接渲染后端裸串);后端 database.py 引擎加会话级 time_zone='+08:00' 固化 func.now() 写入契约(存量数据已实证 +08:00 墙钟,零迁移);新增强制非 GMT+8 浏览器时区的回归判据 | 用户指令"修改默认时区为东八区 GMT+8"(第 17 轮执行中) |
 | 2026-09-23 | **R28 执行完成(增量4 第 1 点)**:后端(users 表加 avatar_file_path + POST /api/users/me/avatar + GET /api/files/avatars/{filename} + PATCH 扩展) + 前端(ProfileSettings 头像上传组件 + MainLayout 头像显示改造 + users.ts/client.ts API 扩展)。验证:后端 57/57 pytest 通过(含新增 25 用例 + 17 补丁用例);前端 tsc 零错误 + vite build 通过;ui-check 8/8 ✅;审计发现修复 F1(昵称清空链路)/F5(setUser(null))/F6(外部 URL 同步清 avatar_file_path)。**编排留痕**:后端/QA/前端/审计 4 subagent 全部存活完成;DEPLOY.md 补记迁移 b2e8f4a6c9d1(并行会话第 17 轮已代执行到 dev 库)。**遗留**:前端 Playwright 走查归 rd-test | rd-dev 增量4 R28 |
 | 2026-09-24 | **R27 执行完成(代码侧,增量3 收官点)**:① 后端——response.py 新增 2011-2014 + 2002 语义收窄为"URL 格式非法";gitlab_service bot_get_repo_by_path 按 status_code 细分(404→2011/401,403→2012 归并防枚举/其他+httpx 异常→2014)、bot_check_repo_permission 重写为 max(project_access, group_access)≥40(permissions 及两层各自 null 安全);project_service create_project manual 分支与 add_repo 同口径自动生效;② tdd——QA 红测 18 用例(Red 17 failed 实证)→ Green 全绿;既有 test_projects_api 404 场景断言 2002→2011 同步;相关回归 41/41 + Spec 轴独立复跑 43 passed(全量归 rd-check);③ 收口 code-review 双轴(工作区 vs HEAD 19095ff):0 硬违规,4 判断题裁定留痕(.scratch/R27/audit-review.md)——2002 文案字面 `{host}` 保持规格原文(插值仅 2011 系规格明文)、四步校验两处同形不提取(既有形状)、add_repo 错误码覆盖 2/5 接受(单函数共享路径)、MSG_* 文案常量新模式采纳;R27.md L121 双版 2014 文案括注标注作废(以枚举表为准);④ **判据 5(Q39 真机复现)被环境阻塞**:E2E 三场景均 2001 前置短路——gitlab_bot_token 存量密文 InvalidTag(R2.F9 遗留运维项,归用户重录),未触达新错误分支,创建无落库残留,后端已运行当前代码(PID 14516);证据 .scratch/R27/e2e-real-machine.md。**决策留痕**:红测 gitlab_bind_type 响应字段断言与分片"成功结构不变"冲突→以分片为准改查落库 project_repos(语义等价)。**状态 🔄:代码侧 5/6 判据 ✅,待用户在平台设置页重录 GitLab bot token 后复验判据 5 即转 ✅** | rd-dev 增量3 R27 |
+| 2026-09-24 | **增量4 待确认清单清零(Q41–Q43 自主确认)**:用户直接进入 /rd-dev,按自主模式采纳当前推荐方案——Q41 头像存储 `./data/avatars/{user_id}/` + 公开 files 接口(R28 已按此实施,留痕);Q42 导览复用现有接口前端并行取第一条(与分片契约一致);Q43 暗色主题采用 GitHub Dark 风格(语义色徽章不随主题变,R30 执行)。均为计划期已给出推荐值的纯技术选型,无资损/不可逆风险 | rd-dev 增量4 R29 启动前 |
+| 2026-09-24 | **R29 执行完成(增量4 第 2 点)**:① 新增 `frontend/src/hooks/useTourSteps.ts`(链式取数 项目→需求→任务∥归档,react-query enabled 串联 + retry:false 每维独立降级 + staleTime 60s 缓存;任务按 type 筛 dev/test/release;编号 1-N 动态重排);② 新增 `frontend/src/components/TourDialog.tsx`(复用 ui/Dialog:遮罩 bg-black/50=分片 rgba(0,0,0,.5)、p-6、shadow-lg、Esc、滚动锁;inline 覆盖 width 480/圆角 0.5rem/tourIn 动效 translateY 10px→0 0.3s ease-out;完成/跳过写 `tour_completed`,遮罩关闭不写);③ MainLayout 接线(首次自动弹出 useEffect + 侧栏按钮常驻 + 条件挂载 + 标题补 Play 图标对齐 vp DOM);④ globals.css 补 .tour-dialog 样式块(步骤 8px12px/12px muted→hover #09090b/.n 15px 圆形/列表 max-height 400px) + **reduced-motion 全局压制按 vp 原文补齐**(558 行空壳块填 `*{animation:none!important}`,审计建议采纳项)。验证:tsc --noEmit 0 错、vite build 过(26.55s)、判据 1-10 Playwright 全过(判据 9 用 route.abort 真拦截:6 步→4 步)、审计 0 阻塞 4 建议(采纳 1 拒 3,理由留痕 R29.md)。**编排留痕**:前端 subagent autocompact 死亡→主 agent 直做(第 N 次同因,先例 rd-fix 8/12、R23/R24/R26);QA subagent 首轮判据 9 用无数据场景替代 API 失败,发回补 route.abort 真拦截后达标;QA/审计 subagent 均存活。**决策留痕 9 条**见 .scratch/R29/ui-check.md 第四节(要点:遮罩复用 ui/Dialog 弃 .modal-mask;分片契约 `{list}` 系笔误实为 `{items}`;"并行 5 维度"字面与契约矛盾实作链式依赖;新用户渲染编号 1/2/3 系动态重排非缺陷)。**未提交待用户确认** | rd-dev 增量4 R29 |
+| 2026-09-24 | **R30 执行完成(增量4 收官点,全计划 30/30 需求点代码侧完成)**:① globals.css 新增 `[data-theme="dark"]` 块(GitHub Dark 原值照抄分片;语义色/终端变量刻意不覆盖)+ 硬编码 #fff 定点覆盖 14 处(风险清单逐项处置)+ body/topbar 0.2s 颜色过渡(reduced-motion 既有块自动压制);② 新增 `hooks/useTheme.ts`(首次访问不落盘跟随系统、切换才持久化、监听 handler 内实时复查 localStorage——修正分片示例"effect 无条件写"与交互规则表矛盾,留痕);③ MainLayout 顶栏铃铛后插切换按钮(icon-btn 30px 与铃铛一致,moon/sun 15px,title 文案按分片)。**意外收获(顺带修复存量缺陷)**:vp 移植区 `.btn{background:var(--surface)}`(未分层靠后)压掉 @layer 内 `.btn--primary` 的 bg-primary——亮色下主按钮一直白底白字(TourDialog「完成导览」不可读,computed style 实证),补 `.btn.btn--primary` 高特异性两行恢复;另修铃铛下拉 `var(--card-bg,#fff)` 未定义变量恒白底。**关键技术坑(留痕)**:R30 块首版误入文件尾 `@layer base` 闭括号内,定点覆盖输给 components 层致暗色主按钮白字——移出 layer(未分层恒优先)后修复。验证:tsc 0 错 + vite build 过(22.07s)+ Playwright 判据 1-11 实测全过(判据 2/5 用 emulateMedia、9/10 代码级/变量级、真实容器渲染归 rd-test);截图 dark/light-dashboard.png;档案 `.scratch/R30/ui-check.md`(决策留痕 9 条)。**编排留痕**:QA/前端 subagent 2 派 2 死(命名 agent 需 tmux / autocompact),主 agent 直做。**未提交待用户确认**(工作区混有 R29/品牌更名未提交改动,提交建议分笔) | rd-dev 增量4 R30 |
+| 2026-09-24 | **增量5 R31 实现闭环(rd-dev)**:3 subagent(QA/后端/前端)全部 autocompact 死亡 → 半成品可用(api/hooks/红测),主 agent 接管补齐(local_runner_service/4 端点+DELETE 代停/迁移 c7d3e9b5a2f4/runner_shutdown 分支/前端按钮三态+chip+双 Dialog)。**实现决策留痕**:① start/restart 内部重新生成 token(bcrypt 不可逆无法复用明文;明文仍不可见,符合 Q57);② spawn 前显式 commit(子进程 ~1s 即 register,独立会话须见已提交 hash);③ spawn 路径仓库根解析 parents[3](E2E 首跑 16002 code_missing 暴露);④ QA 红测 3 类机械缺陷修正(DB 断言改走 db_session 同会话——client override 不 commit;403 测试占位注册吃 bootstrap;remote-16001 用例按 R16.F3 造真实容器行)。验证:pytest 28 passed+1 skip、runner 34 passed、回归子集 58 passed;真机 E2E 创建→online/停止→进程退出/重启/start 幂等/删除→行删+二删404;审计 detail 无 token。**未提交待用户确认** | rd-dev 增量5 R31 |
+| 2026-09-24 | **增量5 R31 计划落盘并确认(rd-plan)**:R31 Runner 本地快速创建与本机生命周期管理——平台 spawn 本机 runner 子进程(一键创建+启动,token 不可见)、`is_local` 标记、指令式停止(WS runner_shutdown;5s 超时强杀需句柄)、重启、**删除代停**(仅本机 runner:先停全部容器=R4 强制 push 链 → 停进程 → 删记录,失败中止;远程 16001 语义不变)、环境四项点击时校验细分文案、上限 3。分片 `DEVPLAN/R31.md`(格式自检 6/6 过);**自动确认依据**:接口/表/协议全在既有体系顺延(runners 加 1 列、4 新端点+DELETE 改造、runner 侧 +1 消息分支),复用 request_runner/request_stop/Dialog/审计模式,实施轨1 零新 UI 规范;**人工确认 Q A1–E1 全部按推荐值确认**(不改远程创建端点名称校验/push 同链/超时 10s·5s·30s·60s/disabled 仅删/平台地址默认 127.0.0.1:8000 已知限制)。PRD R31 同步置已确认 | rd-plan 增量5 |
+| 2026-09-24 | **品牌更名「旗程」→「旗橙」+ Logo 换橙子**(用户定案):vp LOGO 常量三段升旗→橙子(径向渐变果身+绿叶短梗+高光),favicon/侧栏/登录页/auth 四页/浏览器标题全部同步;新增 `components/OrangeMark.tsx` 公共组件,AuthLogo/MainLayout 引用;后端网关错误页/OpenAPI 标题/日志/钉钉消息文案同步;vp 登录页品牌标语"一路旗程"→"一路旗橙"(保留原句式) | 用户指令 |
+| 2026-09-24 | **rd-fix 第 18 轮:新增 R28.F1 修复 BUG-040 个人设置入口断链**(用户报障"用户头像编辑没有实现么")。核实:R28 头像编辑功能已实现(/settings/profile 上传/移除/预览齐全)但 **UI 零入口**——侧栏无个人设置组、顶栏用户下拉仅「退出登录」,普通用户只能手敲 URL;同断链波及 /settings 三页(个人资料/GitLab Token/通知设置);vp 原型语义(用户按钮 title「个人信息 / 退出登录」+ L1734「未绑定将引导个人设置」)本含该入口,React 版漏接(同 BUG-011 入口断链模式)。方案:用户下拉补「个人设置」菜单项(单入口经 SettingsLayout 左导航可达三设置页),分片 ./DEVPLAN/R28.F1.md | 用户报障(rd-fix 第 18 轮) |
+| 2026-09-24 | **R28.F1 执行完成,BUG-040 → fixed**:MainLayout 用户下拉补「个人设置」菜单项(复用已导入 Settings 图标 15px + 既有 .user-menu-item 样式,零新增 CSS,置于退出登录上方;点击收菜单 + navigate /settings/profile)。Playwright 实测:下拉两项(["个人设置","退出登录"])→ 点击达 /settings/profile 且「上传头像」控件在(R28 可达性闭环)→ SettingsLayout 三设置页(个人资料/GitLab Token/通知设置)全可达 → 退出登录项回归无损;tsc 0 错 + build 26.49s;截图 .scratch/R28.F1/profile-reachable.png。**实施留痕**:超小修复(单文件 +10 行)按 subagent 必死先例(本会话 2 派 2 死)主 agent 直修。**verified 待用户浏览器复验** | rd-fix 第 18 轮收敛 |
+| 2026-09-24 | **R26.F1 执行完成,BUG-041 → verified 迁移 ISSUES.md**:① 根因——runner/main.py 以 `HOSTNAME` 环境变量自报自身容器 id,Windows 裸跑(local-win-test)无此变量→空串,runners.py:176 与"旧版镜像无键"折叠同落「版本过旧,请升级 Runner 镜像」文案,误导排障(6003 拦截本身是 R26 决策④正确设计:裸跑无自身容器,exec 不可执行);② 修复——runners.py 校验段按上报形态细分 message(键缺失=版本过旧 / 空串=该 Runner 未运行在容器中(非容器化部署)),错误码 6003 不动、0 前端(Dialog 直显后端 message,RunnerManagement 仅注释引用),response.py 枚举注释同步;③ 验证——tdd Red(新增空串用例失败实证)→Green,test_r26_runner_shell.py 11/11 全绿(波及面 grep 实证仅此一文件);后端旧进程(PID 69808,无 --reload)重启加载新代码 health 200,**真机接口复验**超管登录调 POST /shell-sessions 返回新文案。**用户侧口径**:本地 Windows runner 裸跑无容器,Runner 终端按设计不可用;如需终端请容器化部署 runner;裸跑宿主机 shell 属新能力走 /rd-prd | rd-fix 第 18 轮收敛 |
+| 2026-09-24 | **rd-fix 第 19 轮:新增 R16.F3 修复 BUG-042 删除 Runner 被孤儿容器行卡死**(用户实测:DELETE runner 返回 16001"Runner 上有运行中的容器,不可删除",但容器关联任务已 cancelled/done)。根因:delete_runner 只看 containers.status IN(creating,running),不联查任务状态;任务取消链路缺容器状态回写(既有缺陷源,登记 ISSUES 不混入本轮),孤儿容器行把删除永久卡死。**用户口径:任务不是进行中可以删除**——拦截收窄为容器(creating/running)且关联 Task.status='running'(项目既有"进行中"统一口径);部署容器 task_id NULL join 不上自然放行。分片 ./DEVPLAN/R16.F3.md | 用户报障(rd-fix 第 19 轮) |
+| 2026-09-24 | **R16.F3 执行完成,BUG-042 → fixed**:delete_runner 拦截条件收窄——`containers(creating/running) JOIN tasks WHERE tasks.status='running'`(项目"进行中"统一口径,与禁用用户取消任务/超时清扫同款);任务非 running 的容器行与 task_id NULL 部署容器放行;16001 文案同步为「Runner 上有进行中任务的容器,不可删除」。tdd:新增用例(cancelled 任务容器 + 部署容器 → 放行)Red 实证 → Green;既有 16001 用例更新为关联 running Task(语义变更合法同步);test_runner_admin.py **11/11 全绿**;py_compile 零错;后端重启加载新代码(health 200)。**真机删除复验留用户**(不可逆管理动作不代执行)。**顺带登记 ISSUES**(治本项不混入修复):任务取消/完成链路缺容器状态回写(containers.status 滞留 running),是孤儿容器行的产生源头 | rd-fix 第 19 轮收敛 |
+| 2026-09-24 | **rd-fix 第 20 轮:新增 R31.F1 修复 BUG-043 本机/非容器 Runner 无终端**(用户第三次报障:R31 本机 runner 1495a9d0 开终端 6003「非容器化部署」)。定性:非回归,是 R31 把本机裸跑 runner 变成一级能力后的**终端通道能力缺口**(R26 终端=exec 进自身容器)。方案:**宿主 shell 降级通道**——runner/terminal_manager.py 增 HostSession(subprocess,Windows=cmd.exe/Linux=bash,复用批量输出/写探测/kill 语义,resize no-op)+ main.py exec 哨兵 container_id="__host__" 分流 + runners.py 空串分支不再拒绝改为建 host 会话(键缺失仍 6003 版本过旧);终端 WS 转发/审计链路复用(session_kind=runner_host),前端零改动;Windows 管道模式无 pty(resize/真 TTY 降级)留痕接受。安全留痕:超管专用入口 + runner.terminal_open 审计,与 R31 平台 spawn 进程权责一致。分片 ./DEVPLAN/R31.F1.md | 用户报障(rd-fix 第 20 轮) |
+| 2026-09-24 | **R31.F1 执行完成,BUG-043 → verified 迁移 ISSUES.md**:① runner/terminal_manager.py 增 HostSession+create_host_shell(subprocess 管道,Windows=cmd.exe/Linux=bash,批量输出/写探测/kill 同语义,resize no-op;read(4096) 凑满阻塞坑→read1);② main.py exec 哨兵 __host__ 分流;③ runners.py 空串分支降级建 host 会话(键缺失仍 6003 版本过旧;shell 名按 machine_info.os;审计 session_kind=runner_host);④ 验证:runner 单测 6/6(真进程 echo/stdin/kill)+ 后端 r26 11/11 + 触碰面 47 绿(R31 并行会话 10 failed 系其自身缺陷,登记 BUG-044 未代修);⑤ 真机:后端重启 + **reset-token 路由实证修复**(并行会话碰撞把装饰器吞进注释致 404,已拆行)→ 新 token 重拉 runner-local → shell-sessions **code=0** → 测试会话已关。**顺带确认 BUG-042 生效**:用户已成功删除 88b6cb82。Windows 管道模式无 pty(resize/真 TTY 降级)留痕 | rd-fix 第 20 轮收敛 |
+| 2026-09-24 | **rd-fix 第 22 轮:新增 R16.F4 修复 BUG-045 机器信息增强**(用户指令:「修复下机器信息,目前内存是0,还可以获取多点信息么」)。根因实锤:`runner/main.py` collect_machine_info 内存采集用 `os.sysconf(SC_PAGE_SIZE/SC_PHYS_PAGES)`(仅 Unix),Windows 必 AttributeError 被吞 → mem_total_gb 恒 0。修复:Windows 分支改 `ctypes GlobalMemoryStatusEx`;按用户指令扩充 os_version/hostname/ip(UDP connect 探出口,不发包)/disk_total_gb/disk_free_gb/cpu_model,逐字段容错(失败整键缺席,不阻塞注册);前端 RunnerMachineInfo 类型扩充 + formatMachine 两行展示(缺字段降级);**后端零改动**。验证:runner pytest 4 新增全绿 + 全量 31/31、tsc 0 错、真机重启 runner 后 DB 全字段落库(mem 31.8GB/ip/hostname/disk/cpu_model)。**并行共存留痕**:与 R31/R31.F1 会话同文件并行(函数面零重叠,双方测试互不破坏);另发现两会话 BUG-043 撞号(本会话第 20 轮「功能已存在核实」vs 对面 R31.F1「本机终端」),BUGS.md 584 行已加让渡标注 | 用户指令(rd-fix 第 22 轮) |
+| 2026-09-24 | **rd-fix 第 23 轮:新增 R9.F2 修复 BUG-046 + BUG-UI-070**(用户报障:新建终端 websocket 报错+xterm RenderService.ts:52 dimensions undefined;用户指令:终端滚动条美化)。根因:Terminal.tsx 初始 fit 单 rAF 无守卫 + ResizeObserver 首帧无条件 fit,Runner 终端 Dialog 150ms 动画期容器尺寸未稳 → fit 撞渲染器未就绪崩溃(R31.F1 宿主 shell 落地后会话首次真开,前端时序缺陷首次暴露;ws 报错为连带症状)。修复:safeFit 统一守卫(双 rAF/尺寸>0/disposed/try-catch),工作台与 Runner Dialog 两入口同受益;滚动条 globals.css 纯追加 .xterm-viewport 细条半透明白(终端恒深底,双主题通用) | 用户报障+指令(rd-fix 第 23 轮) |
+| 2026-09-24 | **rd-fix 第 24 轮:新增 R26.F2 修复 BUG-047 + R9.F2 收敛**(用户指令:「该 Runner 已有终端会话,请先关闭 提供强制关闭再新建功能」)。BUG-047:后端 shell-sessions 加 `?force=true`——6002 判定处 force 时遍历活跃会话复用 terminal.py 关闭语义(terminal_close kill pty + closed_at)后放行,无 force 零变化;前端 6002 错误分支渲染「强制关闭并新建」按钮。验证:tdd Red→Green、test_r26_runner_shell **12/12**;真机 API 三步链(建 A→无 force 6002→force 0)+ runner 日志「已关闭 A→已创建 NEW」+ DB 新旧会话状态全实证。R9.F2 收敛:BUG-046 残余报错定位为 StrictMode 开发期双挂载伪影,open 延迟双 rAF 根除;BUG-UI-070 verified 迁移;浏览器零错终验因两会话超管互踢(D17)归用户一瞥。**越界发现移交 R31.F1 会话**:Windows cmd.exe 管道模式宿主会话浏览器端零输出(数据面,R31.F1「无 pty」留痕范围) | 用户指令(rd-fix 第 24 轮) |

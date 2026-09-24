@@ -1,7 +1,13 @@
 /**
- * Runner Management API — react-query hooks (R16)
+ * Runner Management API — react-query hooks (R16 + R31 本机快速创建)
  * 错误码:
- *  - 16001: Runner 上有运行中的容器,不可删除
+ *  - 16001: Runner 上有运行中的容器,不可删除(远程 runner)
+ *  - 16002: 本机环境校验失败(message 细分,前端直显后端原文)
+ *  - 16003: 本机 runner 上限(3)
+ *  - 16004: 删除代停容器失败
+ *  - 16005: 名称冲突
+ *  - 16006: 非本机 runner 调 start/stop,或 disabled 启动
+ *  - 16007: 停止时既无 WS 连接也无句柄
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -14,6 +20,13 @@ export interface RunnerMachineInfo {
   cpu_count: number
   mem_total_gb: number
   docker_version: string
+  // R16.F4(BUG-045):扩充字段——旧 runner 上报可能缺失,全部可选
+  os_version?: string
+  hostname?: string
+  ip?: string
+  cpu_model?: string
+  disk_total_gb?: number
+  disk_free_gb?: number
 }
 
 export interface Runner {
@@ -27,6 +40,7 @@ export interface Runner {
   max_containers: number
   public_ip: string | null
   created_at: string
+  is_local: boolean // R31:本机快速创建标记
 }
 
 export interface CreateRunnerRequest {
@@ -44,6 +58,28 @@ export interface CreateRunnerResponse {
 
 export interface ResetTokenResponse {
   token: string
+}
+
+// R31:本机快速创建请求/响应
+export interface CreateLocalRunnerRequest {
+  name?: string // 留空自动生成 local-xxxxxxxx
+  max_containers?: number // 默认 10
+}
+
+export interface CreateLocalRunnerResponse {
+  runner_id: string
+  name: string
+  status: 'online' | 'offline'
+  token_hidden: true
+  launch_command: {
+    argv: string[]
+    env_keys: string[]
+  }
+}
+
+export interface LocalRunnerActionResponse {
+  runner_id: string
+  status: 'online' | 'offline'
 }
 
 // ---- Error codes ----
@@ -68,6 +104,18 @@ export const runnersApi = {
   list: () => api.get<{ items: Runner[] }>('/admin/runners'),
   create: (data: CreateRunnerRequest) =>
     api.post<CreateRunnerResponse>('/admin/runners', data),
+  // R31:本机快速创建(含启动)
+  createLocal: (data: CreateLocalRunnerRequest) =>
+    api.post<CreateLocalRunnerResponse>('/admin/runners/local', data),
+  // R31:启动本机 runner
+  start: (runnerId: string) =>
+    api.post<LocalRunnerActionResponse>(`/admin/runners/${runnerId}/start`),
+  // R31:停止本机 runner
+  stop: (runnerId: string) =>
+    api.post<LocalRunnerActionResponse>(`/admin/runners/${runnerId}/stop`),
+  // R31:重启本机 runner
+  restart: (runnerId: string) =>
+    api.post<LocalRunnerActionResponse>(`/admin/runners/${runnerId}/restart`),
   resetToken: (runnerId: string) =>
     api.post<ResetTokenResponse>(`/admin/runners/${runnerId}/reset-token`),
   disable: (runnerId: string) =>
@@ -88,6 +136,42 @@ export function useCreateRunner() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: CreateRunnerRequest) => runnersApi.create(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-runners'] }) },
+  })
+}
+
+// R31:本机快速创建
+export function useCreateLocalRunner() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateLocalRunnerRequest) => runnersApi.createLocal(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-runners'] }) },
+  })
+}
+
+// R31:启动本机 runner
+export function useStartRunner() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (runnerId: string) => runnersApi.start(runnerId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-runners'] }) },
+  })
+}
+
+// R31:停止本机 runner
+export function useStopRunner() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (runnerId: string) => runnersApi.stop(runnerId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-runners'] }) },
+  })
+}
+
+// R31:重启本机 runner
+export function useRestartRunner() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (runnerId: string) => runnersApi.restart(runnerId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-runners'] }) },
   })
 }

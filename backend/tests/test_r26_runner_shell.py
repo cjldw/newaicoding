@@ -114,6 +114,66 @@ async def test_shell_session_6002_session_exists(client, db_session, superadmin_
     assert resp.json()["message"] == "该 Runner 已有终端会话,请先关闭"
 
 
+# ---------------------------------------------------------------------------
+# R26.F2 / BUG-047:6002 场景 ?force=true 强制关闭旧会话并新建
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_shell_session_force_recreates_when_session_exists(client, db_session, superadmin_headers):
+    """6002 场景:?force=true → 旧会话收 terminal_close 并置 closed_at,新会话照常创建;
+    不带 force 维持 6002(向后兼容)"""
+    from datetime import datetime, timezone
+
+    runner = await _make_runner(db_session, status="online", machine_info={"self_container_id": "abc123def456"})
+    old = TerminalSession(
+        task_id="__runner_shell__",
+        container_id="abc123def456",
+        runner_id=runner.runner_id,
+        shell="/bin/bash",
+        created_by="test",
+    )
+    db_session.add(old)
+    await db_session.flush()
+
+    sent: list = []
+    runner_service.runner_registry.register(runner.runner_id, "worker", SimpleNamespace(), "test")
+    orig = runner_service.send_to_runner
+
+    async def _fake(c, message):
+        sent.append(message)
+
+    runner_service.send_to_runner = _fake  # type: ignore
+    try:
+        # 不带 force:维持 6002
+        resp_no = await client.post(
+            f"/api/admin/runners/{runner.runner_id}/shell-sessions", headers=superadmin_headers,
+        )
+        assert resp_no.json()["code"] == 6002
+
+        # 带 force:创建成功
+        resp = await client.post(
+            f"/api/admin/runners/{runner.runner_id}/shell-sessions?force=true",
+            headers=superadmin_headers,
+        )
+    finally:
+        runner_service.send_to_runner = orig  # type: ignore
+        runner_service.runner_registry.unregister(runner.runner_id)
+
+    body = resp.json()
+    assert body["code"] == 0, resp.text
+    # 旧会话收到 terminal_close 指令
+    close_msgs = [m for m in sent if m.get("type") == "terminal_close"]
+    assert any(m.get("session_id") == old.session_id for m in close_msgs)
+    # 旧会话台账置 closed_at
+    await db_session.refresh(old)
+    assert old.closed_at is not None
+    # 新会话独立存在且处于打开态
+    new_row = (await db_session.execute(
+        select(TerminalSession).where(TerminalSession.session_id == body["data"]["session_id"])
+    )).scalar_one()
+    assert new_row.session_id != old.session_id
+    assert new_row.closed_at is None
+
+
 @pytest.mark.asyncio
 async def test_shell_session_6002_cleared_after_close(client, db_session, superadmin_headers):
     """关闭(closed_at 置值)后可再开——6002 判定基于 closed_at IS NULL"""
@@ -161,6 +221,38 @@ async def test_shell_session_6003_too_old(client, db_session, superadmin_headers
         runner_service.runner_registry.unregister(runner.runner_id)
     assert resp.json()["code"] == 6003
     assert "版本过旧" in resp.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_shell_session_host_shell_for_bare_process(client, db_session, superadmin_headers):
+    """R31.F1/BUG-043:非容器 runner(新版上报空串)→ 降级宿主 shell:
+    code=0 + exec 哨兵 container_id="__host__" + 台账落 __host__"""
+    runner = await _make_runner(db_session, status="online", machine_info={"self_container_id": ""})
+    runner_service.runner_registry.register(runner.runner_id, "worker", SimpleNamespace(), "test")
+    sent: list = []
+    orig = runner_service.send_to_runner
+
+    async def _fake(c, message):
+        sent.append(message)
+
+    runner_service.send_to_runner = _fake  # type: ignore
+    try:
+        resp = await client.post(
+            f"/api/admin/runners/{runner.runner_id}/shell-sessions", headers=superadmin_headers,
+        )
+    finally:
+        runner_service.send_to_runner = orig  # type: ignore
+        runner_service.runner_registry.unregister(runner.runner_id)
+    body = resp.json()
+    assert body["code"] == 0, resp.text
+    assert body["data"]["session_id"]
+    assert sent and sent[0]["container_id"] == "__host__"
+    # 台账:宿主会话标记
+    row = (await db_session.execute(
+        select(TerminalSession).where(TerminalSession.runner_id == runner.runner_id)
+    )).scalar_one()
+    assert row.container_id == "__host__"
+    assert row.shell in ("cmd.exe", "bash")
 
 
 @pytest.mark.asyncio

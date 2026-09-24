@@ -109,10 +109,18 @@ class ErrCode:
     # R16 Runner
     RUNNER_HAS_CONTAINERS = 16001  # Runner 上有运行中容器,不可删除
 
+    # R31 本机 Runner 快速创建(16xx 段顺延)
+    RUNNER_LOCAL_ENV = 16002            # 本机环境校验失败(message 细分 sub)
+    RUNNER_LOCAL_LIMIT = 16003          # 本机 runner 上限(3)
+    RUNNER_LOCAL_STOP_FAILED = 16004    # 删除代停容器失败
+    RUNNER_NAME_EXISTS = 16005          # 名称冲突(本端点显式校验)
+    RUNNER_NOT_LOCAL = 16006            # 非本机 runner 调 start/stop,或 disabled 启动
+    RUNNER_NO_PROCESS_HANDLE = 16007    # 停止时既无 WS 连接也无句柄
+
     # R26 Runner 终端(6xxx 段)
     RUNNER_NOT_ONLINE = 6001          # Runner 不在线
     RUNNER_SESSION_EXISTS = 6002      # 该 Runner 已有终端会话,请先关闭
-    RUNNER_TOO_OLD = 6003             # Runner 版本过旧,请升级 Runner 镜像后使用终端
+    RUNNER_TOO_OLD = 6003             # Runner 容器标识缺失(旧版镜像未上报 或 非容器化部署),无法打开终端
 
     # R28 头像上传(按契约使用 4001/4002;与 R4 任务 4001/4002 数字段重合,
     # 两者业务语境不同、不会同时出现在同一接口,前端按 message 展示)

@@ -21,6 +21,9 @@ import logging
 import os
 import platform as py_platform
 import queue
+import shutil
+import socket
+import sys
 import threading
 import time
 from typing import Any
@@ -33,6 +36,9 @@ from terminal_manager import TerminalManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("runner")
+
+# R31:平台指令式停止标志(runner_shutdown 置位 → main 循环不再重连,退出进程)
+_SHUTDOWN_REQUESTED = False
 
 PLATFORM_URL = os.environ.get("PLATFORM_URL", "ws://localhost:8000/ws/runner")
 RUNNER_TOKEN = os.environ.get("RUNNER_TOKEN", "")
@@ -66,7 +72,22 @@ _MAIN_LOOP: Any = None  # main() 里赋值(主事件循环,供 pty 线程投递)
 
 
 def collect_machine_info() -> dict:
-    """机器信息(注册上报;docker 版本取不到时留空)"""
+    """机器信息(注册上报)。
+
+    R16.F4(BUG-045):内存采集原用 os.sysconf(SC_PAGE_SIZE/SC_PHYS_PAGES),
+    仅 Unix 存在——Windows 必 AttributeError 被吞 → mem_total_gb 恒 0;Windows
+    改走 ctypes GlobalMemoryStatusEx。并按用户指令扩充 os_version/hostname/ip/
+    disk/cpu_model 字段(纯标准库,双平台兼容)。
+    容错约定:逐字段独立 try/except,失败字段整键不出现(绝不上报 None 值,
+    也不阻塞注册);docker 版本取不到时留空串(既有行为)。
+    """
+    info: dict = {
+        "os": py_platform.system().lower(),
+        "arch": py_platform.machine(),
+        "cpu_count": os.cpu_count() or 0,
+    }
+
+    # docker 版本(懒 import,与既有行为一致)
     docker_version = ""
     try:
         import docker
@@ -74,21 +95,87 @@ def collect_machine_info() -> dict:
         docker_version = docker.from_env().version()["Version"]
     except Exception:
         pass
-    try:
-        mem_gb = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3, 1)
-    except (AttributeError, ValueError, OSError):
-        mem_gb = 0
+    info["docker_version"] = docker_version
+
     # R26:自报自身容器 id(容器内 HOSTNAME=短 id;docker exec_create 接受短 id)。
     # 裸跑进程(非容器)时 HOSTNAME 是主机名 → 平台侧 exec 探活失败按 6003 口径兜底。
-    self_container_id = os.getenv("HOSTNAME", "")
-    return {
-        "os": py_platform.system().lower(),
-        "arch": py_platform.machine(),
-        "cpu_count": os.cpu_count() or 0,
-        "mem_total_gb": mem_gb,
-        "docker_version": docker_version,
-        "self_container_id": self_container_id,
-    }
+    info["self_container_id"] = os.getenv("HOSTNAME", "")
+
+    # 内存总量:Windows 走 GlobalMemoryStatusEx(sysconf 的 SC_* 参数仅 Unix 存在)
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                info["mem_total_gb"] = round(stat.ullTotalPhys / 1024**3, 1)
+        else:
+            info["mem_total_gb"] = round(
+                os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3, 1
+            )
+    except Exception:
+        pass
+
+    # OS 版本(如 "Windows-11-10.0.22621-SP0";截断防超长)
+    try:
+        os_version = py_platform.platform()
+        if os_version:
+            info["os_version"] = os_version[:100]
+    except Exception:
+        pass
+
+    # 主机名
+    try:
+        hostname = socket.gethostname()
+        if hostname:
+            info["hostname"] = hostname
+    except Exception:
+        pass
+
+    # 本机出口 IP:UDP connect 不实际发包,仅让协议栈选路由;多网卡取默认路由出口
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if ip:
+                info["ip"] = ip
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+    # 磁盘(runner 进程工作目录所在盘:任务容器/镜像通常同盘)
+    try:
+        usage = shutil.disk_usage(os.getcwd())
+        info["disk_total_gb"] = round(usage.total / 1024**3, 1)
+        info["disk_free_gb"] = round(usage.free / 1024**3, 1)
+    except Exception:
+        pass
+
+    # CPU 型号(Windows 返回族号串;为空/超长截断,取不到则不上报)
+    try:
+        cpu_model = (py_platform.processor() or "").strip()
+        if cpu_model:
+            info["cpu_model"] = cpu_model[:80]
+    except Exception:
+        pass
+
+    return info
 
 
 def local_container_states() -> list[dict]:
@@ -190,13 +277,21 @@ async def handle_message(ws: Any, msg: dict) -> None:
 
     elif mtype == "exec":
         # R9 终端:docker exec 新 pty(session 复用 = attach)
+        # R31.F1:container_id="__host__" 哨兵 → 宿主 shell 会话(非容器 runner 降级通道)
         session_id = msg.get("session_id", "")
-        created = terminals.create_pty(
-            container_id=msg.get("container_id", ""),
-            cmd=msg.get("cmd") or ["/bin/bash"],
-            session_id=session_id,
-            on_output=_pty_output_callback(ws),
-        )
+        container_id = msg.get("container_id", "")
+        if container_id == "__host__":
+            created = terminals.create_host_shell(
+                session_id=session_id,
+                on_output=_pty_output_callback(ws),
+            )
+        else:
+            created = terminals.create_pty(
+                container_id=container_id,
+                cmd=msg.get("cmd") or ["/bin/bash"],
+                session_id=session_id,
+                on_output=_pty_output_callback(ws),
+            )
         await send(ws, {"type": "exec_started", "session_id": session_id, "created": created})
 
     elif mtype == "terminal_input":
@@ -320,6 +415,15 @@ async def handle_message(ws: Any, msg: dict) -> None:
         except Exception as e:
             await send_result(ws, req_id, False, error=str(e))
 
+    elif mtype == "runner_shutdown":
+        # R31 平台指令式停止:回 result 后请求优雅退出(容器不动,由平台删除代停流程处理);
+        # 置标志 → _receive_loop 返回 → session 结束 → main 循环检测到标志即退出进程(不重连)
+        req_id = msg.get("req_id", "")
+        global _SHUTDOWN_REQUESTED
+        _SHUTDOWN_REQUESTED = True
+        await safe_send_result(ws, req_id, True, {})
+        logger.info("收到 runner_shutdown,回报后退出进程")
+
     else:
         logger.warning("未知指令 type=%s", mtype)
 
@@ -432,6 +536,10 @@ async def _receive_loop(ws: Any) -> None:
             await handle_message(ws, json.loads(raw))
         except Exception:
             logger.exception("处理消息失败: %s", raw[:200])
+        if _SHUTDOWN_REQUESTED:
+            # R31:处理完 runner_shutdown(已回 result)→ 返回结束 receive 任务
+            # → session 的 asyncio.wait 完成 → main 检测标志退出进程
+            return
 
 
 async def session() -> None:
@@ -472,12 +580,19 @@ async def main() -> None:
     _MAIN_LOOP = asyncio.get_running_loop()
     backoff = 1
     while True:
+        if _SHUTDOWN_REQUESTED:
+            # R31:平台指令停止 → 不再重连,退出进程
+            logger.info("检测到 runner_shutdown,退出进程")
+            break
         try:
             logger.info("连接平台 %s", PLATFORM_URL)
             await session()
             backoff = 1
         except Exception as e:
             logger.warning("连接断开: %s(%ds 后重连)", e, backoff)
+        if _SHUTDOWN_REQUESTED:
+            logger.info("检测到 runner_shutdown,退出进程")
+            break
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, 60)
 

@@ -1,8 +1,11 @@
 # BUGS.md — 活跃问题清单
 
-> 项目:ai_web开发平台 | 更新:2026-09-23(rd-fix 第 17 轮收敛:BUG-039 verified 迁移 ISSUES.md;平台默认时区钉死 GMT+8)
+> 项目:ai_web开发平台 | 更新:2026-09-24(rd-fix 第 23/24 轮:R9.F2 终端批——BUG-046 xterm 崩溃原路径真机消失+StrictMode 伪影根除、BUG-UI-070 滚动条 verified 迁移;R26.F2——BUG-047 6002 强制关闭并新建(真机 API 全链实证);第 22 轮 BUG-045 迁移;⚠ BUG-043 编号两会话各自使用,584 行有让渡标注)
 > 状态流转:open → fixed → verified(verified 后迁移至 ISSUES.md)
-> 已 verified 迁移:第 3 轮 BUG-UI-001/003/004/005/006;第 4 轮 BUG-010;第 5 轮 BUG-009/011/012/013;第 16 轮 BUG-038;第 17 轮 BUG-039(见 ISSUES.md)
+> 已 verified 迁移:第 3 轮 BUG-UI-001/003/004/005/006;第 4 轮 BUG-010;第 5 轮 BUG-009/011/012/013;第 16 轮 BUG-038;第 17 轮 BUG-039;第 18 轮 BUG-040/041(见 ISSUES.md)
+
+| BUG-042 | fixed → 已 verified 迁移 ISSUES.md(2026-09-24 第 21 轮真机删除实证) | R16 | 功能缺陷(拦截口径过宽) | 用户实测报障 2026-09-24(rd-fix 第 19 轮) | 删除 Runner 返回 16001"Runner 上有运行中的容器,不可删除",但容器关联任务已非进行中(cancelled/done):delete_runner 只看 containers.status,不联查任务状态,孤儿容器行(任务取消链路缺容器状态回写)永久卡死删除;用户口径:任务不是进行中可以删除;修复分片 R16.F3(拦截收窄为容器关联 Task.status='running',部署容器 task_id NULL 放行;pytest 11/11,后端已重启) |
+| BUG-043 | fixed → 已 verified 迁移 ISSUES.md(R31.F1;真机 shell-sessions code=0) | — | — | — | — |
 
 | BUG | 状态 | 关联需求点 | 类型 | 来源 | 摘要 |
 |---|---|---|---|---|---|
@@ -76,6 +79,13 @@
 | BUG-035 | fixed | R3(波及 R4/R5/R8) | 功能增强(用户指令) | 用户指令 2026-09-23(rd-fix 第 15 轮) | 需求创建后点击「开始打磨需求」→ 创建 requirement 类型任务并初始化启动容器(复用任务创建即拉起容器链路);修复分片 R3.F1 |
 | BUG-036 | fixed | R8(波及 R23/R2) | 功能增强(用户指令) | 用户指令 2026-09-23(rd-fix 第 15 轮) | 容器初始化注入 LLM_URL/LLM_MODEL;「平台设置」支持添加多个自定义变量,启动后全部注入 container;修复分片 R8.F4 |
 | BUG-037 | fixed | R9(波及 R5 对话链路) | 功能增强(用户指令) | 用户指令 2026-09-23(rd-fix 第 15 轮追加) | 任务页开启终端自动进入 claude,与对话面板同一 claude 会话(--session-id/--resume 接线);修复分片 R9.F1 |
+| BUG-040 | fixed → 已 verified 迁移 ISSUES.md(R28.F1;用户下拉补「个人设置」) | — | — | — | — |
+| BUG-041 | fixed → 已 verified 迁移 ISSUES.md(R26.F1;6003 细分文案真机复验) | — | — | — | — |
+| BUG-043 | 已核实:功能已存在不修(本机启动形态由 R31 承接) | R16/R31 | 功能增强(用户指令) | 用户指令 2026-09-24(rd-fix 第 20 轮) | 机器信息上报/展示 R16 已实现(提交 333b64e);Docker 部署自启(CMD + --restart unless-stopped)已实现;残余缺口=本机裸进程的平台侧启动/生命周期 → R31 增量5(并行会话实施中) |
+| BUG-044 | ✅ 已解决(2026-09-24 环境闭环:换新 token 后 15:58 注册成功,online+机器信息上报) | R16 | 环境/运维(用户报障) | 用户报障 2026-09-24(rd-fix 第 21 轮) | 新建 runner-local 后页面显示离线:实为无任何进程持新 token 注册过(heartbeat NULL);本机滞留旧 runner 进程(PID 37084)持已删除 local-win-test 的死 token 每 60s 被正确拒绝;产品缺口(新建无部署指引/注册失败不可见)归 R31 |
+| BUG-046 | fixed(第 23/24 轮;原崩溃真机实证消失;StrictMode 伪影代码级根除,零错终验归用户一瞥) | R9(终端组件;波及 R26 Runner 终端) | 功能缺陷(前端 xterm 时序崩溃) | 用户报障 2026-09-24(rd-fix 第 23 轮) | 新建终端 ws 报错+xterm RenderService.ts:52 dimensions undefined:Terminal.tsx 初始 fit 单 rAF 无守卫+ResizeObserver 首帧即无条件 fit,Runner 终端 Dialog 150ms 动画期容器尺寸未稳撞上渲染器未就绪(R31.F1 宿主 shell 落地后会话首次真开,前端时序缺陷首次暴露);修复=safeFit 统一守卫+open 延迟双 rAF;分片 R9.F2 |
+| BUG-UI-070 | fixed → 已 verified 迁移 ISSUES.md(第 23 轮;滚动条计算样式真机实证) | R9(终端;波及 R26) | UI 增强(用户指令) | 用户指令 2026-09-24(rd-fix 第 23 轮) | 终端右侧滚动条美化:globals.css 纯追加 .xterm-viewport 细条样式(WebKit 8px 圆角半透明白+hover 加深/Firefox thin),终端底色恒深故双主题通用 |
+| BUG-047 | fixed(第 24 轮;真机 API 三步链+runner 日志+DB 全实证) | R26(波及 R31 本机终端) | 功能增强(用户指令) | 用户指令 2026-09-24(rd-fix 第 24 轮) | 「该 Runner 已有终端会话,请先关闭」时提供强制关闭并新建:POST ?force=true 复用 terminal.py 关闭链路(terminal_close+closed_at)清活跃会话后放行;前端 6002 错误分支渲染「强制关闭并新建」按钮;分片 R26.F2 |
 
 ## BUG-015
 
@@ -523,11 +533,12 @@
 - 状态:已核实:OVERREACH 不修
 - **核实记录(2026-09-23 rd-test 分诊·二轮)**:OVERREACH——vp L499 `superadmin:['超级管理员','b-blue']` vp 指定 b-blue;vp L101 `.b-blue{background:var(--blue-bg);color:var(--blue-tx)}`;前端 AuditLogsPage.tsx L238 `bdg b-blue` 与 vp 一致,实现符合 vp,TESTCASE 期望有误,不修
 
-### BUG-UI-042 | R19 筛选栏 padding 与规范不符 | open
+### BUG-UI-042 | R19 筛选栏 padding 与规范不符 | 已核实:OVERREACH 不修
 - 复现:/admin/users 筛选栏 .fbar
-- 期望 vs 实际:规范要求 padding:16px 0;实际 computed padding:12px 16px
+- 期望 vs 实际:TESTCASE 要求 padding:16px 0;实际 computed padding:12px 16px
 - 截图路径:—
-- 状态:open
+- 状态:已核实:OVERREACH 不修
+- **核实记录(2026-09-24 rd-fix 第 20 轮分诊)**:OVERREACH——vp L358 `.fbar{padding:12px 16px}`,前端 globals.css 与 vp 原值一致,实现符合 vp,TESTCASE 期望有误,不修
 
 ### BUG-UI-043
 - **页面**: /admin/audit-logs 筛选栏
@@ -566,11 +577,56 @@
 - 状态:已核实:OVERREACH 不修
 - **核实记录(2026-09-23 rd-test 分诊·二轮)**:OVERREACH——vp L81 `.page-head h1{font-size:19px}`;前端 globals.css L215 `.page-head h1{font-size:19px}` — vp 就是 19px,非 24px,实现符合 vp,TESTCASE 期望有误,不修
 
-### BUG-UI-048 | R21 表格行 padding 不符 | open
+### BUG-UI-048 | R21 表格行 padding 不符 | 已核实:OVERREACH 不修
 - 复现:/ Dashboard 表格行
-- 期望 vs 实际:行 padding 9px 16px(期望 0 12px)
+- 期望 vs 实际:TESTCASE 期望行 padding 0 12px;实际 9px 16px
 - 截图路径:—
-- 状态:open
+- 状态:已核实:OVERREACH 不修
+- **核实记录(2026-09-24 rd-fix 第 20 轮分诊)**:OVERREACH——vp L130 `.tbl td{padding:10px 16px}`,前端 globals.css 与 vp 原值一致,实现符合 vp,TESTCASE 期望有误,不修
+
+## BUG-043(核实留痕;⚠ 编号让渡标注:另一 rd-fix 会话已将 BUG-043 用于「本机/非容器 Runner 无终端→R31.F1 宿主 shell 降级」,与本条非同一问题,后续整理时本条建议改号)
+
+- **状态**:已核实——功能已存在,不修(用户指令 2026-09-24,rd-fix 第 20 轮)
+- **用户指令**:「runner 在布署节点时候,默认直接启动。同时获取机器信息」
+- **核实结论**(证据详见 `.scratch/fix-analysis.md` § 第 20 轮):
+  - 「获取机器信息」**已实现**:runner 注册时采集并上报 os/arch/CPU 核数/内存 GB/docker 版本/self_container_id(`runner/main.py` collect_machine_info),存 `runners.machine_info` JSON 列(R16 提交 333b64e 即有),Runner 管理页表格展示「CPU X 核 / 内存 YGB」(RunnerManagement.tsx formatMachine)
+  - 「默认直接启动」**Docker 形态已实现**:`docker/runner/Dockerfile` CMD python3 main.py(容器启动即运行)+ DEPLOY.md 部署命令 `--restart unless-stopped`(随 Docker 守护进程自启/开机重启)
+  - **残余缺口 = 本机裸进程形态**(手动 `python runner/main.py`,无平台侧启动/生命周期)→ **已由增量5 R31 承接**(`DEVPLAN/R31.md`:快速创建=平台 spawn 本机 runner 子进程,创建即默认启动;启动/停止/重启/删除代停;Q51–Q57 已确认)。R31 由并行会话规划并已开始实施(本轮分析期间实证 `runner_service.py` 出现外部修改),本会话不重复实施以免双写冲突
+
+## BUG-044
+
+- **状态**:已核实——环境/操作问题,非代码缺陷,平台行为正确(2026-09-24,rd-fix 第 21 轮;恢复步骤交用户)
+- **用户报障**:「runner 管理新建在部署节点后,页面还是离线状态」
+- **一手证据(2026-09-24 15:30 实测)**:
+  - DB:runners 仅 1 行 = 新建的 runner-local(`runner_id=1495a9d0-aa07-4a5a-a0df-84684fb70847`,role=deploy,15:25:47 创建),`last_heartbeat_at=NULL`、`machine_info=NULL` → **从未有任何进程持它的 token 注册成功过**,"离线"是真实状态,非展示缺陷
+  - 本机滞留旧 runner 进程 PID 37084(14:34:04 启动,早于新 runner 创建 51 分钟),env 源自 `~/qicheng/runner_env.txt`,持有**已删除的 local-win-test 的死 token**——runner.log 15:01-15:30 每 60s 循环「连接 ws://127.0.0.1:8000/ws/runner → 注册被拒绝: token 无效或 Runner 已禁用」(连续 30 次)
+  - 后端 PID 33732(15:05:40 启动)health 200,运行代码不含 R31 端点(openapi 实证)——R31「平台代启」尚未实现,UI 新建 Runner 不会自动启动进程
+- **根因**:运行中的 runner 进程是"僵尸"——它绑定的 runner 记录(local-win-test)已在 BUG-042 修复后被删除,token 随之失效;而新 runner 的 token 从未被配置进任何 runner 进程。叠加产品缺口:新建 Runner 后页面无部署指引,注册被拒事件平台侧不可见,用户无从得知"进程没带对 token"
+- **处置(用户操作,按序)**:
+  1. 结束僵尸进程:`Stop-Process -Id 37084`
+  2. 取 runner-local 的 token(创建时 plt-runner-* 仅展示一次;未留存则在 Runner 管理页对 runner-local 点「重置 token」)
+  3. 用新 token 重配 runner 启动 env:RUNNER_TOKEN=<新 token>、RUNNER_ID=runner-local、RUNNER_ROLE=deploy(其余 RUNNER_HOST 等按原值),同步更新 `~/qicheng/runner_env.txt`;**本机**部署 PLATFORM_URL=ws://127.0.0.1:8000/ws/runner 即可,**远程节点**必须是平台机器的可达地址(如 ws://<平台局域网IP>:8000/ws/runner——后端监听 0.0.0.0 已实证,127.0.0.1 在远程节点上指向节点自身必失败)
+  4. 仓库 `runner/` 目录 `python main.py` 重启 → 管理页 ≤30s 变 online,机器信息列出 CPU/内存
+- **暴露的产品缺口(不混入修复循环,归增量5 R31 / 登记)**:① 新建 Runner 后无页内部署命令与 PLATFORM_URL 提示(①正是 R31 快速创建=平台 spawn、token 不可见的设计范围);② register_failed(token 失效/禁用)平台侧不可见,排障只能上节点看进程日志(候选:R25 审计挂 runner.register_failed 事件);③ runner 记录删除后,节点上的旧进程 60s 间隔无限重试且无提示通道(候选:runner 侧对 register_failed 升级退避/明确文案)
+- **处置结果(2026-09-24 15:53-16:04 闭环)**:
+  1. 僵尸进程 37084 已终止;超管 API 重置 runner-local token 成功,`~/qicheng/runner_env.txt` 已更新(RUNNER_TOKEN=新值 / RUNNER_ID=runner-local / RUNNER_ROLE=deploy,PLATFORM_URL/RUNNER_HOST 保持原值)
+  2. 15:54-15:56 本会话代启的 runner 持同一新 token 仍被拒(伴生 WinError 10055 本机 socket 缓冲耗尽——疑本机瞬时资源压力致后端 token 校验 DB 读失败,register_failed 为兜底文案吞掉真实错误;该进程随后卡死退出。**推断留痕:后端日志在控制台不可回溯,未能实证**)
+  3. **15:58:14 用户侧重启 runner(读取更新后的 env 文件)→ 15:58:16 注册成功 runner_id=1495a9d0**,机器信息同步上报;16:03 心跳按 30s 持续推进,状态稳定 online
+- **旁证收获(BUG-042 关闭证据)**:旧僵尸进程曾于 14:33:16 以 local-win-test(88b6cb82)注册成功 → 该记录于 14:33-15:00 间被用户在真机成功删除(表行消失 + 其后旧 token register_failed「token 无效」)→ R16.F3 真机删除复验通过
+
+## BUG-045
+
+- **状态**:已 verified 迁移 ISSUES.md(2026-09-24 rd-fix 第 22 轮 / R16.F4)
+- **关联需求点**:R16(机器信息上报);修复落点 `runner/main.py` collect_machine_info
+- **复现**:Windows 裸跑 runner 注册成功后,Runner 管理页机器信息显示「内存 0GB」
+- **实证**:runners.machine_info = `{"os":"windows","arch":"AMD64","cpu_count":16,"mem_total_gb":0,"docker_version":"27.0.3","self_container_id":""}`(2026-09-24 15:58 runner-local 首次上报)
+- **根因(已读码实锤)**:`runner/main.py:81` 内存采集用 `os.sysconf("SC_PAGE_SIZE")*os.sysconf("SC_PHYS_PAGES")`——SC_* 参数仅 Unix 存在,Windows 必抛 AttributeError 被 `except` 吞掉 → 回退 0
+- **修复方向(2026-09-24 用户指令扩围:修内存 + 采集更多字段,提前至第 22 轮执行)**:Windows 分支用 ctypes GlobalMemoryStatusEx(标准库,不新增依赖);新增 os_version/hostname/ip/disk_total_gb/disk_free_gb/cpu_model 字段(逐字段容错,单字段失败置 None 并跳过);前端 formatMachine 两行展示;**后端零改动**(register 透传 JSON)。修复分片 `./DEVPLAN/R16.F4.md`。**冲突留痕**:runner/main.py(R31 会话 16:03 仍在写入)与 RunnerManagement.tsx(R31 15:36 已改)与 R31 实施面重叠——本次只动 collect_machine_info / formatMachine 两个互不重叠函数,改后即时核盘 + 运行时实证;若 R31 会话后续整文件重写覆盖本修复,需重放
+- **修复与验证记录(2026-09-24 第 22 轮,R16.F4 → verified)**:
+  - `collect_machine_info()` 重写:内存 Windows 分支改 `ctypes GlobalMemoryStatusEx`;新增 os_version / hostname / ip(UDP connect 探默认路由出口,不实际发包)/ disk_total_gb / disk_free_gb / cpu_model,逐字段独立容错(失败整键缺席,绝不上报 None,不阻塞注册);既有 6 键语义不动;**后端零改动**(register 透传 JSON)
+  - 前端:`RunnerMachineInfo` 类型扩 6 可选字段 + `formatMachine` 两行展示(行2 任一字段缺失整行隐藏,旧 runner 数据优雅降级);tsc 0 错
+  - 验证:runner pytest 新增 4 用例全绿(实机断言 mem>0/disk>0/hostname/无 None 值)+ 全量 31/31(与 R31/R31.F1 会话并行改动互不破坏);真机重启 runner 重注册后 DB 实证:`mem_total_gb 31.8 / ip 10.180.106.107 / hostname LUOWEN-CORP / os_version Windows-10-10.0.22621-SP0 / disk 2794.5GB(剩 143.7) / cpu_model Intel64 Family 6…`,status=online、心跳 30s 正常
+  - 冲突共存留痕:与 R31 会话同文件并行实施(函数面零重叠:本修 collect_machine_info/formatMachine,R31 改 handle_message/操作列);main.py 被 R31 于 16:15 再次写入后核盘,本修复仍在盘上;runner 进程重启首次 cmd 包装启动未起来(原因未深究),python.exe 直启成功
 
 ### BUG-UI-049 [已核实:OVERREACH 不修] R21 响应式布局失效
 - 复现:/ Dashboard 600px 宽度
@@ -800,3 +856,27 @@
 - 前端:`PlatformSettings.tsx` 第 5 组「自定义变量」KV 行编辑 + 客户端预检(与后端同口径);`api/admin.ts` 类型
 - 决策留痕:custom_env_vars 不进 SENSITIVE_KEYS(密文回显使编辑不可用,页面仅超管可见,审计沿用"只记键列表")
 - 验证:pytest 13 例 PASS(校验/API 往返/两链 env 断言);**真实容器实证** `docker exec 50f386fa63b4 env` → MY_TEST_VAR=hello-r15 + LLM_URL 在线;API 往返 PUT/GET 原样、TASK_ID 保留名 2007 拒写
+
+## BUG-046
+
+- **状态**:fixed(2026-09-24 rd-fix 第 23 轮 / R9.F2;真机浏览器复验见 R9.F2 执行记录)
+- **用户报障**:「新建终端,websocket 报错,RenderService.ts:52,Uncaught TypeError: Cannot read properties of undefined (reading 'dimensions')」
+- **根因**(详见 `.scratch/fix-analysis.md` § 第 23 轮):`Terminal.tsx` 初始 fit 为单 requestAnimationFrame 无任何守卫,ResizeObserver 回调无条件 `fit()+sendResize()`——RO observe 后首帧立即回调,而 Runner 终端 Dialog 有 150ms 入场动画(dialogContentIn scale/translate),动画期容器尺寸持续变化,`fit()` 内部访问尚未就绪的 RenderService.dimensions → TypeError、终端白屏;ws 报错为连带症状。R31.F1 落地后宿主 shell 会话首次真开,该前端时序缺陷第一次被真实数据流踩中
+- **修复**:`safeFit` 统一入口——disposed 守卫 + 容器尺寸>0 守卫 + try/catch 兜底(渲染器未就绪忽略本轮,RO 下帧重试);初始 fit 改双 rAF 等动画/布局稳定;ResizeObserver 回调全部走 safeFit。两个入口(任务工作台 Tab/全屏切换 + Runner 终端 Dialog)同受益,不涉 WS 数据流/claude 会话行为改动
+- **验证记录(第 23/24 轮)**:① 16:58 真机流程 Runner 终端 Dialog 打开→新建终端→xterm 正常渲染,**原 fit 路径崩溃未再现**;② 复验中仍出现一次 dimensions 报错,定位为 **React.StrictMode 开发期双挂载伪影**(首挂载 open() 后 dispose,xterm Viewport 内部调度的 rAF 刷新读已置空 _renderService)——修复升级为 open 延迟双 rAF + disposed 跳过(首挂载 dispose 前不再 open,僵尸实例无从产生;生产构建无 StrictMode,时序差异无感);③ tsc 0 错;④ 浏览器整段零错终验因两会话超管互踢(D17)反复中断,归用户下一次打开终端一瞥(预期 console 干净)
+
+## BUG-UI-070
+
+- **状态**:fixed → 已 verified 迁移 ISSUES.md(2026-09-24 rd-fix 第 23 轮 / R9.F2)
+- **用户指令**:「终端右侧的 scroll bar 美化下」
+- **修复**:globals.css **纯追加** `.xterm-viewport` 滚动条样式——WebKit 8px 半透明白 thumb(rgba(255,255,255,.18),4px 圆角,hover .32)+ track 透明;Firefox `scrollbar-width:thin` + `scrollbar-color`。终端底色恒 #1e1e1e(Terminal.tsx 硬编码,不随主题),亮/暗主题通用,零既有行改动
+- **验证记录**:真机浏览器计算样式实证 scrollbar width=8px、thumb 4px 圆角 rgba(255,255,255,0.18)、Firefox thin——PASS
+
+## BUG-047
+
+- **状态**:fixed(2026-09-24 rd-fix 第 24 轮 / R26.F2;真机 API 三步链 + runner 日志 + DB 全实证)
+- **用户指令**:「该 Runner 已有终端会话,请先关闭 提供强制关闭再新建功能」
+- **实现**:
+  - 后端 `POST /api/admin/runners/{id}/shell-sessions?force=true`(runners.py):6002 判定处 force 时遍历该 Runner 活跃 shell 会话逐一复用 terminal.py 关闭语义(通知 `terminal_close` kill pty;WS 不在跳过 + 置 `closed_at`)后放行;不带 force 零变化
+  - 前端:createRunnerShellSession 加 force 参;Dialog 错误分支按 shellErrCode===6002 渲染「强制关闭并新建」主按钮 → openShell(r, true)
+- **验证记录**:① tdd Red→Green,test_r26_runner_shell.py **12/12**(新用例:无 force 6002 维持/force 后旧会话收 terminal_close+closed_at 置值+新会话独立 open);② 真机 API 三步:创建 A=code0 → 再建无 force=6002 原文 → force=true=code0;③ runner 日志实证「宿主 shell 已关闭 A → 已创建 NEW」;④ DB:A closed_at 置值、NEW open;⑤ tsc 0 错;前端按钮的可视化确认归用户一瞥(两会话超管互踢致浏览器驻留不稳)

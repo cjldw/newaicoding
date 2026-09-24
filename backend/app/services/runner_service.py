@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.response import BizError, ErrCode
 from app.core.security import hash_password, verify_password
 from app.models.container import Container
+from app.models.task import Task
 from app.models.runner import Runner
 
 logger = logging.getLogger(__name__)
@@ -244,16 +245,20 @@ async def disable_runner(db: AsyncSession, runner_id: str) -> None:
 
 
 async def delete_runner(db: AsyncSession, runner_id: str) -> None:
-    """删除 Runner:有运行中容器 → 16001"""
+    """删除 Runner:有运行中容器且关联任务仍进行中(running)→ 16001(R16.F3/BUG-042 收窄:
+    任务非 running(取消/完成)的容器行不再拦截;task_id 为空的部署容器放行)"""
     runner = await get_runner_or_404(db, runner_id)
     cnt = await db.execute(
-        select(func.count(Container.id)).where(
+        select(func.count(Container.id))
+        .join(Task, Task.task_id == Container.task_id)
+        .where(
             Container.runner_id == runner_id,
             Container.status.in_(["creating", "running"]),
+            Task.status == "running",
         )
     )
     if (cnt.scalar() or 0) > 0:
-        raise BizError(ErrCode.RUNNER_HAS_CONTAINERS, "Runner 上有运行中的容器,不可删除")
+        raise BizError(ErrCode.RUNNER_HAS_CONTAINERS, "Runner 上有进行中任务的容器,不可删除")
 
     conn = runner_registry.get(runner_id)
     if conn is not None and conn.websocket is not None:

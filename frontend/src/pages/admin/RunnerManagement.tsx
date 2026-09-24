@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react'
-import { Plus, Copy, RefreshCcw, Ban, Trash2, Server, Terminal } from 'lucide-react'
+import { Plus, Copy, RefreshCcw, Ban, Trash2, Server, Terminal, Play, Square, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { TerminalPanel } from '@/components/TerminalPanel'
 import {
   useRunners, useCreateRunner, useResetRunnerToken, useDisableRunner, useDeleteRunner,
+  useCreateLocalRunner, useStartRunner, useStopRunner, useRestartRunner,
   getRunnerErrorMessage,
 } from '@/api/admin/runners'
 import { createRunnerShellSession, closeTerminalSession, type TerminalSession } from '@/api/terminal'
@@ -48,7 +49,23 @@ function formatTime(s: string | null) {
 function formatMachine(r: Runner) {
   const m = r.machine_info
   if (!m) return '-'
-  return `CPU ${m.cpu_count} 核 / 内存 ${m.mem_total_gb}GB`
+  // R16.F4(BUG-045):两行展示——行1 资源容量;行2 环境(仅新字段存在时渲染,
+  // 旧 runner 数据只有既有字段则优雅降级为一行)
+  const line1 =
+    `CPU ${m.cpu_count} 核 / 内存 ${m.mem_total_gb}GB` +
+    (m.disk_total_gb != null ? ` / 磁盘 ${m.disk_total_gb}GB` : '')
+  const line2 = [m.os_version, m.hostname, m.ip].filter(Boolean).join(' · ')
+  return (
+    <span>
+      {line1}
+      {line2 ? (
+        <>
+          <br />
+          <span className="text-xs">{line2}</span>
+        </>
+      ) : null}
+    </span>
+  )
 }
 
 export function RunnerManagement() {
@@ -57,6 +74,11 @@ export function RunnerManagement() {
   const resetToken = useResetRunnerToken()
   const disableRunner = useDisableRunner()
   const deleteRunner = useDeleteRunner()
+  // R31:本机快速创建与生命周期
+  const createLocalRunner = useCreateLocalRunner()
+  const startRunner = useStartRunner()
+  const stopRunner = useStopRunner()
+  const restartRunner = useRestartRunner()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [successOpen, setSuccessOpen] = useState(false)
@@ -69,22 +91,36 @@ export function RunnerManagement() {
   const [resetTarget, setResetTarget] = useState<Runner | null>(null)
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
+  // R31:快速创建弹窗(名称/最大容器数)+ 提交 pending;本机行操作 pending(runner_id)
+  const [localOpen, setLocalOpen] = useState(false)
+  const [localForm, setLocalForm] = useState({ name: '', max_containers: 10 })
+  const [localErr, setLocalErr] = useState<string | null>(null)
+  const [localBusy, setLocalBusy] = useState(false)
+  const [runnerBusy, setRunnerBusy] = useState<string | null>(null)
+  // R31:本机删除二次确认(代停语义提示)
+  const [localDeleteTarget, setLocalDeleteTarget] = useState<Runner | null>(null)
+
   // R26:Runner 宿主终端(shell 会话;并发上限 1 由后端 6002 把关)
   const [shellRunner, setShellRunner] = useState<Runner | null>(null)
   const [shellSession, setShellSession] = useState<TerminalSession | null>(null)
   const [shellErr, setShellErr] = useState<string | null>(null)
+  // R26.F2(BUG-047):记录创建失败的业务码;6002 时 Dialog 内提供「强制关闭并新建」
+  const [shellErrCode, setShellErrCode] = useState<number | null>(null)
   const [shellOpening, setShellOpening] = useState(false)
 
-  /** 打开终端:先 POST 建会话(按钮 loading 至返回);失败在 Dialog 内展示 6001/6002/6003 文案 */
-  async function openShell(r: Runner) {
+  /** 打开终端:先 POST 建会话(按钮 loading 至返回);失败在 Dialog 内展示 6001/6002/6003 文案;
+   *  force=true(R26.F2)→ 后端先强制关闭该 Runner 活跃会话再新建 */
+  async function openShell(r: Runner, force = false) {
     setShellOpening(true)
     setShellErr(null)
+    setShellErrCode(null)
     setShellSession(null)
     setShellRunner(r)
     try {
-      setShellSession(await createRunnerShellSession(r.runner_id))
+      setShellSession(await createRunnerShellSession(r.runner_id, force))
     } catch (e) {
       setShellErr(getRunnerErrorMessage(e) || '终端创建失败')
+      setShellErrCode((e as { code?: number })?.code ?? null)
     } finally {
       setShellOpening(false)
     }
@@ -138,6 +174,70 @@ export function RunnerManagement() {
     catch (e) { setMsg({ type: 'error', text: getRunnerErrorMessage(e) }) }
   }
 
+  // ---- R31:本机快速创建 / 启动 / 停止 / 重启 / 代停删除 ----
+
+  /** 快速创建提交:错误直显后端 message(16002 细分文案);Dialog 不关、输入保留 */
+  async function handleCreateLocal() {
+    setLocalBusy(true)
+    setLocalErr(null)
+    try {
+      const res = await createLocalRunner.mutateAsync({
+        name: localForm.name.trim() || undefined,
+        max_containers: localForm.max_containers,
+      })
+      setLocalOpen(false)
+      const st = res.data.status
+      setMsg({
+        type: 'success',
+        text: st === 'online' ? `Runner ${res.data.name} 已创建并上线` : `Runner 已启动但未完成注册,可在列表查看状态或重试启动`,
+      })
+    } catch (e) {
+      setLocalErr(getRunnerErrorMessage(e))
+    } finally {
+      setLocalBusy(false)
+    }
+  }
+
+  async function handleStart(r: Runner) {
+    setRunnerBusy(r.runner_id)
+    try { await startRunner.mutateAsync(r.runner_id); setMsg({ type: 'success', text: 'Runner 已启动' }) }
+    catch (e) { setMsg({ type: 'error', text: getRunnerErrorMessage(e) }) }
+    finally { setRunnerBusy(null) }
+  }
+
+  /** 停止无二次确认(分片交互流程:秒级操作;防重=按钮 disabled+busy) */
+  async function handleStop(r: Runner) {
+    setRunnerBusy(r.runner_id)
+    try { await stopRunner.mutateAsync(r.runner_id); setMsg({ type: 'success', text: 'Runner 已停止' }) }
+    catch (e) { setMsg({ type: 'error', text: getRunnerErrorMessage(e) }) }
+    finally { setRunnerBusy(null) }
+  }
+
+  async function handleRestart(r: Runner) {
+    setRunnerBusy(r.runner_id)
+    try { await restartRunner.mutateAsync(r.runner_id); setMsg({ type: 'success', text: 'Runner 已重启' }) }
+    catch (e) { setMsg({ type: 'error', text: getRunnerErrorMessage(e) }) }
+    finally { setRunnerBusy(null) }
+  }
+
+  /** 本机行删除 = 代停流程(先停全部容器),长 pending(≤60s) */
+  async function handleLocalDeleteConfirmed() {
+    if (!localDeleteTarget) return
+    const r = localDeleteTarget
+    setRunnerBusy(r.runner_id)
+    try {
+      await deleteRunner.mutateAsync(r.runner_id)
+      setLocalDeleteTarget(null)
+      setMsg({ type: 'success', text: 'Runner 已删除' })
+    } catch (e) {
+      // 16004:代停失败,runner 保留;留在确认框外的全局错误 + 关闭确认框
+      setLocalDeleteTarget(null)
+      setMsg({ type: 'error', text: getRunnerErrorMessage(e) })
+    } finally {
+      setRunnerBusy(null)
+    }
+  }
+
   function copyToken(t: string) { navigator.clipboard.writeText(t) }
 
   const startupCmd = `docker run -d \\
@@ -156,6 +256,10 @@ export function RunnerManagement() {
           <div className="sub">Runner 是容器执行的代理节点,主动 WebSocket 连接平台;调度策略:最少负载 · 部署任务固定 role=deploy</div>
         </div>
         <div className="acts">
+          {/* R31:本机快速创建(与远程 token 流程并存) */}
+          <Button variant="primary" onClick={() => { setLocalForm({ name: '', max_containers: 10 }); setLocalErr(null); setLocalOpen(true) }}>
+            <Plus className="w-4 h-4 mr-1" />快速创建(本机)
+          </Button>
           <Button variant="primary" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />新建 Runner</Button>
         </div>
       </div>
@@ -175,18 +279,23 @@ export function RunnerManagement() {
             {isLoading && <TableRow><TableCell colSpan={7} className="text-center py-8 text-text-muted">加载中…</TableCell></TableRow>}
             {runners?.map(r => {
               const rb = ROLE_BADGE[r.role]; const sb = STATUS_BADGE[r.status]
+              const busy = runnerBusy === r.runner_id
               return (
                 /* §6.3 #2:移除 opacity-50,改用 .b-amber 徽章区分 offline */
                 <TableRow key={r.runner_id}>
                   <TableCell className="font-medium">{r.name}</TableCell>
                   <TableCell><span className={rb.cls}>{rb.label}</span></TableCell>
-                  <TableCell><span className={sb.cls}>{sb.label}</span></TableCell>
+                  <TableCell>
+                    <span className={sb.cls}>{sb.label}</span>
+                    {/* R31:本机快速创建标记 chip */}
+                    {r.is_local && <span className="chip" style={{ marginLeft: 6 }}>本机</span>}
+                  </TableCell>
                   <TableCell>{r.current_containers}/{r.max_containers}</TableCell>
                   <TableCell className="text-text-muted">{formatMachine(r)}</TableCell>
                   <TableCell className="text-text-muted">{formatTime(r.last_heartbeat_at)}</TableCell>
                   <TableCell className="text-right" style={{ whiteSpace: 'nowrap' }}>
                     {/* §6.3 #3:操作按钮改 .btn.btn-sm / .btn.btn-sm.btn-danger */}
-                    {/* R26:终端按钮(仅 online 可点;非 online 置灰 title 提示) */}
+                    {/* R26:终端按钮(仅 online 可点;非 online 置灰 title 提示)——本机/远程均可用 */}
                     <button
                       className="btn btn-sm"
                       disabled={r.status !== 'online' || shellOpening}
@@ -194,11 +303,37 @@ export function RunnerManagement() {
                       onClick={() => openShell(r)}
                     ><Terminal className="w-3.5 h-3.5 mr-1" />终端</button>
                     {' '}
-                    <button className="btn btn-sm" onClick={() => { setResetTarget(r); setResetOpen(true) }}><RefreshCcw className="w-3.5 h-3.5 mr-1" />重置 token</button>
-                    {' '}
-                    <button className="btn btn-sm" onClick={() => handleDisable(r)}><Ban className="w-3.5 h-3.5 mr-1" />禁用</button>
-                    {' '}
-                    <button className="btn btn-sm btn-danger" onClick={() => handleDelete(r)}><Trash2 className="w-3.5 h-3.5 mr-1" />删除</button>
+                    {r.is_local ? (
+                      /* R31:本机行——启动/停止/重启/删除(代停确认);无 重置token/禁用(token 内部化) */
+                      <>
+                        {r.status === 'online' ? (
+                          <>
+                            <button className="btn btn-sm" disabled={busy} title="停止 runner 进程(容器不动)" onClick={() => handleStop(r)}><Square className="w-3.5 h-3.5 mr-1" />{busy ? '停止中…' : '停止'}</button>
+                            {' '}
+                            <button className="btn btn-sm" disabled={busy} onClick={() => handleRestart(r)}><RotateCcw className="w-3.5 h-3.5 mr-1" />{busy ? '重启中…' : '重启'}</button>
+                          </>
+                        ) : r.status === 'offline' ? (
+                          <button className="btn btn-sm" disabled={busy} onClick={() => handleStart(r)}><Play className="w-3.5 h-3.5 mr-1" />{busy ? '启动中…' : '启动'}</button>
+                        ) : (
+                          <>
+                            <button className="btn btn-sm" disabled title="已禁用的 Runner 不可启动"><Play className="w-3.5 h-3.5 mr-1" />启动</button>
+                            {' '}
+                            <button className="btn btn-sm" disabled title="已禁用的 Runner 不可停止"><Square className="w-3.5 h-3.5 mr-1" />停止</button>
+                          </>
+                        )}
+                        {' '}
+                        <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => setLocalDeleteTarget(r)}><Trash2 className="w-3.5 h-3.5 mr-1" />删除</button>
+                      </>
+                    ) : (
+                      /* 远程行:R16 原操作,零改动 */
+                      <>
+                        <button className="btn btn-sm" onClick={() => { setResetTarget(r); setResetOpen(true) }}><RefreshCcw className="w-3.5 h-3.5 mr-1" />重置 token</button>
+                        {' '}
+                        <button className="btn btn-sm" onClick={() => handleDisable(r)}><Ban className="w-3.5 h-3.5 mr-1" />禁用</button>
+                        {' '}
+                        <button className="btn btn-sm btn-danger" onClick={() => handleDelete(r)}><Trash2 className="w-3.5 h-3.5 mr-1" />删除</button>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               )
@@ -252,6 +387,41 @@ export function RunnerManagement() {
         </DialogContent>
       </Dialog>
 
+      {/* R31:快速创建本机 Runner(最小表单:名称留空自动生成 + 最大容器数;token 平台内部注入不可见) */}
+      <Dialog open={localOpen} onOpenChange={(o) => { if (!o) { setLocalOpen(false); setLocalErr(null) } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>快速创建本机 Runner</DialogTitle>
+            <DialogDescription>在本机直接启动 runner 进程并注册上线;无需复制 token</DialogDescription>
+          </DialogHeader>
+          {localErr && <Alert variant="error" className="mt-2">{localErr}</Alert>}
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5"><Label>名称</Label><Input placeholder="留空自动生成 local-xxxxxxxx" value={localForm.name} onChange={e => setLocalForm(f => ({ ...f, name: e.target.value }))} /></div>
+            <div className="space-y-1.5"><Label>最大容器数</Label><Input type="number" min={1} max={100} value={localForm.max_containers} onChange={e => setLocalForm(f => ({ ...f, max_containers: Number(e.target.value) || 10 }))} /></div>
+          </div>
+          <DialogFooter className="pt-4">
+            <Button variant="ghost" onClick={() => { setLocalOpen(false); setLocalErr(null) }}>取消</Button>
+            <Button variant="primary" disabled={localBusy} onClick={handleCreateLocal}>{localBusy ? '启动中…' : '创建并启动'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* R31:本机删除二次确认(代停语义提示;远程行维持直删无确认) */}
+      <Dialog open={!!localDeleteTarget} onOpenChange={(o) => { if (!o) setLocalDeleteTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除本机 Runner</DialogTitle>
+            <DialogDescription>本机 Runner 将先停止其全部任务容器再删除,确认?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="pt-4">
+            <Button variant="ghost" onClick={() => setLocalDeleteTarget(null)}>取消</Button>
+            <Button variant="primary" disabled={!!localDeleteTarget && runnerBusy === localDeleteTarget.runner_id} onClick={handleLocalDeleteConfirmed}>
+              {localDeleteTarget && runnerBusy === localDeleteTarget.runner_id ? '停止容器中…' : '确认删除'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* R26:Runner 宿主终端(Dialog 80vw×80vh;xterm 容器 --term-bg 由 Terminal 组件处理;
           断线写"Runner 连接中断"且不自动重连(terminalReconnect=false) */}
       <Dialog open={!!shellRunner} onOpenChange={(o) => { if (!o) closeShellDialog() }}>
@@ -263,7 +433,17 @@ export function RunnerManagement() {
           {shellErr ? (
             <div className="pt-2">
               <Alert variant="error">{shellErr}</Alert>
-              <DialogFooter className="pt-4"><Button variant="ghost" onClick={closeShellDialog}>关闭</Button></DialogFooter>
+              <DialogFooter className="pt-4">
+                {/* R26.F2(BUG-047):6002=已有会话未关 → 提供「强制关闭并新建」一键代清 */}
+                {shellErrCode === 6002 && shellRunner && (
+                  <Button
+                    variant="primary"
+                    disabled={shellOpening}
+                    onClick={() => openShell(shellRunner, true)}
+                  >强制关闭并新建</Button>
+                )}
+                <Button variant="ghost" onClick={closeShellDialog}>关闭</Button>
+              </DialogFooter>
             </div>
           ) : shellSession ? (
             <div className="h-[70vh] min-h-0 flex flex-col">

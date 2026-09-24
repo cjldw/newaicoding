@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 QPS_LIMIT_DEFAULT = 100  # 单 host QPS 上限(防爬/防滥用)
 
 _html = """<!doctype html><html lang="zh"><meta charset="utf-8">
-<title>{code} - 旗程</title>
+<title>{code} - 旗橙</title>
 <body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f4f4f5">
 <div style="text-align:center">
 <h1 style="font-size:48px;margin:0;color:#18181b">{code}</h1>

@@ -1,8 +1,10 @@
-"""Runner 管理路由 - R16(超管)"""
+"""Runner 管理路由 - R16(超管)+ R31(本机快速创建/生命周期)"""
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 
 from app.core.auth import require_superadmin
 from app.core.response import BizError, ErrCode, success
@@ -11,10 +13,11 @@ from app.models.runner import Runner
 from app.models.terminal import TerminalSession
 from app.models.user import User
 from app.schemas.runner import CreateRunnerRequest, RunnerItem
-from app.services import audit_service, runner_service
+from app.services import audit_service, local_runner_service, runner_service
 from app.services.audit_service import audit_write  # R25 审计接入(模式 C:API 层,operator 在此)
 
 import logging
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,7 @@ def _to_item(runner: Runner) -> dict:
         "current_containers": runner.current_containers,
         "max_containers": runner.max_containers,
         "public_ip": runner.public_ip,
+        "is_local": bool(runner.is_local),  # R31
         "created_at": runner.created_at,
     }
 
@@ -78,6 +82,179 @@ async def create_runner(
         data={"runner_id": runner.runner_id, "name": runner.name, "token": token},
         message="创建成功,请保存 token(仅显示一次)",
     )
+
+
+# -------------------------------------------------------------------
+# R31 本机快速创建与生命周期(全部超管;token 明文只进子进程 env,响应/审计无值)
+# -------------------------------------------------------------------
+class CreateLocalRequest(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=64)
+    max_containers: int = Field(default=10, ge=1, le=100)
+
+
+@router.post("/local")
+async def create_local_runner(
+    req: CreateLocalRequest,
+    current_user: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    本机快速创建(含启动):校验(上限16003→环境16002→名称16005)
+    → 落库(is_local=1, offline)→ spawn 子进程 → 等注册 ≤10s。
+    注册超时不回滚(200 status=offline,可停止/重启/删除排障)。
+    """
+    import uuid as _uuid
+
+    from app.core.security import hash_password
+    from app.services.runner_service import _generate_token
+
+    # 顺序:先查库上限(16003),再环境校验(16002,不落库不 spawn)
+    await local_runner_service.check_local_limit(db)
+    await local_runner_service.preflight()
+
+    runner_id = str(_uuid.uuid4())
+    name = (req.name or "").strip() or f"local-{runner_id[:8]}"
+    await local_runner_service.check_name_free(db, name)
+
+    token_plain = _generate_token()
+    runner = Runner(
+        runner_id=runner_id,
+        name=name,
+        role="worker",
+        token_hash=hash_password(token_plain),
+        max_containers=req.max_containers,
+        is_local=1,
+        status="offline",
+        created_by=current_user.user_id,
+    )
+    db.add(runner)
+    await db.flush()
+    # R31 实现留痕:spawn 前显式提交——子进程 ~1s 内即 register,handle_register 走独立
+    # 会话,必须能看到已提交的 token hash;否则首连被拒(token 无效),白耗退避窗口
+    await db.commit()
+
+    launch = await local_runner_service.spawn_local(runner, token_plain)
+    status = await local_runner_service.wait_online(db, runner_id)
+    if status == "online":
+        runner.status = "online"
+        await db.flush()
+
+    await audit_write(
+        db, current_user, "runner.create_local",
+        target_type="runner", target_id=runner_id,
+        detail={"name": name, "role": "worker", "launch_env_keys": launch["env_keys"]},
+    )
+    msg = "创建成功" if status == "online" else "Runner 已启动但未完成注册,可在列表查看状态或重试启动"
+    return success(data={
+        "runner_id": runner_id, "name": name, "status": status,
+        "token_hidden": True, "launch_command": launch,
+    }, message=msg)
+
+
+@router.post("/{runner_id}/start")
+async def start_local_runner(
+    runner_id: str,
+    current_user: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    启动离线本机 runner。online/进行中幂等 200"已在运行";disabled→16006;非本机→404。
+    决策留痕:token 不可逆(仅存 hash),启动时**内部重新生成** token 注入子进程
+    (明文仍不可见,符合 Q57);离线无活连接,重置旧 token 无副作用。
+    """
+    runner = await runner_service.get_runner_or_404(db, runner_id)
+    if not runner.is_local:
+        raise BizError(404, "仅本机快速创建的 Runner 支持启动", status_code=404)
+    if runner.status == "disabled":
+        raise BizError(ErrCode.RUNNER_NOT_LOCAL, "已禁用的 Runner 不可启动,请删除后重建")
+    if runner.status == "online":
+        return success(data={"runner_id": runner_id, "status": "online"}, message="Runner 已在运行")
+
+    if not local_runner_service.try_acquire(runner_id):
+        return success(data={"runner_id": runner_id, "status": runner.status}, message="Runner 已在运行")
+    try:
+        from app.core.security import hash_password
+        from app.services.runner_service import _generate_token
+
+        await local_runner_service.preflight()
+        token_plain = _generate_token()
+        runner.token_hash = hash_password(token_plain)
+        await db.flush()
+        await db.commit()  # spawn 前提交(同 create_local 留痕:子进程注册需见已提交 hash)
+        await local_runner_service.spawn_local(runner, token_plain)
+        status = await local_runner_service.wait_online(db, runner_id)
+        runner.status = status
+        await db.flush()
+        await audit_write(
+            db, current_user, "runner.start",
+            target_type="runner", target_id=runner_id,
+            detail={"name": runner.name},
+        )
+    finally:
+        local_runner_service.release(runner_id)
+    return success(data={"runner_id": runner_id, "status": status}, message="Runner 已启动")
+
+
+@router.post("/{runner_id}/stop")
+async def stop_local_runner(
+    runner_id: str,
+    current_user: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    停止本机 runner(指令式)。非本机→16006;offline 幂等;
+    online 无 WS 连接且无句柄→16007(平台重启后孤儿,手动处理)。
+    """
+    runner = await runner_service.get_runner_or_404(db, runner_id)
+    if not runner.is_local:
+        raise BizError(ErrCode.RUNNER_NOT_LOCAL, "远程 Runner 请在其宿主机上手动停止")
+
+    await local_runner_service.shutdown_local(runner)
+    already_stopped = runner.status == "offline"
+    runner.status = "offline"
+    await db.flush()
+    await audit_write(
+        db, current_user, "runner.stop",
+        target_type="runner", target_id=runner_id,
+        detail={"name": runner.name},
+    )
+    msg = "Runner 已处于停止状态" if already_stopped else "Runner 已停止"
+    return success(data={"runner_id": runner_id, "status": "offline"}, message=msg)
+
+
+@router.post("/{runner_id}/restart")
+async def restart_local_runner(
+    runner_id: str,
+    current_user: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """重启本机 runner = 停止 + 重新 spawn(token 内部重新生成,同 start 留痕)。"""
+    runner = await runner_service.get_runner_or_404(db, runner_id)
+    if not runner.is_local:
+        raise BizError(404, "仅本机快速创建的 Runner 支持重启", status_code=404)
+    if runner.status == "disabled":
+        raise BizError(ErrCode.RUNNER_NOT_LOCAL, "已禁用的 Runner 不可重启,请删除后重建")
+
+    await local_runner_service.shutdown_local(runner)
+    # 停成功再起:复用 start 的 spawn 流程
+    from app.core.security import hash_password
+    from app.services.runner_service import _generate_token
+
+    await local_runner_service.preflight()
+    token_plain = _generate_token()
+    runner.token_hash = hash_password(token_plain)
+    await db.flush()
+    await db.commit()  # spawn 前提交(同 create_local 留痕)
+    await local_runner_service.spawn_local(runner, token_plain)
+    status = await local_runner_service.wait_online(db, runner_id)
+    runner.status = status
+    await db.flush()
+    await audit_write(
+        db, current_user, "runner.restart",
+        target_type="runner", target_id=runner_id,
+        detail={"name": runner.name},
+    )
+    return success(data={"runner_id": runner_id, "status": status}, message="Runner 已重启")
 
 
 # -------------------------------------------------------------------
@@ -127,7 +304,25 @@ async def delete_runner(
     current_user: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
-    """删除 Runner;有运行中容器 → 16001"""
+    """
+    删除 Runner(R31 分支):
+    - 远程(token 型)runner:原语义不变,有进行中任务容器 → 16001;
+    - 本机(is_local)runner:代停流程——先停全部容器(强制 push 链)→ 停进程 → 删记录;
+      任一容器停失败 → 16004,记录保留(重试幂等)。
+    """
+    runner = await runner_service.get_runner_or_404(db, runner_id)
+    if runner.is_local:
+        n = await local_runner_service.stop_all_containers_and_wait(db, runner)
+        await local_runner_service.shutdown_local(runner)
+        await db.delete(runner)
+        await db.flush()
+        await audit_write(
+            db, current_user, "runner.delete",
+            target_type="runner", target_id=runner_id,
+            detail={"代停容器数": n},
+        )
+        return success(message="Runner 已删除")
+
     await runner_service.delete_runner(db, runner_id)
     # R25 审计:runner.delete
     await audit_write(
@@ -143,6 +338,7 @@ async def delete_runner(
 @router.post("/{runner_id}/shell-sessions")
 async def create_runner_shell_session(
     runner_id: str,
+    force: bool = False,
     current_user: User = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -150,6 +346,9 @@ async def create_runner_shell_session(
     打开 Runner 容器内 shell(超管;R26):
     校验顺序(分片硬规格):404 → 6001 online → 6002 无活跃 shell 会话 → 6003 self_container_id
     → 建 TerminalSession(task_id=__runner_shell__ 标记)→ 下发既有 exec 消息(container_id=Runner 自身短 id)。
+    R26.F2(BUG-047):?force=true 时跳过 6002 拒绝——先复用 terminal.py 关闭链路
+    (通知 Runner terminal_close kill pty + 置 closed_at)清掉该 Runner 全部活跃会话再放行,
+    供前端「强制关闭并新建」按钮使用;不带 force 行为不变(向后兼容)。
     """
     # 1. 存在(404)
     runner = await runner_service.get_runner_or_404(db, runner_id)
@@ -160,32 +359,56 @@ async def create_runner_shell_session(
 
     # 3. 并发上限 1(6002):该 Runner 存在未关闭的 shell 会话 → 拒绝
     #    (判定用台账表而非内存注册表:REST 创建即写行;关闭链路置 closed_at 后放行)
-    existing = (await db.execute(
+    #    R26.F2(BUG-047):force=true → 不拒绝,改为逐一强制关闭活跃会话:
+    #    语义与 DELETE /api/terminal-sessions/{sid} 完全一致(通知 Runner terminal_close
+    #    kill pty;连接不在时跳过 + 台账置 closed_at),旧会话的浏览器 WS 由 closed_at 判死
+    existing_rows = (await db.execute(
         select(TerminalSession).where(
             TerminalSession.runner_id == runner_id,
             TerminalSession.task_id == RUNNER_SHELL_TASK_TAG,
             TerminalSession.closed_at.is_(None),
-        ).limit(1)
-    )).scalar_one_or_none()
-    if existing is not None:
-        raise BizError(ErrCode.RUNNER_SESSION_EXISTS, "该 Runner 已有终端会话,请先关闭")
+        )
+    )).scalars().all()
+    if existing_rows:
+        if not force:
+            raise BizError(ErrCode.RUNNER_SESSION_EXISTS, "该 Runner 已有终端会话,请先关闭")
+        old_conn = runner_service.runner_registry.get(runner_id)
+        for old_session in existing_rows:
+            if old_conn is not None and old_conn.websocket is not None:
+                await runner_service.send_to_runner(old_conn, {
+                    "type": "terminal_close",
+                    "session_id": old_session.session_id,
+                })
+            old_session.closed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        await db.flush()
 
-    # 4. Runner 自报了自身容器 id(6003;旧版 Runner machine_info 无此键)
-    self_container_id = (runner.machine_info or {}).get("self_container_id")
-    if not self_container_id:
+    # 4. Runner 自报了自身容器 id(按上报形态细分:R26.F1/BUG-041 文案细分;R31.F1/BUG-043 空串降级宿主 shell)
+    machine = runner.machine_info or {}
+    if "self_container_id" not in machine:
+        # 旧版 Runner 镜像:register 载荷无此键(R26 前版本)→ 升级镜像
         raise BizError(ErrCode.RUNNER_TOO_OLD, "Runner 版本过旧,请升级 Runner 镜像后使用终端")
+    self_container_id = machine.get("self_container_id")
+    is_host_shell = False
+    if not self_container_id:
+        # 新版上报空串:进程未运行在容器中(R31 本机裸跑等,HOSTNAME 缺失)→ 降级宿主 shell:
+        # runner 侧按 "__host__" 哨兵走 subprocess(cmd.exe/bash);超管专用入口 + terminal_open 审计,
+        # 与 R31 平台在本机 spawn 进程权责一致
+        self_container_id = "__host__"
+        is_host_shell = True
 
     # 5. 内存连接须在(库 online 但 WS 已断 → 同 6001 口径)
     runner_conn = runner_service.runner_registry.get(runner_id)
     if runner_conn is None or runner_conn.websocket is None:
         raise BizError(ErrCode.RUNNER_NOT_ONLINE, "Runner 不在线")
 
-    # 6. 建会话台账(container_id=Runner 自身短 id;docker exec_create 接受短 id)
+    # 6. 建会话台账(container_id=Runner 自身短 id;宿主会话="__host__" 哨兵,R31.F1)
+    shell_name = ("/bin/bash" if not is_host_shell
+                  else ("cmd.exe" if "win" in str(machine.get("os", "")).lower() else "bash"))
     session = TerminalSession(
         task_id=RUNNER_SHELL_TASK_TAG,
         container_id=self_container_id,
         runner_id=runner_id,
-        shell="/bin/bash",
+        shell=shell_name,
         created_by=current_user.user_id,
     )
     db.add(session)
@@ -206,7 +429,8 @@ async def create_runner_shell_session(
         {"user_id": current_user.user_id, "role": current_user.role},
         action_type="runner.terminal_open",
         target_type="runner", target_id=runner_id,
-        detail={"runner_name": runner.name},
+        detail={"runner_name": runner.name,
+                "session_kind": "runner_host" if is_host_shell else "runner_shell"},
     )
 
     logger.info("Runner shell 会话创建 session=%s runner=%s by=%s", session.session_id, runner_id, current_user.user_id)

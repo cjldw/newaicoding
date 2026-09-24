@@ -4,8 +4,11 @@ R9 Runner 侧 pty 管理测试(fake docker api,socketpair 真实 I/O)
 - test_exec_create_pty:exec_create(tty=True)+ 输出批量回调
 - test_pty_session_reuse:同 session 二次创建 → attach(False),不新建
 - test_write_input_resize_kill
+- R31.F1:test_host_shell_*:宿主 shell 会话(subprocess 真进程,Windows/Linux 皆可跑)
 """
 import socket as py_socket
+import subprocess
+import sys
 import threading
 import time
 
@@ -133,3 +136,70 @@ class TestExecPty:
         assert mgr.kill("s-2") is True
         assert mgr.kill("s-2") is False  # 已关闭
         b_end.close()
+
+
+class TestHostShell:
+    """R31.F1:宿主 shell 会话(非容器 runner 降级通道)"""
+
+    def _shell_cmd(self) -> list:
+        # 轻量真进程:打印标记后阻塞在 input(),保持 stdin 可写、进程存活
+        return [sys.executable, "-c", "print('host-shell-ok', flush=True); input()"]
+
+    def test_create_output_write_kill(self):
+        mgr = TerminalManager(docker_api_factory=lambda: None, flush_interval=0.01, flush_threshold=4)
+        collected: list[str] = []
+        created = mgr.create_host_shell("h-1", on_output=lambda s, d: collected.append(d), shell_cmd=self._shell_cmd())
+        assert created is True
+
+        deadline = time.time() + 5
+        while time.time() < deadline and not collected:
+            time.sleep(0.01)
+        assert any("host-shell-ok" in c for c in collected)
+
+        # stdin 写入(不炸即通;进程阻塞在 input 消费它)
+        assert mgr.write_input("h-1", "x\n") is True
+        # 未知会话写入 → False
+        assert mgr.write_input("h-none", "x\n") is False
+        # resize 对宿主会话 no-op(无 pty,不应抛异常)
+        mgr.resize("h-1", 100, 30)
+
+        assert mgr.kill("h-1") is True
+        assert mgr.kill("h-1") is False  # 已关闭
+        # 进程确被终止
+        time.sleep(0.2)
+        assert mgr.host_sessions.get("h-1") is None
+
+    def test_host_shell_reuse(self):
+        mgr = TerminalManager(docker_api_factory=lambda: None, flush_interval=0.01)
+        first = mgr.create_host_shell("h-2", on_output=lambda s, d: None, shell_cmd=self._shell_cmd())
+        second = mgr.create_host_shell("h-2", on_output=lambda s, d: None, shell_cmd=self._shell_cmd())
+        assert first is True
+        assert second is False  # 复用 attach,不新建进程
+        assert len(mgr.host_sessions) == 1
+        mgr.kill("h-2")
+
+    def test_default_shell_cmd_by_platform(self):
+        # Windows=cmd.exe /K(BUG-048:无 /K 时管道 stdin 下 cmd 非交互即退),其他=bash
+        cmd = TerminalManager._default_host_shell_cmd()
+        if sys.platform.startswith("win"):
+            assert cmd == ["cmd.exe", "/K"]
+        else:
+            assert cmd == ["bash"]
+
+    def test_host_shell_alive_after_spawn(self):
+        """BUG-048 回归:管道模式下默认 shell spawn 后应保持存活(不秒退 EOF)"""
+        if not sys.platform.startswith("win"):
+            self.skipTest("Windows 专属回归")
+        mgr = TerminalManager()
+        got: list[tuple[str, str]] = []
+        sid = "h-alive"
+        created = mgr.create_host_shell(sid, on_output=lambda s, d: got.append((s, d)))
+        assert created is True
+        try:
+            import time as _time
+            _time.sleep(2.0)  # 稍等读循环;若 cmd 秒退会触发「读取结束」+ closed
+            session = mgr.host_sessions.get(sid)
+            assert session is not None, "会话被读循环移除(cmd 提前退出)"
+            assert session.proc.poll() is None, "cmd.exe 进程提前退出(缺 /K 回归)"
+        finally:
+            mgr.kill(sid)
