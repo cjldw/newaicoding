@@ -21,6 +21,8 @@ export interface ProjectListItem {
   status: 'active' | 'archived' | 'deleted'
   owner: ProjectOwner
   repo_count: number
+  req_count: number // R2.F10(BUG-049):项目需求数
+  member_count: number // R2.F10(BUG-049):成员数(含 owner)
   created_at: string
 }
 

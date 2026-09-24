@@ -1,12 +1,17 @@
 """R31 本机 Runner 快速创建与生命周期服务
 
-平台在**本机** spawn `python runner/main.py` 子进程(注入 token/地址),
-并提供指令式停止(WS runner_shutdown)、删除代停(先停容器=强制 push 链)编排。
+平台在**本机**启动 runner(注入 token/地址),并提供指令式停止(WS runner_shutdown)、
+删除代停(先停容器=强制 push 链)编排。
+
+启动形态(R31.F3/BUG-049,用户指令修正):**Docker 容器形态**——镜像 platform/runner:v1
+缺失时自动构建(docker/runner/Dockerfile,源码即所得),`docker run -d` 挂载 docker.sock、
+env 四键注入,容器内经 host.docker.internal 回连平台;用户零命令复制。
+旧「python 子进程」句柄路径仅作存量兼容(不再新启)。
 
 安全边界(分片"响应最小化"):
-- token 明文只进子进程环境,不落库/不进日志/不进响应;
-- 进程句柄仅存内存(平台重启自然清空,停止走指令式仍可用;无句柄无连接 → 16007,绝不盲杀 PID);
-- V1 单机单管理员信任模型(子进程继承平台环境)。
+- token 明文只进容器环境,不落库/不进日志/不进响应;
+- 容器名由 runner_id 确定性推出(qicheng-runner-<id前8>),平台重启后仍可凭名停止,无盲杀;
+- V1 单机单管理员信任模型(挂载 docker.sock 等价宿主 docker 权限)。
 """
 
 import asyncio
@@ -32,8 +37,14 @@ RUNNER_MAIN = REPO_ROOT / "runner" / "main.py"
 RUNNER_DIR = REPO_ROOT / "runner"
 LOG_DIR = REPO_ROOT / "data" / "logs"
 
-# 平台 WS 地址(单机形态默认;多网卡/非默认端口为已知限制,V2 平台设置项)
+# 平台 WS 地址:子进程形态遗留常量(容器形态从容器内回连——容器内 127.0.0.1 是容器自身)
 PLATFORM_URL_DEFAULT = "ws://127.0.0.1:8000/ws/runner"
+# R31.F3(BUG-049):容器形态常量
+PLATFORM_URL_CONTAINER = "ws://host.docker.internal:8000/ws/runner"
+RUNNER_IMAGE = "platform/runner:v1"
+RUNNER_DOCKERFILE = REPO_ROOT / "docker" / "runner" / "Dockerfile"
+IMAGE_BUILD_TIMEOUT = 600.0              # 首次镜像构建预算(pip install 数分钟,缓存后秒级)
+DOCKER_STOP_TIMEOUT = 10                 # docker stop 优雅退出秒数
 
 LOCAL_RUNNER_MAX = 3                     # 本机快速创建上限(固定值,不入平台设置)
 REGISTER_WAIT_TIMEOUT = 10.0             # 注册等待
@@ -43,8 +54,15 @@ CONTAINER_STOP_TIMEOUT = 30.0            # 单容器停止等待
 DELETE_BUDGET = 60.0                     # 删除代停整体预算
 _PROBE_TIMEOUT = 5.0
 
-# runner_id → Popen 句柄(内存态,平台重启清空)
+# runner_id → Popen 句柄(内存态,平台重启清空;存量子进程形态兼容用,不再新启)
 _local_processes: dict[str, "subprocess.Popen"] = {}
+# R31.F3:runner_id → 容器名(名字可由 id 确定性推出,登记仅为语义清晰)
+_local_containers: dict[str, str] = {}
+
+
+def _container_name(runner_id: str) -> str:
+    """容器名确定性推出:平台重启后仍可凭名 stop/rm(替代子进程形态的 PID 句柄,无盲杀)"""
+    return f"qicheng-runner-{runner_id[:8]}"
 # per-runner_id in-flight 锁(start/restart 防连点)
 _inflight: set[str] = set()
 
@@ -137,57 +155,122 @@ def _reap(handle: "subprocess.Popen", wait: float = 3.0) -> None:
             pass
 
 
+async def _stop_container_by_name(name: str, remove: bool = False) -> bool:
+    """docker stop(可选 rm);容器不存在返回 False(调用方决定降级路径)"""
+    import docker as docker_sdk
+
+    def _sync() -> bool:
+        client = docker_sdk.from_env()
+        try:
+            container = client.containers.get(name)
+        except docker_sdk.errors.NotFound:
+            return False
+        container.stop(timeout=DOCKER_STOP_TIMEOUT)
+        if remove:
+            container.remove(force=True)
+        return True
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except Exception:
+        logger.exception("本机 runner 容器停止失败 name=%s", name)
+        return False
+
+
+async def remove_local_container(runner_id: str) -> None:
+    """删除链路收尾:移除本机 runner 容器(不存在则忽略;R31.F3)"""
+    await _stop_container_by_name(_container_name(runner_id), remove=True)
+    _local_containers.pop(runner_id, None)
+
+
+async def _ensure_image() -> None:
+    """镜像存在性检查,缺失自动构建(docker CLI,与 DEPLOY.md §4 同参数;零命令复制)。
+    基础镜像自适应(Docker Hub 不可达环境,如国内网络):本地无 python:3.12-slim
+    但有 python:3.10 时,用 --build-arg BASE_IMAGE=python:3.10 回退(Dockerfile 已参数化);
+    pypi 直连可达(R8.F1 devbox 构建实证)"""
+    import docker as docker_sdk
+
+    def _sync() -> None:
+        client = docker_sdk.from_env()
+        try:
+            client.images.get(RUNNER_IMAGE)
+            return  # 镜像已就绪(首次构建后缓存,后续秒级)
+        except docker_sdk.errors.ImageNotFound:
+            pass
+        cmd = ["docker", "build", "-t", RUNNER_IMAGE, "-f", str(RUNNER_DOCKERFILE), str(RUNNER_DIR)]
+        # 基础镜像回退:默认 base 本地不存在且 3.10 在本地 → 用 3.10(免外网拉取)
+        try:
+            client.images.get("python:3.12-slim")
+        except docker_sdk.errors.ImageNotFound:
+            try:
+                client.images.get("python:3.10")
+                cmd += ["--build-arg", "BASE_IMAGE=python:3.10"]
+                logger.info("基础镜像 python:3.12-slim 本地不存在,回退 python:3.10 构建 runner 镜像")
+            except docker_sdk.errors.ImageNotFound:
+                pass  # 两者皆无 → 保持默认,让构建报出真实的拉取错误
+        proc = subprocess.run(cmd, capture_output=True, timeout=IMAGE_BUILD_TIMEOUT)
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or b"").decode(errors="replace")[-200:]
+            raise _err(ErrCode.RUNNER_LOCAL_ENV, f"Runner 镜像构建失败({RUNNER_IMAGE}):{tail}")
+        client.images.get(RUNNER_IMAGE)  # 构建后确认可见
+
+    await asyncio.to_thread(_sync)
+
+
 async def spawn_local(runner: Runner, token_plain: str) -> dict:
     """
-    以子进程方式启动 runner/main.py(注入 env 四键;token 明文只进子进程环境)。
-    返回 launch_command 元信息(argv + env 键名,**不含值**)。
-    失败(1s 内退出/Popen 抛错)→ BizError(16002, "Runner 启动失败:…")。
+    以 Docker 容器启动本机 runner(R31.F3/BUG-049,用户指令:本机=直接跑 Docker 容器、
+    不再复制命令;旧 python 子进程形态废弃不再新启):
+    镜像缺失自动构建 → `docker run -d` 挂载 docker.sock(管理本机任务容器)、
+    env 四键注入(token 明文只进容器环境),容器内经 host.docker.internal 回连平台。
+    返回 launch 元信息(env_keys 不含值);启动失败 → 16002 细分文案;
+    容器秒退场景由 wait_online 超时语义兜底(记录保留,可排障/重启)。
     """
-    old = _local_processes.pop(runner.runner_id, None)
-    if old is not None and old.poll() is None:
-        _reap(old)  # 防御:同 id 已有活进程(理论上 start 幂等已拦截)
+    await _ensure_image()
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / f"runner-{runner.runner_id[:8]}.log"
+    import docker as docker_sdk
 
-    env = {
-        **os.environ,
-        "PLATFORM_URL": PLATFORM_URL_DEFAULT,
-        "RUNNER_TOKEN": token_plain,
-        "RUNNER_ROLE": "worker",
-        "RUNNER_ID": runner.runner_id,
-    }
-    argv = [sys.executable, str(RUNNER_MAIN)]
-    kwargs: dict = {
-        "cwd": str(RUNNER_DIR),
-        "env": env,
-        "stdout": open(log_path, "ab"),  # noqa: SIM115 句柄随进程生命周期,刻意不关
-        "stderr": subprocess.STDOUT,
-    }
-    if sys.platform == "win32":
-        # 脱离平台控制台:平台退出/控制台关闭不连带杀掉 runner
-        kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-    else:
-        kwargs["start_new_session"] = True
+    name = _container_name(runner.runner_id)
 
-    logger.info("spawn 本机 runner id=%s name=%s log=%s", runner.runner_id, runner.name, log_path)
+    def _run_sync() -> str:
+        client = docker_sdk.from_env()
+        try:  # 同名残留容器(上次异常未清)先移除,保证名字可复用
+            client.containers.get(name).remove(force=True)
+        except docker_sdk.errors.NotFound:
+            pass
+        container = client.containers.run(
+            RUNNER_IMAGE,
+            detach=True,
+            name=name,
+            restart_policy={"Name": "unless-stopped"},
+            environment={
+                "PLATFORM_URL": PLATFORM_URL_CONTAINER,
+                "RUNNER_TOKEN": token_plain,
+                "RUNNER_ROLE": "worker",
+                "RUNNER_ID": runner.runner_id,
+            },
+            mounts=[docker_sdk.types.Mount(
+                "/var/run/docker.sock", "/var/run/docker.sock", type="bind",
+            )],
+            extra_hosts={"host.docker.internal": "host-gateway"},
+        )
+        return container.short_id
+
+    logger.info("spawn 本机 runner(容器形态)id=%s name=%s container=%s", runner.runner_id, runner.name, name)
     try:
-        handle = await asyncio.to_thread(subprocess.Popen, argv, **kwargs)
+        container_id = await asyncio.to_thread(_run_sync)
+    except BizError:
+        raise
     except Exception as e:
-        raise _err(ErrCode.RUNNER_LOCAL_ENV, f"Runner 启动失败:{str(e)[:120]}")
+        raise _err(ErrCode.RUNNER_LOCAL_ENV, f"Runner 容器启动失败:{str(e)[:120]}")
 
-    # 1s 内即退出 = 启动失败(如依赖缺失竞态);之后注册失败走 wait_online 超时语义(记录保留)
-    try:
-        code = await asyncio.to_thread(handle.wait, 1)
-    except Exception:
-        code = None
-    if code is not None and code != 0:
-        raise _err(ErrCode.RUNNER_LOCAL_ENV, f"Runner 启动失败:进程立即退出(code={code}),详见 {log_path.name}")
-
-    _local_processes[runner.runner_id] = handle
+    _local_containers[runner.runner_id] = name
     return {
-        "argv": argv,
+        "argv": ["docker", "run", "-d", "--name", name, RUNNER_IMAGE],
         "env_keys": ["PLATFORM_URL", "RUNNER_TOKEN", "RUNNER_ROLE", "RUNNER_ID"],
+        "image": RUNNER_IMAGE,
+        "container_name": name,
+        "container_id": container_id,
     }
 
 
@@ -246,6 +329,10 @@ async def shutdown_local(runner: Runner) -> None:
     handle = _local_processes.pop(runner.runner_id, None)
     if handle is not None:
         _reap(handle)
+        return
+    # R31.F3:容器形态——凭确定性容器名 docker stop(平台重启后依旧可用,替代 PID 句柄)
+    if await _stop_container_by_name(_container_name(runner.runner_id)):
+        _local_containers.pop(runner.runner_id, None)
         return
     if runner.status == "online":
         raise _err(

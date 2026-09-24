@@ -291,6 +291,9 @@ async def handle_message(ws: Any, msg: dict) -> None:
                 cmd=msg.get("cmd") or ["/bin/bash"],
                 session_id=session_id,
                 on_output=_pty_output_callback(ws),
+                # BUG-049/R31.F3:cwd 可由消息携带(R26 Runner 容器 shell 传 "/app",
+                # 其镜像 WORKDIR);不携带时维持任务容器 /workspace/main 语义(R9)
+                cwd=msg.get("cwd") or "/workspace/main",
             )
         await send(ws, {"type": "exec_started", "session_id": session_id, "created": created})
 

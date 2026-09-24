@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/Dialog'
 import { useProjectList, useDeleteProject, useArchiveProject } from '@/api/projects'
 import type { ProjectListItem } from '@/api/projects'
+import { getAvColor, getInitial } from '@/utils/avatar'
 
 // 状态徽章颜色映射
 const badgeClass: Record<string, string> = {
@@ -131,20 +132,28 @@ export function ProjectList() {
                     </span>
                     <span>
                       <FileText className="w-[13px] h-[13px]" />
-                      0 个需求
+                      {item.req_count} 个需求
                     </span>
                   </div>
                   <div className="foot">
+                    {/* R2.F10(BUG-049):真实 owner 头像 + 成员数角标(替换 R1 期硬编码演示头像) */}
                     <div className="av-stack">
-                      <div className="av" style={{ background: '#6366f1' }}>
-                        罗
+                      <div
+                        className="av"
+                        style={{ background: getAvColor(item.owner.nickname || item.owner.username || item.slug) }}
+                        title={item.owner.nickname || item.owner.username}
+                      >
+                        {getInitial(item.owner.nickname || item.owner.username)}
                       </div>
-                      <div className="av" style={{ background: '#ec4899' }}>
-                        王
-                      </div>
-                      <div className="av" style={{ background: '#f59e0b' }}>
-                        李
-                      </div>
+                      {item.member_count > 1 && (
+                        <div
+                          className="av"
+                          style={{ background: 'var(--surface-3, #ececee)', color: 'var(--text-muted, #71717a)' }}
+                          title={`另 ${item.member_count - 1} 名成员`}
+                        >
+                          +{item.member_count - 1}
+                        </div>
+                      )}
                     </div>
                     <span
                       className={`${st} small`}

@@ -186,6 +186,38 @@ class TestHostShell:
         else:
             assert cmd == ["bash"]
 
+    def test_read_loop_supports_socketio(self):
+        """BUG-050:docker SDK SocketIO(只有 .read() 无 .recv())读循环不崩且能产出输出"""
+        import threading
+
+        from terminal_manager import PtySession
+
+        class FakeSocketIO:
+            """模拟 docker-py SocketIO:file-like,只有 read()"""
+
+            def __init__(self):
+                self._sent = False
+
+            def read(self, n):
+                if self._sent:
+                    return b""  # EOF → 读循环正常收尾
+                self._sent = True
+                return b"hello BUG050"
+
+        mgr = TerminalManager()
+        session = PtySession(
+            session_id="s-bug050", container_id="c-bug050", exec_id="e-bug050",
+            sock=FakeSocketIO(),
+        )
+        got: list[str] = []
+        t = threading.Thread(
+            target=mgr._read_loop, args=(session, lambda s, d: got.append(d)), daemon=True,
+        )
+        t.start()
+        t.join(timeout=3)
+        assert not t.is_alive(), "读循环卡死(未走 .read 分支)"
+        assert any("hello BUG050" in d for d in got), f"输出未送达: {got}"
+
     def test_host_shell_alive_after_spawn(self):
         """BUG-048 回归:管道模式下默认 shell spawn 后应保持存活(不秒退 EOF)"""
         if not sys.platform.startswith("win"):

@@ -137,7 +137,14 @@ class TerminalManager:
 
         while not session.closed:
             try:
-                chunk = session.sock.recv(4096)
+                # BUG-050:docker exec_start(socket=True) 在标准 Linux/Docker Desktop 返回
+                # SocketIO(file-like,只有 .read()),Windows 原生 NpipeSocket 才有 .recv()——
+                # 探测式选择读法(与 write_input 的 sendall 探测同思路,BUG-031 先例);
+                # 此前硬编码 .recv() 导致容器形态 runner 的终端读循环秒崩(AttributeError)
+                if hasattr(session.sock, "recv"):
+                    chunk = session.sock.recv(4096)
+                else:
+                    chunk = session.sock.read(4096)
             except (OSError, ValueError):
                 break
             if not chunk:
@@ -241,7 +248,13 @@ class TerminalManager:
         host = self.host_sessions.get(session_id)
         if host is not None and not host.closed:
             try:
-                host.proc.stdin.write(data.encode("utf-8"))
+                # BUG-048:管道模式无 pty,行尾仿真需自行完成——xterm Enter 发裸 \r,
+                # 而 cmd.exe 管道下只认 \r\n(裸 \r 滞留不执行,表现为"敲了没反应");
+                # 归一化(\r\n→\n→\r→\n→\r\n)幂等,不重复扩行尾
+                normalized = (
+                    data.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
+                )
+                host.proc.stdin.write(normalized.encode("utf-8"))
                 host.proc.stdin.flush()
                 return True
             except Exception:

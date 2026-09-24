@@ -314,6 +314,7 @@ async def delete_runner(
     if runner.is_local:
         n = await local_runner_service.stop_all_containers_and_wait(db, runner)
         await local_runner_service.shutdown_local(runner)
+        await local_runner_service.remove_local_container(runner_id)  # R31.F3:容器形态删除收尾(不存在则忽略)
         await db.delete(runner)
         await db.flush()
         await audit_write(
@@ -415,10 +416,13 @@ async def create_runner_shell_session(
     await db.flush()
 
     # 7. 下发既有 exec 消息(协议零新增 type;runner 侧 create_pty container_id 参数传入)
+    #    R31.F3(BUG-049):cwd=/app(Runner 容器镜像 WORKDIR)——任务终端的
+    #    /workspace/main 约定在 Runner 自身容器里不存在;runner 侧消息透传 cwd
     await runner_service.send_to_runner(runner_conn, {
         "type": "exec",
         "container_id": self_container_id,
         "cmd": ["/bin/bash"],
+        "cwd": "/app",
         "pty": True,
         "session_id": session.session_id,
     })

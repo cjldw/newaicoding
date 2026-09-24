@@ -702,3 +702,39 @@ class TestProjectAuth:
         fake_project_id = "00000000-0000-0000-0000-000000000001"
         resp = await client.get(f"/api/projects/{fake_project_id}")
         assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# R2.F10(BUG-049):列表卡片需求数/成员数(原为前端硬编码演示数据)
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_list_projects_includes_req_and_member_counts(client, auth_headers, db_session, registered_user):
+    """list_projects 返回 req_count(项目全部需求)与 member_count(成员行+owner)"""
+    import uuid
+    from tests.test_projects_api import _insert_project
+    from app.models.requirement import Requirement
+    from app.models.project_member import ProjectMember
+
+    project = await _insert_project(db_session, owner_id=registered_user["user_id"])
+
+    # 直插 2 条需求(不同状态都计入——vp 同口径为项目全部需求)
+    for st in ("draft", "approved"):
+        db_session.add(Requirement(
+            project_id=project.project_id, title=f"r-{st}", description="d",
+            req_branch=f"req-{uuid.uuid4().hex[:8]}", status=st,
+            priority="medium", created_by=registered_user["user_id"],
+        ))
+    # 直插 1 条成员行(owner 不落行,member_count=成员行+owner=2)
+    db_session.add(ProjectMember(
+        project_id=project.project_id, user_id=registered_user["user_id"],
+        role="editor", invited_by=registered_user["user_id"],  # invited_by NOT NULL(邀约语义)
+    ))
+    await db_session.flush()
+
+    resp = await client.get("/api/projects", headers=auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+    item = next(i for i in body["data"]["items"] if i["project_id"] == project.project_id)
+    assert item["req_count"] == 2, f"req_count 应为 2: {item}"
+    assert item["member_count"] == 2, f"member_count 应为 2(1 成员行+owner): {item}"

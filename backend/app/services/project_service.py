@@ -16,6 +16,9 @@ from app.core.response import (
 )
 from app.models.project import Project, ProjectRepo
 from app.models.user import User
+# R2.F10(BUG-049):卡片需求数/成员数聚合依赖(模型无反向依赖,顶层导入安全)
+from app.models.requirement import Requirement
+from app.models.project_member import ProjectMember
 from app.services import gitlab_service
 from app.services.gitlab_service import (
     ACCESS_LEVEL_DEVELOPER,
@@ -356,6 +359,24 @@ async def list_projects(db: AsyncSession, user: User, status: str, page: int, pa
         )
         repo_counts = {pid: cnt for pid, cnt in cnt_result.all()}
 
+    # R2.F10(BUG-049):卡片需求数/成员数(原为前端硬编码演示数据)
+    # req_count=项目全部需求(vp 同口径);member_count=成员行+owner(R12 虚拟 owner 不落行,卡片口径含 owner)
+    req_counts: dict[str, int] = {}
+    member_counts: dict[str, int] = {}
+    if pid_list:
+        req_result = await db.execute(
+            select(Requirement.project_id, func.count(Requirement.id))
+            .where(Requirement.project_id.in_(pid_list))
+            .group_by(Requirement.project_id)
+        )
+        req_counts = {pid: cnt for pid, cnt in req_result.all()}
+        member_result = await db.execute(
+            select(ProjectMember.project_id, func.count(ProjectMember.id))
+            .where(ProjectMember.project_id.in_(pid_list))
+            .group_by(ProjectMember.project_id)
+        )
+        member_counts = {pid: cnt for pid, cnt in member_result.all()}
+
     items = []
     for p in projects:
         owner = await _owner_brief(db, p.owner_id)
@@ -368,6 +389,8 @@ async def list_projects(db: AsyncSession, user: User, status: str, page: int, pa
                 "status": p.status,
                 "owner": owner,
                 "repo_count": repo_counts.get(p.project_id, 0),
+                "req_count": req_counts.get(p.project_id, 0),
+                "member_count": member_counts.get(p.project_id, 0) + 1,  # +owner(R2.F10)
                 "created_at": p.created_at,
             }
         )
