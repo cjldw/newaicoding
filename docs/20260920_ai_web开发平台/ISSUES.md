@@ -29,6 +29,13 @@
 
 > 已接受偏差(不修):R19 分片文件结构中的 `AdminNav.tsx` 未单独建文件,导航项内联在 MainLayout.tsx——行为与规格一致(仅超管渲染)。
 
+### BUG-049 | 项目列表卡片需求数/成员数为硬编码演示数据 | verified(R2.F10)
+- **复现**:项目列表卡片需求数恒为「0 个需求」、成员头像写死「罗/王/张」(R1 期演示数据),真实项目有需求有成员也显示错误
+- **根因**:后端 `list_projects` 只返回 `repo_count`,从未聚合需求数/成员数;前端卡片为 R1 期硬编码未接真
+- **修复记录(2026-09-24,rd-fix 第 16 轮 / R2.F10)**:`list_projects` 批量补 `req_count`(项目全部需求,vp 同口径)与 `member_count`(成员行+owner,R12 虚拟 owner 卡片口径含 owner)——分组查询防 N+1;前端 meta 区绑定 `req_count`、foot 头像栈改 owner 真实头像(getInitial/getAvColor)+「+N」成员角标
+- **验证**:pytest `test_list_projects_includes_req_and_member_counts`(直插 2 需求+1 成员行 → req_count=2 / member_count=2)26/26 绿;真机 API 三项目逐项与 DB 实际行数一致(req=1/5/3,members=2/2/3);tsc 零错误
+- **状态**:verified
+
 ---
 
 ## BUG-001 superadmin 登录后看不到平台设置等超管信息
@@ -202,6 +209,19 @@
 | BUG | 状态 | 关联 | 根因与修复 | 验证 |
 |---|---|---|---|---|
 | BUG-UI-070 | verified | R9.F2 | xterm 终端无自定义滚动条,深色终端上原生滚动条突兀;globals.css 纯追加 `.xterm-viewport` 样式:WebKit 8px thumb(rgba(255,255,255,.18),4px 圆角,hover .32)+ track 透明,Firefox scrollbar-width thin + scrollbar-color;终端底色恒 #1e1e1e 双主题通用 | 真机浏览器计算样式实证:webkit width=8px / thumb 4px 圆角 rgba(255,255,255,0.18) / Firefox thin——PASS |
+
+## rd-fix 第 25 轮迁移(2026-09-24)
+
+| BUG | 状态 | 关联 | 根因与修复 | 验证 |
+|---|---|---|---|---|
+| BUG-048 | verified | R31.F2(R31.F1 数据面缺口) | 宿主终端 WS 零输出双层:① 默认命令 `["cmd.exe"]` 缺 `/K`——管道 stdin 下 cmd 非交互模式执行完即退 → stdout EOF → 读循环「宿主 shell 读取结束」永久静默;② xterm Enter 裸 `\r` 不被管道 cmd 认作行尾(真实 pty 的行尾仿真在管道模式缺失)。修复(runner 侧,容器 pty 零改动):默认命令 `["cmd.exe","/K"]` + `write_input` 宿主分支 `\r\n→\n→\r→\n→\r\n` 幂等归一 | runner 35/35(含新增存活回归门 test_host_shell_alive_after_spawn);真机 E2E:R31 重启载新代码 → ?force=true 清场(复验 BUG-047)→ 裸 WS 以与 xterm Enter 一致的裸 \r 收到完整回路「提示符→echo 执行→输出→新提示符」;探针 `.scratch/rd25_ws_probe.py` |
+
+## rd-fix 第 26 轮迁移(2026-09-24)
+
+| BUG | 状态 | 关联 | 根因与修复 | 验证 |
+|---|---|---|---|---|
+| BUG-049 | verified(需求修正) | R31.F3 | 用户推翻 R31 Q51 负向规格:本机快速创建=平台直接以 Docker 容器运行 runner(零命令复制)。spawn_local 重写:镜像缺失自动构建(Dockerfile ARG BASE_IMAGE 参数化;docker.io 不可达时自动回退本地 python:3.10——实测 registry-1.docker.io 直连超时,pypi 可达)+ docker run 挂载 docker.sock/env 四键/host.docker.internal 回连/--restart unless-stopped;容器名确定性推出(qicheng-runner-<id8>,平台重启凭名可停);删除链路补容器 remove;exec 消息 cwd=/app 适配(Runner 容器 WORKDIR,任务终端 /workspace/main 默认不变);子进程形态废弃保留存量兼容 | 后端 51/51(r31/runner_admin/r26_shell,端点测试 mock 在服务边界零破坏);runner 36/36;真机:首建 145s(自动构建)→ qicheng-runner 容器 Up → runner online → machine_info=容器视角且 self_container_id=容器短 id → R26 终端真 pty 回路 PASS(root@…:/app# echo 实证) |
+| BUG-050 | verified | R26.F3(波及 R9;一切 Linux 容器形态 runner) | `_read_loop` 硬编码 `session.sock.recv(4096)`——docker exec_start(socket=True) 在标准 Linux/Docker Desktop 返回 SocketIO(file-like 只有 .read()),AttributeError 秒崩零输出;Windows NpipeSocket 有 recv 故历史未暴露(R26 判据 4/8/11「真实 pty 待测」之债)。修复:探测式读法(recv 有则用否则 read,与 BUG-031 写侧探测同思路) | runner 36/36(新增 test_read_loop_supports_socketio);真机容器终端回路 PASS(与 BUG-049 同轮实证) |
 
 ## 登记遗留(2026-09-24,rd-fix 第 20 轮)
 

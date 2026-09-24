@@ -1,6 +1,6 @@
 # BUGS.md — 活跃问题清单
 
-> 项目:ai_web开发平台 | 更新:2026-09-24(rd-fix 第 23/24 轮:R9.F2 终端批——BUG-046 xterm 崩溃原路径真机消失+StrictMode 伪影根除、BUG-UI-070 滚动条 verified 迁移;R26.F2——BUG-047 6002 强制关闭并新建(真机 API 全链实证);第 22 轮 BUG-045 迁移;⚠ BUG-043 编号两会话各自使用,584 行有让渡标注)
+> 项目:ai_web开发平台 | 更新:2026-09-24(rd-fix 第 26 轮:BUG-049 需求修正——本机快速创建改 Docker 容器形态(镜像自动构建+基础镜像自适应+exec cwd 适配)verified;BUG-050 终端读循环 SocketIO 兼容 verified;第 25 轮 BUG-048 迁移;⚠ BUG-043 编号两会话各自使用,584 行有让渡标注)
 > 状态流转:open → fixed → verified(verified 后迁移至 ISSUES.md)
 > 已 verified 迁移:第 3 轮 BUG-UI-001/003/004/005/006;第 4 轮 BUG-010;第 5 轮 BUG-009/011/012/013;第 16 轮 BUG-038;第 17 轮 BUG-039;第 18 轮 BUG-040/041(见 ISSUES.md)
 
@@ -86,6 +86,9 @@
 | BUG-046 | fixed(第 23/24 轮;原崩溃真机实证消失;StrictMode 伪影代码级根除,零错终验归用户一瞥) | R9(终端组件;波及 R26 Runner 终端) | 功能缺陷(前端 xterm 时序崩溃) | 用户报障 2026-09-24(rd-fix 第 23 轮) | 新建终端 ws 报错+xterm RenderService.ts:52 dimensions undefined:Terminal.tsx 初始 fit 单 rAF 无守卫+ResizeObserver 首帧即无条件 fit,Runner 终端 Dialog 150ms 动画期容器尺寸未稳撞上渲染器未就绪(R31.F1 宿主 shell 落地后会话首次真开,前端时序缺陷首次暴露);修复=safeFit 统一守卫+open 延迟双 rAF;分片 R9.F2 |
 | BUG-UI-070 | fixed → 已 verified 迁移 ISSUES.md(第 23 轮;滚动条计算样式真机实证) | R9(终端;波及 R26) | UI 增强(用户指令) | 用户指令 2026-09-24(rd-fix 第 23 轮) | 终端右侧滚动条美化:globals.css 纯追加 .xterm-viewport 细条样式(WebKit 8px 圆角半透明白+hover 加深/Firefox thin),终端底色恒深故双主题通用 |
 | BUG-047 | fixed(第 24 轮;真机 API 三步链+runner 日志+DB 全实证) | R26(波及 R31 本机终端) | 功能增强(用户指令) | 用户指令 2026-09-24(rd-fix 第 24 轮) | 「该 Runner 已有终端会话,请先关闭」时提供强制关闭并新建:POST ?force=true 复用 terminal.py 关闭链路(terminal_close+closed_at)清活跃会话后放行;前端 6002 错误分支渲染「强制关闭并新建」按钮;分片 R26.F2 |
+| BUG-048 | verified → 已迁移 ISSUES.md(R31.F2;真机 WS 全双工实证) | R31(宿主终端数据面,R31.F1 缺口) | 功能缺陷(Windows 管道模式双层) | 用户报障 2026-09-24(rd-fix 第 25 轮) | runner 新建终端 WS 握手成功但零输出:① 默认命令 `["cmd.exe"]` 缺 /K——管道 stdin 下 cmd 非交互即退(读循环 13s EOF「宿主 shell 读取结束」);② xterm Enter 裸 \r 不被管道 cmd 认作行尾;修复=默认命令加 /K + 宿主会话写入做 \r→\r\n 行尾仿真(pty 本应做的事);分片 R31.F2 |
+| BUG-049 | verified → 已迁移 ISSUES.md(R31.F3;真机全链 PASS) | R31(核心机制需求修正) | 需求修正(用户指令,推翻 Q51 负向规格) | 用户指令 2026-09-24(rd-fix 第 26 轮) | 「快速创建(本机)」应为**平台直接在本机以 Docker 容器运行 runner**(零命令复制),而非 python 子进程;实现=镜像缺失自动构建(Dockerfile 参数化 BASE_IMAGE,Docker Hub 不可达时自动回退本地 python:3.10)+ docker run 挂载 sock/env 注入/host.docker.internal 回连 + exec cwd=/app 适配;子进程形态废弃不再新启;分片 R31.F3 |
+| BUG-050 | verified → 已迁移 ISSUES.md(R26.F3;真机容器终端实证) | R9/R26(终端读循环;全部 Linux 容器形态 runner) | 功能缺陷(读循环硬编码 .recv) | 容器形态验证中发现 2026-09-24(rd-fix 第 26 轮) | `_read_loop` 硬编码 `session.sock.recv(4096)`——docker exec_start(socket=True) 在标准 Linux/Docker Desktop 返回 SocketIO(只有 .read()),AttributeError 秒崩零输出;Windows NpipeSocket 有 recv 故历史未暴露(R26 判据 4/8/11「真实 pty 待测」之债);修复=探测式读法(recv 有则用,否则 read,与 BUG-031 写侧探测同思路);分片 R26.F3 |
 
 ## BUG-015
 
