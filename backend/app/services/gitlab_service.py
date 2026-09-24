@@ -5,7 +5,13 @@ from typing import Optional
 
 import httpx
 
-from app.core.response import BizError, ErrCode
+from app.core.response import (
+    BizError,
+    ErrCode,
+    MSG_GITLAB_UNREACHABLE,
+    MSG_REPO_FORBIDDEN,
+    MSG_REPO_NOT_FOUND,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +201,9 @@ async def bot_get_repo_by_path(
     """
     平台 bot 按 path 查仓库:GET /api/v4/projects/{url-encoded path}
     (GitLab 支持 GET /projects/{encoded path_with_namespace},无需先搜索出 id)
-    返回 project JSON;404/无权限/网络错误抛 BizError(2002)。
+    返回 project JSON;失败按原因细分(R27):
+    404→2011(仓库不存在) / 401|403→2012(bot 无访问权限,归并防枚举) /
+    其他非 200→2014(GitLab 连接失败兜底) / httpx 网络异常→2014。
     """
     from urllib.parse import quote
 
@@ -207,25 +215,40 @@ async def bot_get_repo_by_path(
             headers=_bot_headers(bot_token),
         )
     except httpx.HTTPError as e:
-        logger.warning("GitLab 查询仓库失败: %s", e)
-        raise BizError(ErrCode.REPO_URL_INVALID, "GitLab 服务连接失败")
+        logger.warning("GitLab 查询仓库失败(网络异常): %s", e)
+        raise BizError(ErrCode.GITLAB_UNREACHABLE, MSG_GITLAB_UNREACHABLE)
     finally:
         await client.aclose()
 
+    logger.info("GitLab 查询仓库 %s 返回 %s", repo_path, resp.status_code)
+    if resp.status_code == 404:
+        # 2011:仓库不存在(含 GitLab 对无权限仓库返回 404 的口径);文案仅含平台 gitlab_url
+        raise BizError(
+            ErrCode.REPO_NOT_FOUND,
+            MSG_REPO_NOT_FOUND.format(gitlab_url=gitlab_url),
+        )
+    if resp.status_code in (401, 403):
+        # 2012:bot 无访问权限;401/403 归并同一文案(防仓库枚举)
+        raise BizError(ErrCode.REPO_FORBIDDEN, MSG_REPO_FORBIDDEN)
     if resp.status_code != 200:
-        logger.info("GitLab 查询仓库 %s 返回 %s", repo_path, resp.status_code)
-        raise BizError(ErrCode.REPO_URL_INVALID, "仓库 URL 无效或无权限")
+        # 2014 兜底:5xx 等其他异常状态按 GitLab 连接失败处理
+        raise BizError(ErrCode.GITLAB_UNREACHABLE, MSG_GITLAB_UNREACHABLE)
     return resp.json()
 
 
 def bot_check_repo_permission(project_json: dict, min_level: int = ACCESS_LEVEL_MAINTAINER) -> bool:
     """
-    检查 bot 对仓库的权限:permissions.project_access.access_level >= min_level
-    (read+write+merge 要求至少 Maintainer=40)。
+    检查 bot 对仓库的权限(R27 修复:取 max(project_access, group_access)):
+    access_level = max(permissions.project_access?.access_level or 0,
+                       permissions.group_access?.access_level or 0) >= min_level
+    (read+write+merge 要求至少 Maintainer=40;group 继承时 project_access 可能为 null,
+     两层各自可空、permissions 整体可缺省,均视为 0。group_access 为 GitLab 已聚合的
+     继承链最大值,不自行递归。)
     """
-    perms = (project_json.get("permissions") or {}).get("project_access") or {}
-    level = perms.get("access_level") or 0
-    return level >= min_level
+    perms = project_json.get("permissions") or {}
+    project_level = (perms.get("project_access") or {}).get("access_level") or 0
+    group_level = (perms.get("group_access") or {}).get("access_level") or 0
+    return max(project_level, group_level) >= min_level
 
 
 async def bot_add_member(

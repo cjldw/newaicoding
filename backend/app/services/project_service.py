@@ -8,7 +8,12 @@ from typing import Optional
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.response import BizError, ErrCode
+from app.core.response import (
+    BizError,
+    ErrCode,
+    MSG_REPO_PERM_LOW,
+    MSG_REPO_URL_INVALID,
+)
 from app.models.project import Project, ProjectRepo
 from app.models.user import User
 from app.services import gitlab_service
@@ -251,13 +256,15 @@ async def create_project(db: AsyncSession, user: User, req) -> dict:
         bind_type = "auto"
     else:
         # manual:校验 URL 并解析 path → bot 查仓库 → 校验权限
+        # (R27 错误细分:解析失败→2002;bot_get_repo_by_path 内部按状态码细分
+        #  404→2011/401|403→2012/网络及其他→2014;权限不足→2013。不吞码转译。)
         repo_path = parse_repo_path(req.main_repo.gitlab_repo_url or "")
         if repo_path is None:
-            raise BizError(ErrCode.REPO_URL_INVALID, "仓库 URL 无效或无权限")
+            raise BizError(ErrCode.REPO_URL_INVALID, MSG_REPO_URL_INVALID)
         logger.info("manual 绑定 path=%s", repo_path)
         project_json = await gitlab_service.bot_get_repo_by_path(bot_token, gitlab_url, repo_path)
         if not gitlab_service.bot_check_repo_permission(project_json):
-            raise BizError(ErrCode.REPO_URL_INVALID, "仓库 URL 无效或无权限")
+            raise BizError(ErrCode.REPO_PERM_LOW, MSG_REPO_PERM_LOW)
         repo_url = project_json.get("http_url_to_repo") or req.main_repo.gitlab_repo_url
         gitlab_repo_id = int(project_json["id"])
         bind_type = "manual"
@@ -440,7 +447,7 @@ async def add_repo(db: AsyncSession, user: User, project_id: str, req) -> dict:
     追加绑定仓库(role=test/docs/other;main 不允许经此接口)。R12 后 owner/editor 均可。
     - 同一 repo 不可重复绑定到同一项目(2004)
     - 单项目绑定 repo 数 ≤ 10(2005)
-    - bot 需对该 repo 有权限(2002)
+    - bot 权限校验与 create_project manual 同口径(2002/2011/2012/2013/2014,R27)
     """
     logger.info("追加绑定仓库入口 project=%s role=%s by=%s", project_id, req.role, user.user_id)
 
@@ -453,13 +460,14 @@ async def add_repo(db: AsyncSession, user: User, project_id: str, req) -> dict:
     # 平台 GitLab 配置(未配置 → 2001)
     gitlab_url, bot_token, _group_id = await get_gitlab_bot_config(db)
 
-    # 解析 + bot 权限校验(2002)
+    # 解析 + bot 权限校验(R27:与 create_project manual 同口径——
+    # 解析失败→2002;查仓库 404→2011/401|403→2012/网络及其他→2014;权限不足→2013)
     repo_path = parse_repo_path(req.gitlab_repo_url)
     if repo_path is None:
-        raise BizError(ErrCode.REPO_URL_INVALID, "仓库 URL 无效或无权限")
+        raise BizError(ErrCode.REPO_URL_INVALID, MSG_REPO_URL_INVALID)
     project_json = await gitlab_service.bot_get_repo_by_path(bot_token, gitlab_url, repo_path)
     if not gitlab_service.bot_check_repo_permission(project_json):
-        raise BizError(ErrCode.REPO_URL_INVALID, "仓库 URL 无效或无权限")
+        raise BizError(ErrCode.REPO_PERM_LOW, MSG_REPO_PERM_LOW)
     gitlab_repo_id = int(project_json["id"])
     repo_url = project_json.get("http_url_to_repo") or req.gitlab_repo_url
 

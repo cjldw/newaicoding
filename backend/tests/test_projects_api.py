@@ -3,7 +3,8 @@ R2 项目管理接口测试(Green 阶段修正版)
 ==========================================
 覆盖场景:
 - 创建项目 (auto/manual 模式)
-- 错误码 2001 (bot token 未配置) / 2002 (repo URL 无效/无权限) / 2003 (项目数超限 >50)
+- 错误码 2001 (bot token 未配置) / 2002 (repo URL 格式无效,R27 语义收窄) /
+  2011 (仓库不存在 404) / 2003 (项目数超限 >50)
 - 项目列表/详情/更新/删除/归档
 - 追加绑定仓库 (成功 + 错误码 2004/2005)
 - 解绑仓库 (成功 + 错误码 2006)
@@ -321,7 +322,7 @@ class TestCreateProjectManual:
 
     @pytest.mark.asyncio
     async def test_create_project_invalid_repo_url(self, client, auth_headers, db_session):
-        """repo URL 无效或 bot 无权限:返回 2002"""
+        """GitLab 查仓库 404(仓库不存在):返回 2011(R27 细分,原折叠为 2002)"""
         await _seed_gitlab_settings(db_session)
         with httpx.MockTransport(mock_gitlab_get_project(404, has_permission=False)):
             resp = await client.post(
@@ -338,8 +339,11 @@ class TestCreateProjectManual:
             )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["code"] == 2002
-        assert "无效" in data["message"] or "权限" in data["message"]
+        assert data["code"] == 2011
+        # R27 新文案:含平台 GitLab 地址指引(逐字前缀断言,gitlab_url 按平台配置插值)
+        assert data["message"] == (
+            "仓库不存在,请检查 group/repo 名称是否正确(仅支持平台 GitLab:https://gitlab.example.com)"
+        )
 
 
 # ---------------------------------------------------------------------------

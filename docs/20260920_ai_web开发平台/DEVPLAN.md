@@ -448,7 +448,7 @@ docker run -d \
 
 ## 当前进度
 
-**当前进度: 22/22 需求点 ✅ + 全部修复点 ✅ | 增量3(R23–R27):4/5 (80%) - R23/R24/R25/R26 完成,下一个 R27 | rd-fix 第 15 轮进行中:R9.F1(BUG-037 终端自动进 claude 同会话)🔄,其余 5 条用户指令分片流转中 | rd-fix 第 16 轮收敛:R2.F9(BUG-038 平台设置 InvalidTag 500)✅ verified 迁移,BUGS.md 活跃代码 bug 清零(R9.F1 等 15 轮项仍待浏览器实测) | rd-fix 第 17 轮收敛:R19.F5(BUG-039 审计日志 UTC 串滤空)✅ verified 迁移,平台默认时区钉死 GMT+8(前端 formatGmt8 + 后端 DB 会话 +08:00);并行会话 R28 迁移 b2e8f4a6c9d1 已由第 17 轮代执行到 dev 库(见变更记录) | 增量4(R28–R30):1/3 (33%) - R28 完成**
+**当前进度: 增量3(R23–R27):4/5 (80%) - R27 代码侧完成(判据 5 真机复现待用户重录 GitLab bot token) | 增量4(R28–R30):1/3 (33%) - R28 完成,下一个 R29**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
@@ -503,7 +503,7 @@ docker run -d \
 | R24 | 平台设置页布局改版(增量3) | M2 | ✅(fixed;判据 1-7 Playwright 实证,tsc+build 零错,待用户验收) | ./DEVPLAN/R24.md |
 | R25 | 审计日志全量接入(增量3) | M9 | ✅(fixed;43/44 接入+1 无宿主登记;新增 pytest 19 例全绿,全量 293+1s 零回退,待用户验收) | ./DEVPLAN/R25.md |
 | R26 | Runner 管理终端(增量3) | M5 | ✅(fixed;pytest 10 例全绿,全量 303+1s;6003 全链浏览器实证;判据 4/8/11 真实 pty 场景待 rd-test) | ./DEVPLAN/R26.md |
-| R27 | manual 绑定修复与错误细分(增量3) | M1 | ⬜ | ./DEVPLAN/R27.md |
+| R27 | manual 绑定修复与错误细分(增量3) | M1 | 🔄(代码侧完成,判据 5 待用户重录 bot token 后复验) | ./DEVPLAN/R27.md |
 | R9.F1 | 增强 BUG-037 任务页终端自动进入 claude 与对话同一会话(任务级 claude_session_id 持久化 + --session-id/--resume 接线 + 终端 exec 自动进 claude) | M5(波及 M4) | ✅(fixed;单测 9 新增+回归过,R9.F1 触碰面零失败;verified 待真实容器浏览器实测) | ./DEVPLAN/R9.F1.md |
 | R2.F9 | 修复 BUG-038 平台设置单键解密失败打挂整页(_decode_stored 逐键容错折叠 None;2001/13005 干净降级;0 前端) | M2(波及 M3 回退链) | ✅(verified:红测 9 failed→11/11 绿,全量 333/1s/0;真实环境重启后 GET 200 + 3 失效键未配置降级,迁移 ISSUES.md;5 条存量密文重录归用户运维) | ./DEVPLAN/R2.F9.md |
 | R19.F5 | 修复 BUG-039 审计日志页时间筛选发 UTC 串把全表滤空(接口返回空;本地裸串适配 + isError + start>end 禁查询) | M9(0 后端) | ✅(verified:Red 0 条→Green 69 条,NY 时区判据 PASS,时区钉死 GMT+8(前端 formatGmt8 + 后端 time_zone='+08:00' 固化);tsc/build/pytest 398/1s/0;迁移 ISSUES.md) | ./DEVPLAN/R19.F5.md |
@@ -656,3 +656,4 @@ docker run -d \
 | 2026-09-23 | **新增 R19.F5 修复 BUG-039(审计日志接口返回空)**:用户报告审计日志没有/接口返回空;实证后端正常(裸调 63 条今日事件,含 platform_settings.update×2),根因在前端——AuditLogsPage 时间筛选 toISOString() 发 UTC 串,而 audit_logs.created_at 存本地(UTC+8)裸墙钟,end_time 落后 8h 把全表滤空(复放矩阵:仅 end_time=UTC→total 0,本地串→65)。修复:前端单文件改本地裸时间串(顺带修 8h 显示偏移 + 清空输入 RangeError)+ isError 分支 + start>end 禁查询(R19.F2 规格缺口收口);0 后端。分析底稿 .scratch/fix-analysis.md,分片 ./DEVPLAN/R19.F5.md | 用户报告(rd-fix 第 17 轮) |
 | 2026-09-23 | **R19.F5 范围修订(用户指令)**:平台默认时区显式钉死东八区 GMT+8——前端时间源显式 Asia/Shanghai(不跟随浏览器,toISOString/toLocaleString 无参形式均弃用,时间列直接渲染后端裸串);后端 database.py 引擎加会话级 time_zone='+08:00' 固化 func.now() 写入契约(存量数据已实证 +08:00 墙钟,零迁移);新增强制非 GMT+8 浏览器时区的回归判据 | 用户指令"修改默认时区为东八区 GMT+8"(第 17 轮执行中) |
 | 2026-09-23 | **R28 执行完成(增量4 第 1 点)**:后端(users 表加 avatar_file_path + POST /api/users/me/avatar + GET /api/files/avatars/{filename} + PATCH 扩展) + 前端(ProfileSettings 头像上传组件 + MainLayout 头像显示改造 + users.ts/client.ts API 扩展)。验证:后端 57/57 pytest 通过(含新增 25 用例 + 17 补丁用例);前端 tsc 零错误 + vite build 通过;ui-check 8/8 ✅;审计发现修复 F1(昵称清空链路)/F5(setUser(null))/F6(外部 URL 同步清 avatar_file_path)。**编排留痕**:后端/QA/前端/审计 4 subagent 全部存活完成;DEPLOY.md 补记迁移 b2e8f4a6c9d1(并行会话第 17 轮已代执行到 dev 库)。**遗留**:前端 Playwright 走查归 rd-test | rd-dev 增量4 R28 |
+| 2026-09-24 | **R27 执行完成(代码侧,增量3 收官点)**:① 后端——response.py 新增 2011-2014 + 2002 语义收窄为"URL 格式非法";gitlab_service bot_get_repo_by_path 按 status_code 细分(404→2011/401,403→2012 归并防枚举/其他+httpx 异常→2014)、bot_check_repo_permission 重写为 max(project_access, group_access)≥40(permissions 及两层各自 null 安全);project_service create_project manual 分支与 add_repo 同口径自动生效;② tdd——QA 红测 18 用例(Red 17 failed 实证)→ Green 全绿;既有 test_projects_api 404 场景断言 2002→2011 同步;相关回归 41/41 + Spec 轴独立复跑 43 passed(全量归 rd-check);③ 收口 code-review 双轴(工作区 vs HEAD 19095ff):0 硬违规,4 判断题裁定留痕(.scratch/R27/audit-review.md)——2002 文案字面 `{host}` 保持规格原文(插值仅 2011 系规格明文)、四步校验两处同形不提取(既有形状)、add_repo 错误码覆盖 2/5 接受(单函数共享路径)、MSG_* 文案常量新模式采纳;R27.md L121 双版 2014 文案括注标注作废(以枚举表为准);④ **判据 5(Q39 真机复现)被环境阻塞**:E2E 三场景均 2001 前置短路——gitlab_bot_token 存量密文 InvalidTag(R2.F9 遗留运维项,归用户重录),未触达新错误分支,创建无落库残留,后端已运行当前代码(PID 14516);证据 .scratch/R27/e2e-real-machine.md。**决策留痕**:红测 gitlab_bind_type 响应字段断言与分片"成功结构不变"冲突→以分片为准改查落库 project_repos(语义等价)。**状态 🔄:代码侧 5/6 判据 ✅,待用户在平台设置页重录 GitLab bot token 后复验判据 5 即转 ✅** | rd-dev 增量3 R27 |

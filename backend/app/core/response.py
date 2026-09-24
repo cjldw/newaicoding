@@ -42,13 +42,19 @@ class ErrCode:
 
     # R2 项目管理
     BOT_TOKEN_NOT_CONFIGURED = 2001   # 平台 GitLab bot token 未配置
-    REPO_URL_INVALID = 2002           # GitLab repo URL 无效或 bot 无权限
+    REPO_URL_INVALID = 2002           # 仓库地址格式无效(R27 语义收窄:仅 parse_repo_path 解析失败)
     PROJECT_LIMIT_EXCEEDED = 2003     # 单用户项目数超限(>50)
     REPO_ALREADY_BOUND = 2004         # 同一 repo 已绑定到该项目
     REPO_LIMIT_EXCEEDED = 2005        # 单项目绑定 repo 数超限(>10)
     MAIN_REPO_UNBINDABLE = 2006       # main repo 不可解绑
     PLATFORM_SETTING_INVALID = 2007   # 非法配置值(域名格式非法/数值越界/未知配置键)
     PLATFORM_LLM_CONNECT_FAILED = 2008  # 平台默认 LLM 保存连通性测试失败(R23;区别于项目级 13001)
+
+    # R27 项目绑定错误细分(manual 绑定/add_repo 同口径;2002 保留=URL 格式非法)
+    REPO_NOT_FOUND = 2011           # GitLab 查仓库 404(仓库不存在)
+    REPO_FORBIDDEN = 2012           # GitLab 查仓库 401/403(平台 bot 无访问权限,归并防枚举)
+    REPO_PERM_LOW = 2013            # bot 权限 < Maintainer(40,含 group 继承后仍不足/permissions 全 null)
+    GITLAB_UNREACHABLE = 2014       # GitLab 连接失败(httpx 网络异常/其他非 200 状态码)
 
     # R12 项目成员
     INVITE_USER_NOT_FOUND = 12001  # 用户不存在(手机号未注册)
@@ -116,6 +122,18 @@ class ErrCode:
     # 权限
     NOT_SUPERADMIN = 19002            # 非平台超级管理员
     NO_PROJECT_PERMISSION = 1901      # 无项目操作权限(非 owner)
+
+
+# ---------------------------------------------------------------------------
+# R27 绑定错误文案(「枚举与字典映射」表文案列,一字不差交付)
+# message 不含 bot token/内部 path,不区分 401/403 细节;gitlab_url 插值仅 2011
+# ---------------------------------------------------------------------------
+MSG_REPO_URL_INVALID = "仓库地址格式无效,请粘贴形如 http://{host}/{group}/{repo}.git 的地址"
+MSG_REPO_NOT_FOUND = ("仓库不存在,请检查 group/repo 名称是否正确"
+                      "(仅支持平台 GitLab:{gitlab_url})")
+MSG_REPO_FORBIDDEN = "平台 bot 无权访问该仓库,请联系管理员将平台 bot 加入仓库所在 group"
+MSG_REPO_PERM_LOW = "平台 bot 权限不足(需 Maintainer 及以上),请联系管理员调整"
+MSG_GITLAB_UNREACHABLE = "GitLab 服务连接失败,请稍后重试"
 
 
 # ---------------------------------------------------------------------------
