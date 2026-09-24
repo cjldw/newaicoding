@@ -19,6 +19,9 @@ Thumbs.db
 logs/
 tmp/
 .cache/
+*.pid
+*.orig
+*.rej
 
 # ===== Python =====
 __pycache__/
@@ -58,6 +61,35 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .pnpm-store/
+dist/
+dist-ssr/
+*.launch
+*.local
+
+# ===== Go =====
+# (预留:如引入 Go 子项目)
+# *.exe
+# *.exe~
+# *.dll
+# *.so.dylib
+# *.test
+# *.out
+
+# ===== macOS / Windows =====
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.msi
+*.msix
+*.msm
+*.msp
 
 # ===== 构建/打包产物 =====
 out/
