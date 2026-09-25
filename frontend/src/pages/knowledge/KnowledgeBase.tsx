@@ -110,8 +110,8 @@ export default function KnowledgeBase() {
   const nav = useNavigate()
   const isProjectScope = !!projectId
 
-  // Tab(R4.F2:项目/平台 scope 均渲染双 Tab;项目 scope 默认「项目知识库」,平台 scope 默认「平台知识库」)
-  const [tab, setTab] = useState<TabKey>(isProjectScope ? 'project' : 'platform')
+  // Tab(R4.F2:双 Tab;默认「项目知识库」——平台 scope 由 polish 轮自动预选第一个项目)
+  const [tab, setTab] = useState<TabKey>('project')
   // R4.F2:平台 scope「项目知识库」Tab 浏览的项目(项目 scope 固定路由 projectId,不用)
   const [scopePid, setScopePid] = useState('')
 
@@ -314,7 +314,7 @@ export default function KnowledgeBase() {
           <button
             key={k}
             onClick={() => setTab(k)}
-            className={`tab${tab === k ? ' active' : ''}`}
+            className={`tab${tab === k ? ' on' : ''}`}
           >
             {k === 'project' ? '项目知识库' : '平台知识库'}
           </button>
