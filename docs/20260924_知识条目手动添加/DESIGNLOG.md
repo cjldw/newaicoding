@@ -9,6 +9,7 @@
 |---|---|---|---|
 | 知识条目详情 markdown 预览(EntryDetail) | ✅ | 无新稿,样板轨:.md 作用域 + utils/markdown.ts | 升级共享渲染器全能力;KnowledgeBaseView 弃本地版,消灭第三份重复实现 |
 | 知识条目详情页左右模式(左大纲+右正文) | ✅ | 无新稿,样板轨:.md/.md-toc 作用域 | 大纲自 h2/h3 提取,锚点滚动;<2 标题自动退单栏 |
+| A 型条目代码工作台(左文件树+右文件预览) | ✅ | 无新稿,样板轨:同上 | 树=source_links 递归路径;点击文件右侧预览(md→markdown/代码→monaco);说明 markdown 在上方说明区 |
 
 ## 设计稿来源
 
@@ -36,3 +37,10 @@
 - KnowledgeBaseView.tsx 删本地 135 行渲染实现,切换共享版(容器加 .md 类)——全仓 renderMarkdown 定义归一
 - globals.css .md 作用域补 ul/ol/table/blockquote/a 样式
 - 浏览器核对:条目 d2dbfc69 注入五类语法断言全过(a/table/ol/blockquote/pre),console 0,原文已恢复;截图 report/rd-ui-markdown/
+
+## 落地记录:A 型代码工作台(2026-09-25)
+
+- EntryDetail.tsx:逐路径块懒加载(useInView/CodePathBlock/DirBody/DirNode)替换为 CodeWorkbench——左 .code-tree(240px sticky,repo·branch 组头,目录折叠/文件选中蓝底 active)+ 右 .code-preview(.md→renderMarkdown / 代码→monaco 只读 / 二进制→占位;头部路径+来源+重新拉取 refresh=1)
+- 数据策略:递归树随响应带 content 的文件点击零请求;无 content 按需取;默认选中第一个可预览文本文件;paths 编辑保存后复位重选
+- A 型不渲染 .md-toc 大纲(showToc 加 codeSources 门控),说明 content 全宽在 workbench 上方;B 型零变化
+- globals.css:.code-wb/.code-tree/.code-preview 33 行纯插入(md-toc 区段后);npx tsc -b --noEmit 0 错误;详见 .scratch/rd-ui-codetree.md

@@ -589,10 +589,43 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .md-toc-item:hover{color:var(--text);background:var(--surface-2);text-decoration:none}
 .md-toc-item.lv2{padding-left:20px} /* h2 一级缩进 */
 .md-toc-item.lv3{padding-left:32px} /* h3 二级缩进 */
+/* BUG-KB-005:点击目录项的持久 active 高亮(区别于 hover:hover 仅灰底,active 主色+加粗+蓝底);
+   .md-toc.locking = 平滑滚动期间屏蔽指针事件,防 sticky 目录移过静止指针造成 hover 错位 */
+.md-toc-item.active{color:var(--blue-tx);font-weight:600;background:var(--blue-bg)}
+.md-toc.locking{pointer-events:none}
 /* 锚点定位不被 sticky 顶栏遮(md-h-{n} 目标即 .md 的 h1-h3) */
 .md h1,.md h2,.md h3{scroll-margin-top:68px}
 /* 窄屏隐藏目录,正文恢复单栏(沿用现有 1180 断点) */
 @media (max-width:1180px){.md-layout{grid-template-columns:minmax(0,1fr)}.md-toc{display:none}}
+/* ===== .code-tree/.code-preview — A 型条目「左文件树+右文件预览」工作台(2026-09-25;
+   树=code 接口递归响应拼装,点击文件右侧预览:.md→markdown / 代码→monaco / 二进制→占位)===== */
+.code-wb{display:grid;grid-template-columns:240px minmax(0,1fr);gap:16px;align-items:start}
+/* 左栏文件树:sticky 跟随滚动,多 source 时分组(组间分隔线) */
+.code-tree{position:sticky;top:68px;max-height:calc(100vh - 84px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--vp-radius)}
+.code-tree-group+.code-tree-group{border-top:1px solid var(--border)}
+.code-tree-head{display:flex;align-items:center;gap:6px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+.code-tree-head .ic{color:var(--faint);flex:none}
+.code-tree-head .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.code-tree .tnode{padding-right:8px}
+/* 选中文件持久高亮(BUG-KB-005 同思路:点击设 active,蓝底区别于 hover 灰底) */
+.code-tree .tnode.sel{background:var(--blue-bg);color:var(--blue-tx)}
+.code-tree .tnode.sel .ic{color:var(--blue-tx)}
+.code-tree .tnode.sel .faint{color:var(--blue-tx)}
+/* 树内失败行:红图标 + 行内重试 */
+.code-tree .t-err{color:var(--red-tx)}
+.code-tree-retry{display:inline-flex;align-items:center;gap:3px;margin-left:auto;flex:none;border:none;background:none;cursor:pointer;font-size:11px;color:var(--muted);padding:2px 4px;border-radius:4px}
+.code-tree-retry:hover{color:var(--text);background:var(--surface-2)}
+.code-tree-note{padding:6px 10px 2px}
+/* 右栏预览:头部路径+来源+重新拉取;md 正文带内边距,代码编辑器定高 */
+.code-preview{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--vp-radius);overflow:hidden}
+.code-preview-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);min-width:0}
+.code-preview-head .ic{color:var(--faint);flex:none}
+.code-preview-path{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
+.code-preview-acts{margin-left:auto;display:flex;align-items:center;flex:none}
+.code-preview-md{padding:14px 16px}
+.code-preview-editor{height:560px}
+/* 窄屏退单栏:树在上(限高不 sticky),预览在下(沿用 1180 断点) */
+@media (max-width:1180px){.code-wb{grid-template-columns:minmax(0,1fr)}.code-tree{position:static;max-height:300px}}
 /* ===== login ===== */
 .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px;background:
  radial-gradient(900px 480px at 80% -10%, var(--blue-bg), transparent 60%),

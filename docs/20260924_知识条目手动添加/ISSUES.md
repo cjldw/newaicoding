@@ -34,3 +34,11 @@
 - **问题描述**:布局已符合左树/右预览(260px/860px);真缺口=renderMarkdown 缺链接/有序列表包裹(编号串号)/引用/表格;另 kb_service.update_doc flush 后读 updated_at 触发 MissingGreenlet → 编辑保存恒 500(rename_kb 同病灶)
 - **修复方案**:R2.F4——renderMarkdown 扩展四能力(javascript: 降级安全);update_doc/rename_kb flush 后 refresh
 - **状态**:verified(TDD 2 用例 Red→Green,套件 5 passed;浏览器端到端 PUT 200 + 渲染实测;截图 report/fix-r2f4/)
+
+### BUG-KB-005:目录点击滚动后 hover 高亮错落在非点击项
+
+- **严重程度**:低(纯视觉)
+- **关联页面**:/projects/:pid/knowledge/:eid 左栏 .md-toc 大纲
+- **问题描述**:点击目录项平滑滚动期间 sticky 目录从静止指针下方移过,Chromium 按指针末坐标重算 :hover 导致非点击项高亮
+- **修复方案**:点击项持久 active 高亮(蓝底主色,区分 hover 灰底)+ 滚动期间 .md-toc.locking(pointer-events:none),scrollend 解除 + 800ms 兜底
+- **状态**:verified(Playwright 复跑:滚动中/结束后 active 均在点击项;截图 report/fix-kb005/)
