@@ -8,6 +8,7 @@
  */
 import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, BookOpen, Plus, X } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -20,7 +21,7 @@ import {
 } from '@/components/ui/Dialog'
 import { useToast } from '@/hooks/useToast'
 import { ApiError } from '@/api/client'
-import { useProjectDetail, useProjectRepoBranches } from '@/api/projects'
+import { useProjectDetail, useProjectRepoBranches, useProjectList } from '@/api/projects'
 import { renderMarkdown } from '@/utils/markdown'
 import {
   useProjectKnowledge,
@@ -160,17 +161,28 @@ export default function KnowledgeBase() {
   const [codeBranch, setCodeBranch] = useState('')
   const [codePaths, setCodePaths] = useState<string[]>([''])
   const [createErr, setCreateErr] = useState<string | null>(null)
-  const createMut = useCreateProjectKnowledge(projectId ?? '')
+  // 平台级(/knowledge)创建:先选归属项目,提交到该项目知识库;项目级即当前项目
+  const [targetProjectId, setTargetProjectId] = useState('')
+  const targetPid = isProjectScope ? (projectId ?? '') : targetProjectId
+  const qc = useQueryClient()
+  const createMut = useCreateProjectKnowledge(targetPid)
 
-  // 项目绑定仓库(仓库下拉数据源,参照 RepoManagement)
-  const { data: project } = useProjectDetail(projectId ?? '')
+  // 归属项目下拉(平台级):项目列表接口按当前用户成员关系返回
+  const { data: projectsData } = useProjectList({ status: 'active', page: 1, page_size: 100 })
+  const projectOptions = useMemo(() => (projectsData?.items ?? []).map((p) => ({
+    value: p.project_id,
+    label: p.name,
+  })), [projectsData])
+
+  // 项目绑定仓库(仓库下拉数据源,参照 RepoManagement;平台级跟随所选归属项目)
+  const { data: project } = useProjectDetail(targetPid)
   const repoOptions = useMemo(() => (project?.repos ?? []).map((r) => ({
     value: r.repo_id,
     label: `${repoShortName(r.gitlab_repo_url)}（${repoRoleLabel[r.role] ?? '其他'}）`,
   })), [project])
 
   // 分支下拉:选仓库后加载;default 分支置顶并标注(照分片)
-  const branchesQ = useProjectRepoBranches(projectId ?? '', codeRepoId)
+  const branchesQ = useProjectRepoBranches(targetPid, codeRepoId)
   const branchOptions = useMemo(() => {
     const list = [...(branchesQ.data ?? [])].sort((a, b) => Number(b.default) - Number(a.default))
     return list.map((b) => ({ value: b.name, label: b.default ? `${b.name}（默认）` : b.name }))
@@ -202,11 +214,12 @@ export default function KnowledgeBase() {
     setCodeBranch('')
     setCodePaths([''])
     setCreateErr(null)
+    setTargetProjectId('')
     setShowCreate(true)
   }
 
   const handleCreate = () => {
-    if (!projectId || !newTitle.trim() || createMut.isPending) return
+    if (!targetPid || !newTitle.trim() || createMut.isPending) return
     if (mode === 'code' && !codeRepoId) {
       setCreateErr('请先选择仓库')
       return
@@ -227,7 +240,15 @@ export default function KnowledgeBase() {
     createMut.mutate(payload, {
       onSuccess: () => {
         setShowCreate(false)
-        showToast('ok', '已创建')
+        if (isProjectScope) {
+          showToast('ok', '已创建')
+        } else {
+          // 平台级:归属项目刚创建的条目不会立刻出现在平台列表,主动失效重取
+          qc.invalidateQueries({ queryKey: ['platform-knowledge'] })
+          const pname = projectsData?.items.find((p) => p.project_id === targetPid)?.name
+            ?? '所选项目'
+          showToast('ok', `已创建到项目「${pname}」知识库;平台级条目由项目 owner 提升产生`)
+        }
       },
       onError: (e) => setCreateErr(createErrorMessage(e)),
     })
@@ -250,13 +271,11 @@ export default function KnowledgeBase() {
             <div className="sub">需求归档时 AI 自动提取的可复用知识(条目级,R14);与项目内「知识库」(文档空间 wiki,R20)并存、命名隔离</div>
           )}
         </div>
-        {isProjectScope && (
-          <div className="acts">
-            <Button variant="primary" onClick={openCreate}>
-              新建条目
-            </Button>
-          </div>
-        )}
+        <div className="acts">
+          <Button variant="primary" onClick={openCreate}>
+            新建条目
+          </Button>
+        </div>
       </div>
 
       {/* Tab(仅项目级) */}
@@ -390,6 +409,18 @@ export default function KnowledgeBase() {
             ))}
           </div>
           <div className="flex flex-col gap-3 py-3">
+            {/* 平台级:先选归属项目(项目级固定为当前项目,不显示) */}
+            {!isProjectScope && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-text">归属项目</label>
+                <Select
+                  options={projectOptions}
+                  value={targetProjectId}
+                  placeholder="请选择归属项目"
+                  onChange={(e) => { setTargetProjectId(e.target.value); setCodeRepoId(''); setCodeBranch('') }}
+                />
+              </div>
+            )}
             {mode === 'direct' ? (
               <>
                 {/* B 型:现状四字段(类型/标题/内容/标签)+ 内容编辑/预览切换 */}
@@ -569,7 +600,7 @@ export default function KnowledgeBase() {
             <Button
               variant="primary"
               onClick={handleCreate}
-              disabled={!newTitle.trim() || createMut.isPending
+              disabled={!targetPid || !newTitle.trim() || createMut.isPending
                 || (mode === 'code' && validCodePaths.length === 0)}
             >
               {createMut.isPending ? '创建中...' : '创建'}

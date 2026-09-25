@@ -55,3 +55,4 @@
 | 2026-09-25 | R2 调整:目录递归树状拉全、单文件不截断、服务端本地缓存 5 分钟 + refresh 穿透;R3 确认 permissions 由后端计算;R1/R3/R4 原样确认 | 人工核对结论 |
 | 2026-09-25 | R2 完成(55bdb49)。审计 B1(editor can_delete 按 R3 口径修正)+S1-S4/S6 修复;顺带修 detail 存量 await-500 与 publish/promote ErrCode NameError 两个存量 bug(在 R2 改造面内)。计划外发现:frontend/src/pages/projects/ProjectTaskList.tsx 存在 tsc 类型错误(并发工作流产物,非本需求范围,不修,留痕) | rd-dev 执行留痕 |
 | 2026-09-25 | R1 完成(e171862),审计通过(4 建议留痕)。R3 完成(c0f4246),迁移 e8f4a2c6b9d1 已落开发库(并发流悬空 alembic 版本处置留痕 DEPLOY.md)。R4 完成:QA 链接语法口径严于分片(取链接文字)按 QA 口径实现;审计 P1 归档页形状失配拍板**前端适配后端平铺契约**(后端键名系 R14 存量契约不动),已修复 | rd-dev 执行留痕 |
+| 2026-09-25 | 用户反馈「平台知识库页无创建入口」:/knowledge 右上角补「新建条目」按钮(两种 scope 均渲染);平台页创建需先选归属项目,条目仍落项目级——不改变 PRD「平台级直建不做、维持 promote 单通道」边界(后端零改动) | 用户反馈 + 边界澄清 |
