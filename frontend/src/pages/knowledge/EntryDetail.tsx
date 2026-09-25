@@ -13,9 +13,11 @@
  *   └─ 代码引用区(仅 A 型):标题「关联代码 · {repo} · {branch}」+ 逐路径块
  *      每块:.card 头(路径 mono + 重新拉取按钮)+ 体(monaco 只读 / 目录清单 / 错误占位)
  *
- * 权限:消费详情接口 permissions{can_edit,can_delete,editable_fields}(R3);
- * 后端未返回 permissions 时容错缺省 —— 发布/提升用项目成员角色兜底(viewer 不见发布,
- * 仅 owner 见提升),编辑/删除仅在后端明确授予时显示。编辑照 R1 双类型表单回填
+ * 权限:消费详情接口 permissions{can_edit,can_delete,editable_fields,can_publish,can_promote}
+ * (R3 + R3.F2);后端未返回时容错缺省 —— 发布优先后端 can_publish,缺省回退
+ * permissions.can_edit 代理或项目成员角色(viewer 不见发布);提升优先后端 can_promote,
+ * 缺省回退本地 owner 判断(后端就绪后超管非成员也全可见);编辑/删除仅在后端明确授予时显示。
+ * 编辑照 R1 双类型表单回填
  * (A 型可改代码引用,B 型可改正文);AI 条目按 editable_fields 仅放行 tags,
  * 其余字段 disabled + 提示条。删除为危险按钮确认弹窗,成功回列表。
  * 代码块逐路径懒加载(进入视口才请求,失败互不影响);目录树节点可折叠,文本文件
@@ -363,11 +365,18 @@ export default function EntryDetail() {
     return undefined
   }, [entry?.project_id, members, project, user])
 
-  // ---- 权限消费(R3 预埋 permissions;未返回时按角色缺省) ----
+  // ---- 权限消费(R3 预埋 permissions;can_publish/can_promote 为 R3.F2 扩展) ----
+  // 发布:后端 can_publish 优先(超管全真);缺省时回退现状 —— permissions 已返回用
+  // can_edit 代理,permissions 也没有则按本地角色 owner/editor 判断
   const perms = entry?.permissions
   const canPublish = !!entry && entry.status === 'draft'
-    && (perms ? !!perms.can_edit : myRole === 'owner' || myRole === 'editor')
-  const canPromote = !!entry?.project_id && myRole === 'owner'
+    && (typeof perms?.can_publish === 'boolean'
+      ? perms.can_publish
+      : (perms ? !!perms.can_edit : myRole === 'owner' || myRole === 'editor'))
+  // 提升:后端 can_promote 优先(修 R2 审计「超管非成员不可见提升按钮」缺口);
+  // 缺省时回退现状本地 owner 判断;仅项目级条目可提升(project_id 门控后端同样成立)
+  const canPromote = !!entry?.project_id
+    && (typeof perms?.can_promote === 'boolean' ? perms.can_promote : myRole === 'owner')
   const canEdit = perms?.can_edit === true
   const canDelete = perms?.can_delete === true
 

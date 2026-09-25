@@ -36,6 +36,10 @@ export interface KnowledgePermissions {
   can_edit?: boolean
   can_delete?: boolean
   editable_fields?: string[]
+  /** R3.F2:发布权限后端算(editor+ 可发布,超管全真);未部署时缺省,前端回退本地判断 */
+  can_publish?: boolean
+  /** R3.F2:提升权限后端算(owner+ 可提升,超管全真);未部署时缺省,前端回退本地判断 */
+  can_promote?: boolean
 }
 
 export interface KnowledgeEntry {

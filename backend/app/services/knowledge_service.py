@@ -212,9 +212,11 @@ AI_EDITABLE_FIELDS = ["tags"]
 
 async def entry_permissions(db: AsyncSession, entry: KnowledgeEntry, user: User) -> dict:
     """
-    详情页 permissions 块:{can_edit, can_delete, editable_fields}(R3 口径)。
+    详情页 permissions 块:{can_edit, can_delete, can_publish, can_promote,
+    editable_fields}(R3 口径,R3.F2 增发布/提升两键,后端算好前端零猜测)。
     项目级:创建者本人(created_by_user_id 相等)或 owner/editor 可编可删;viewer/非成员只读;
-    平台级:仅超管可编可删(创建者本人不放宽)。
+      can_publish=editor+(与 publish_entry 写口径一致),can_promote=owner+(promote_entry 口径);
+    平台级:仅超管可编可删(创建者本人不放宽),can_publish/can_promote 同口径仅超管。
     历史行 created_by_user_id=NULL → 创建者判定不命中,回落角色判定(回落安全)。
     """
     if entry.project_id is not None:
@@ -232,17 +234,28 @@ async def entry_permissions(db: AsyncSession, entry: KnowledgeEntry, user: User)
         can_edit = role in ("editor", "owner") or is_creator
         # R3 口径:创建者本人 + 项目 owner/editor 可删(B1 收口:editor 亦有删除权)
         can_delete = role in ("editor", "owner") or is_creator
+        # R3.F2:editor+ 可发布(publish_entry 同口径),仅 owner 可提升(promote_entry 同口径)
+        can_publish = role in ("editor", "owner")
+        can_promote = role == "owner"
     else:
         # R3 矩阵:平台级仅超管
         can_edit = role == "owner"
         can_delete = role == "owner"
+        can_publish = role == "owner"
+        can_promote = role == "owner"
     if not can_edit:
         editable_fields: list = []
     elif entry.created_by == "ai":
         editable_fields = list(AI_EDITABLE_FIELDS)
     else:
         editable_fields = list(HUMAN_EDITABLE_FIELDS)
-    return {"can_edit": can_edit, "can_delete": can_delete, "editable_fields": editable_fields}
+    return {
+        "can_edit": can_edit,
+        "can_delete": can_delete,
+        "can_publish": can_publish,
+        "can_promote": can_promote,
+        "editable_fields": editable_fields,
+    }
 
 
 # ---------------------------------------------------------------------------
