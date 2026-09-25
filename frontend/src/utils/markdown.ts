@@ -1,59 +1,156 @@
 /**
- * 共享 markdown 轻量渲染 —— TaskDetail / RequirementDetail 双实现去重(BUG-019 先例口径)。
+ * 共享 markdown 轻量渲染 —— TaskDetail / RequirementDetail / EntryDetail / KnowledgeBase /
+ * KnowledgeBaseView 五处消费(BUG-019 先例口径,全仓唯一实现)。
  *
- * 支持 h1-h3 / 加粗 / 行内代码 / 围栏代码块(R2 扩展)/ 无序列表 / 段落,
- * 内容先做 &<> 转义,无 XSS 面。
- * 生成纯语义标签、不带任何内联样式,排版统一由 globals.css `.md` 作用域类承接
- * (调用方容器需带 `md` 类)。
+ * 能力基准对齐原 KnowledgeBaseView 本地版(预览升级):
+ * h1-h3 / 加粗 / 斜体 / 行内代码 / 行内链接 / 围栏代码块(```lang)/ 无序+有序列表
+ * (真实 <ul>/<ol> 包裹,编号各自起算)/ 引用块(递归按块渲染)/ 表格 / 段落。
  *
- * 口径取舍:以原 TaskDetail 版为准(更安全)——
- *   1) 保留单换行 `<br/>`,纯文本草稿不塌行(原 RequirementDetail 版会吞掉单换行);
- *   2) 不把整包输出套进 `<p>`(原 RequirementDetail 版 `<p>` 内嵌 h2/li 等块级元素是
- *      非法 HTML,浏览器会提前截断 p 并残留游离闭合标签);
- *   3) 输出不依赖 Tailwind 字面类出现在 dangerouslySetInnerHTML 里(免受扫描配置影响)。
- * 原 RequirementDetail 版的 `*斜体*` / 有序列表特判未保留,差异已在迁移时说明。
- *
- * R2(条目详情页)扩展围栏代码块:```lang 代码块渲染为 `<pre class="md-code">`。
- * 实现取分段遍历(matchAll)而非占位符替换:转义在每段独立进行,代码块内容
- * 与行内语法互不污染,也不存在占位符与正文撞车的可能。围栏未闭合时该段按
- * 普通文本降级(字面展示 ```),不吞正文。样式见 globals.css `.md pre.md-code`
- * (知识库本地版 KnowledgeBaseView 的同能力不并入,R20 wiki 页独立演进,超范围)。
+ * 口径取舍(继承并延续自原 TaskDetail 版):
+ *   1) 转义优先:每段先 &<> 转义再做标记替换,无 XSS 面;
+ *   2) 段内单换行 <br/>,纯文本草稿不塌行;
+ *   3) 按块输出,不把整包套进单个 <p>(块级嵌 p 为非法 HTML,浏览器会提前截断);
+ *   4) 输出为纯语义标签、不带 Tailwind 字面类(dangerouslySetInnerHTML 免受扫描配置影响),
+ *      原 KnowledgeBaseView 版的内联 Tailwind 类由 globals.css `.md` 作用域等价承接
+ *      (ul/ol/table/blockquote/a 样式随本次能力化补齐,调用方容器需带 `md` 类);
+ *   5) 链接仅放行 http(s):// 与相对路径(/、./、../、# 或无 scheme 的裸路径),
+ *      javascript:/data: 等带 scheme 的降级为纯文本;外链追加 target=_blank + rel=noopener;
+ *   6) 围栏未闭合时该段降级为普通文本(字面展示 ```),不吞正文;lang 仅作 data-lang 标注
+ *      (不做客户端高亮)。
  */
 
-/** 行内语法渲染(转义 + 原有替换链,顺序不动) */
-function renderTextSegment(seg: string): string {
-  const esc = seg
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return esc
-    .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.*)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.*)$/gm, '<h1>$1</h1>')
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/^[-*] (.*)$/gm, '<li>$1</li>')
-    .replace(/\n{2,}/g, '</p><p>')
-    .replace(/\n/g, '<br/>')
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-/** 围栏代码块渲染:lang 仅作为 data-lang 标注(不做客户端高亮),内容转义后进 pre */
-function renderFenceSegment(code: string, lang: string): string {
-  const esc = code.replace(/\n$/, '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return `<pre class="md-code"${lang ? ` data-lang="${lang}"` : ''}><code>${esc}</code></pre>`
+/** 仅放行 http(s):// 与相对路径(/、./、../、# 或无 scheme 的裸路径) */
+function isSafeHref(url: string): boolean {
+  return /^(https?:\/\/|\/|\.\.?\/|#)/i.test(url) || !/^[a-z][a-z0-9+.-]*:/i.test(url)
 }
 
-// 围栏开栏:``` + 可选语言词 + 行尾;闭栏:``` 单独出现。未闭合围栏不参与匹配(降级为文本)
-const FENCE_RE = /```([\w+#.-]*)[ \t]*\r?\n([\s\S]*?)```/g
+/** 行内语法:转义 → 行内代码 → 加粗 → 斜体 → 链接(转义优先,顺序不动) */
+function renderInline(seg: string): string {
+  let s = escapeHtml(seg)
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>')
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (raw, text: string, url: string) => {
+    if (!isSafeHref(url)) return raw
+    const href = url.replace(/"/g, '%22').replace(/'/g, '%27')
+    const external = /^https?:\/\//i.test(url)
+    return `<a href="${href}"${external ? ' target="_blank" rel="noopener noreferrer"' : ''}>${text}</a>`
+  })
+  return s
+}
+
+/** 表格分隔行:| --- | :---: | 形态(每格仅由 -: 与空格构成) */
+function isTableSep(line: string): boolean {
+  const t = line.trim().replace(/^\|/, '').replace(/\|$/, '')
+  return t.length > 0 && t.split('|').every((c) => /^ *:?-+:? *$/.test(c))
+}
+
+/** 块级解析:逐行状态机,空行分段,段内单换行 <br/> 保形 */
+function renderBlocks(src: string): string {
+  const lines = src.replace(/\r\n?/g, '\n').split('\n')
+  const out: string[] = []
+  let para: string[] = []
+  const flushPara = () => {
+    if (para.length) {
+      out.push(`<p>${para.map(renderInline).join('<br/>')}</p>`)
+      para = []
+    }
+  }
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    // 围栏代码块(未闭合降级为普通文本,不吞正文)
+    if (/^```/.test(line)) {
+      let end = -1
+      for (let j = i + 1; j < lines.length; j++) {
+        if (/^```\s*$/.test(lines[j])) { end = j; break }
+      }
+      if (end > i) {
+        flushPara()
+        const lang = line.slice(3).trim().match(/^[\w+#.-]*/)?.[0] ?? ''
+        const code = escapeHtml(lines.slice(i + 1, end).join('\n')).replace(/\n$/, '')
+        out.push(`<pre class="md-code"${lang ? ` data-lang="${lang}"` : ''}><code>${code}</code></pre>`)
+        i = end + 1
+        continue
+      }
+    }
+    // 标题
+    const h = line.match(/^(#{1,3}) (.+)$/)
+    if (h) {
+      flushPara()
+      const level = h[1].length
+      out.push(`<h${level}>${renderInline(h[2])}</h${level}>`)
+      i++
+      continue
+    }
+    // 引用块(连续 > 行;内部递归按块渲染,嵌套列表/围栏/表格均可)
+    if (/^> ?/.test(line)) {
+      flushPara()
+      const buf: string[] = []
+      while (i < lines.length && /^> ?/.test(lines[i])) {
+        buf.push(lines[i].replace(/^> ?/, ''))
+        i++
+      }
+      out.push(`<blockquote>${renderBlocks(buf.join('\n'))}</blockquote>`)
+      continue
+    }
+    // 表格:当前行含 | 且下一行为 |---|---| 分隔行
+    if (line.includes('|') && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      flushPara()
+      const cells = (l: string) => l.trim().replace(/^\|/, '').replace(/\|$/, '')
+        .split('|').map((c) => renderInline(c.trim()))
+      const head = cells(line)
+      i += 2
+      const rows: string[][] = []
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+        rows.push(cells(lines[i]))
+        i++
+      }
+      out.push(
+        `<table><thead><tr>${head.map((c) => `<th>${c}</th>`).join('')}</tr></thead>`
+        + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`,
+      )
+      continue
+    }
+    // 无序列表(真实 <ul> 包裹;- 与 * 两种记号)
+    if (/^[-*] /.test(line)) {
+      flushPara()
+      const items: string[] = []
+      while (i < lines.length && /^[-*] /.test(lines[i])) {
+        items.push(`<li>${renderInline(lines[i].slice(2))}</li>`)
+        i++
+      }
+      out.push(`<ul>${items.join('')}</ul>`)
+      continue
+    }
+    // 有序列表(真实 <ol> 包裹,编号由 ol 生成 —— 各列表编号独立起算)
+    if (/^\d+\. /.test(line)) {
+      flushPara()
+      const items: string[] = []
+      while (i < lines.length && /^\d+\. /.test(lines[i])) {
+        items.push(`<li>${renderInline(lines[i].replace(/^\d+\. /, ''))}</li>`)
+        i++
+      }
+      out.push(`<ol>${items.join('')}</ol>`)
+      continue
+    }
+    // 空行 = 段落分隔;其余行累计为段落(段内单换行 <br/> 保形)
+    if (!line.trim()) {
+      flushPara()
+      i++
+      continue
+    }
+    para.push(line)
+    i++
+  }
+  flushPara()
+  return out.join('')
+}
 
 export function renderMarkdown(md: string): string {
-  let out = ''
-  let last = 0
-  for (const m of md.matchAll(FENCE_RE)) {
-    const start = m.index ?? 0
-    out += renderTextSegment(md.slice(last, start))
-    out += renderFenceSegment(m[2], m[1])
-    last = start + m[0].length
-  }
-  out += renderTextSegment(md.slice(last))
-  return out
+  return renderBlocks(md)
 }

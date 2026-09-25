@@ -569,12 +569,22 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .md>h2:first-child{margin-top:0} /* 需求标题为容器首元素,不留顶距 */
 .md h3{font-size:14px;margin:14px 0 6px}
 .md p{margin:8px 0}
-.md li{margin-left:18px}
 .md code{font-family:var(--mono);font-size:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
 /* R2 围栏代码块:renderMarkdown ```lang 扩展输出 <pre class="md-code">(终端底色 pre,
-   行内 code 样式在块内复位);知识库本地版(KnowledgeBaseView)不并入,R20 独立演进 */
+   行内 code 样式在块内复位) */
 .md pre.md-code{background:var(--term-bg);color:var(--term-tx);border-radius:8px;padding:12px 14px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.65;margin:10px 0}
 .md pre.md-code code{background:none;border:none;padding:0;color:inherit;font-size:inherit;font-family:inherit;border-radius:0}
+/* 列表:共享渲染器以真实 <ul>/<ol> 包裹 <li>(缩进与圆点/编号由列表生成,li 不再裸排缩进) */
+.md ul,.md ol{margin:8px 0;padding-left:24px}
+.md ul{list-style:disc}
+.md ol{list-style:decimal}
+.md li{margin:2px 0}
+/* 引用块 / 表格 / 链接(预览升级:对齐原 KnowledgeBaseView 本地版的内联类,值等价搬入) */
+.md blockquote{margin:8px 0;padding:2px 0 2px 12px;border-left:4px solid var(--border-strong);color:var(--muted)}
+.md table{width:100%;margin:8px 0;border-collapse:collapse;font-size:13px}
+.md th,.md td{border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top}
+.md th{font-weight:600;background:var(--surface-2)}
+.md a{color:var(--primary);text-decoration:underline;text-underline-offset:2px;word-break:break-all}
 /* ===== login ===== */
 .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px;background:
  radial-gradient(900px 480px at 80% -10%, var(--blue-bg), transparent 60%),

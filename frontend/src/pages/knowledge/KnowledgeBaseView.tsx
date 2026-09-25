@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import CodeEditor from '@/components/Editor'
+import { renderMarkdown } from '@/utils/markdown'
 import { Loader2, ChevronRight, ChevronDown, RefreshCw } from 'lucide-react'
 import {
   useKnowledgeBaseDetail,
@@ -111,141 +112,7 @@ function formatTime(iso: string | null): string {
   return d.toLocaleString('zh-CN')
 }
 
-// ---- Markdown render (simple 本地版;R2.F4 扩展:行内链接/有序列表 <ol> 包裹/引用块/表格) ----
-// 口径:转义优先(&<> 先转义再替换,无 XSS 面);链接仅放行 http/https/相对路径
-// (javascript:/data: 等带 scheme 的降级为纯文本);有序/无序列表用真实 <ul>/<ol>
-// 包裹(修裸 <li> 编号串号);非 md 内容按纯文本段落渲染,维持原文可读。不引外部库。
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-/** 仅放行 http(s):// 与相对路径(/、./、../、# 或无 scheme 的裸路径) */
-function isSafeHref(url: string): boolean {
-  return /^(https?:\/\/|\/|\.\.?\/|#)/i.test(url) || !/^[a-z][a-z0-9+.-]*:/i.test(url)
-}
-
-/** 行内语法:转义 → 行内代码 → 加粗 → 斜体 → 链接 */
-function renderInline(seg: string): string {
-  let s = escapeHtml(seg)
-  s = s.replace(/`([^`]+)`/g, '<code class="bg-surface-strong px-1 rounded">$1</code>')
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>')
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (raw, text: string, url: string) => {
-    if (!isSafeHref(url)) return raw
-    const href = url.replace(/"/g, '%22').replace(/'/g, '%27')
-    const external = /^https?:\/\//i.test(url)
-    return `<a class="text-primary underline underline-offset-2 break-all" href="${href}"${external ? ' target="_blank" rel="noopener noreferrer"' : ''}>${text}</a>`
-  })
-  return s
-}
-
-/** 表格分隔行:| --- | :---: | 形态(每格仅由 -: 与空格构成) */
-function isTableSep(line: string): boolean {
-  const t = line.trim().replace(/^\|/, '').replace(/\|$/, '')
-  return t.length > 0 && t.split('|').every((c) => /^ *:?-+:? *$/.test(c))
-}
-
-function renderMarkdown(content: string): string {
-  const lines = content.replace(/\r\n?/g, '\n').split('\n')
-  const out: string[] = []
-  let para: string[] = []
-  const flushPara = () => {
-    if (para.length) {
-      out.push(`<p class="my-2">${para.map(renderInline).join('<br/>')}</p>`)
-      para = []
-    }
-  }
-  let i = 0
-  while (i < lines.length) {
-    const line = lines[i]
-    // 围栏代码块(未闭合降级为普通文本,不吞正文)
-    if (/^```/.test(line)) {
-      let end = -1
-      for (let j = i + 1; j < lines.length; j++) {
-        if (/^```\s*$/.test(lines[j])) { end = j; break }
-      }
-      if (end > i) {
-        flushPara()
-        out.push(`<pre class="bg-surface-strong p-3 rounded my-2 overflow-x-auto"><code>${escapeHtml(lines.slice(i + 1, end).join('\n'))}</code></pre>`)
-        i = end + 1
-        continue
-      }
-    }
-    // 标题
-    const h = line.match(/^(#{1,3}) (.+)$/)
-    if (h) {
-      flushPara()
-      const level = h[1].length
-      const cls = ['text-2xl font-bold mt-6 mb-3', 'text-xl font-semibold mt-5 mb-2', 'text-lg font-semibold mt-4 mb-2'][level - 1]
-      out.push(`<h${level} class="${cls}">${renderInline(h[2])}</h${level}>`)
-      i++
-      continue
-    }
-    // 引用块(连续 > 行;内部递归按块渲染)
-    if (/^> ?/.test(line)) {
-      flushPara()
-      const buf: string[] = []
-      while (i < lines.length && /^> ?/.test(lines[i])) {
-        buf.push(lines[i].replace(/^> ?/, ''))
-        i++
-      }
-      out.push(`<blockquote class="border-l-4 border-border-strong pl-3 my-2 text-text-muted">${renderMarkdown(buf.join('\n'))}</blockquote>`)
-      continue
-    }
-    // 表格:当前行含 | 且下一行为 |---|---| 分隔行
-    if (line.includes('|') && i + 1 < lines.length && isTableSep(lines[i + 1])) {
-      flushPara()
-      const cells = (l: string) => l.trim().replace(/^\|/, '').replace(/\|$/, '')
-        .split('|').map((c) => renderInline(c.trim()))
-      const head = cells(line)
-      i += 2
-      const rows: string[][] = []
-      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
-        rows.push(cells(lines[i]))
-        i++
-      }
-      out.push(
-        `<table class="w-full my-2 text-sm border-collapse">`
-        + `<thead><tr>${head.map((c) => `<th class="border border-border px-2.5 py-1.5 text-left font-semibold bg-surface-strong">${c}</th>`).join('')}</tr></thead>`
-        + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td class="border border-border px-2.5 py-1.5 align-top">${c}</td>`).join('')}</tr>`).join('')}</tbody>`
-        + `</table>`,
-      )
-      continue
-    }
-    // 无序列表(真实 <ul> 包裹)
-    if (/^- /.test(line)) {
-      flushPara()
-      const items: string[] = []
-      while (i < lines.length && /^- /.test(lines[i])) {
-        items.push(`<li>${renderInline(lines[i].slice(2))}</li>`)
-        i++
-      }
-      out.push(`<ul class="my-2 pl-6 list-disc space-y-0.5">${items.join('')}</ul>`)
-      continue
-    }
-    // 有序列表(真实 <ol> 包裹,编号由 ol 生成 —— 修裸 <li> 编号串号)
-    if (/^\d+\. /.test(line)) {
-      flushPara()
-      const items: string[] = []
-      while (i < lines.length && /^\d+\. /.test(lines[i])) {
-        items.push(`<li>${renderInline(lines[i].replace(/^\d+\. /, ''))}</li>`)
-        i++
-      }
-      out.push(`<ol class="my-2 pl-6 list-decimal space-y-0.5">${items.join('')}</ol>`)
-      continue
-    }
-    // 空行 = 段落分隔;其余行累计为段落(段内单换行 <br/> 保形)
-    if (!line.trim()) {
-      flushPara()
-      i++
-      continue
-    }
-    para.push(line)
-    i++
-  }
-  flushPara()
-  return out.join('')
-}
+// ---- Markdown render:统一走共享渲染器(ul/ol/表格/引用块/链接全能力),排版由 globals.css `.md` 承接 ----
 
 
 // ---- Component ----
@@ -467,7 +334,7 @@ export default function KnowledgeBaseView() {
                       )}
                     </div>
                     <div
-                      className="prose prose-sm max-w-none text-text"
+                      className="md prose prose-sm max-w-none text-text"
                       dangerouslySetInnerHTML={{ __html: renderMarkdown(currentDoc.content ?? '') }}
                     />
                     {currentDoc.source_file_path && (
