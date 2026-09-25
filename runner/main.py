@@ -370,7 +370,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
             logger.warning("PRD commit/push 失败: %s", e)
 
     elif mtype == "exec_tool":
-        # R4 AI 执行(CLI 兜底):claude -p <prompt>
+        # R4 AI 执行(CLI 兜底):claude -p <prompt>;R32.F1:claude_inject 资产注入;R32.F3:claude_prompt_stream 流式
         req_id = msg.get("req_id", "")
         tool = msg.get("tool", "")
         args = msg.get("args") or {}
@@ -386,6 +386,44 @@ async def handle_message(ws: Any, msg: dict) -> None:
                     workdir=args.get("workdir", "/workspace/main"),
                     session_id=args.get("session_id"),
                     resume=args.get("resume", False),
+                )
+                await safe_send_result(ws, req_id, True, data)
+            elif tool == "claude_inject":
+                # R32.F1:Skills/MCP 注入(同路线程池,防堵事件循环)
+                data = await asyncio.to_thread(
+                    manager.claude_inject,
+                    msg.get("container_id", ""),
+                    skills=args.get("skills") or [],
+                    mcp_config=args.get("mcp_config") or {},
+                )
+                await safe_send_result(ws, req_id, True, data)
+            elif tool == "claude_prompt_stream":
+                # R32.F3:流式对话 —— 容器内 stream-json 逐行泵出,行事件直推平台
+                # (claude_stream 消息,不走 result;终态仍走 result 结算 req_id)。
+                # 投递复用 _MAIN_LOOP(与 pty/watcher 线程泵同路,受 _SEND_LOCK 保护)
+                async def _on_line(line: str) -> None:
+                    await send(ws, {
+                        "type": "claude_stream",
+                        "req_id": req_id,
+                        "task_id": msg.get("task_id", ""),
+                        "line": line,
+                    })
+
+                def _on_line_threadsafe(line: str) -> None:
+                    if _MAIN_LOOP is not None:
+                        fut = asyncio.run_coroutine_threadsafe(_on_line(line), _MAIN_LOOP)
+                        try:
+                            fut.result(timeout=10)
+                        except Exception:
+                            pass  # 推送失败不阻断执行(终态 result 仍兜底)
+
+                data = await asyncio.to_thread(
+                    manager.claude_prompt_stream,
+                    msg.get("container_id", ""), args.get("prompt", ""),
+                    workdir=args.get("workdir", "/workspace/main"),
+                    session_id=args.get("session_id"),
+                    resume=args.get("resume", False),
+                    on_line=_on_line_threadsafe,
                 )
                 await safe_send_result(ws, req_id, True, data)
             else:

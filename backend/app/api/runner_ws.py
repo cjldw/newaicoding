@@ -153,11 +153,20 @@ async def runner_ws(websocket: WebSocket):
                     await db.commit()
 
             elif mtype == "result":
-                # R11 请求-响应结算(文件操作等)
-                runner_service.resolve_request(
-                    msg.get("req_id", ""), bool(msg.get("ok")),
+                # R11 请求-响应结算(文件操作等);R32.F3:同 req_id 的流式请求一并结算
+                req_id = msg.get("req_id", "")
+                if not runner_service.resolve_stream_request(
+                    req_id, bool(msg.get("ok")),
                     data=msg.get("data"), error=msg.get("error", ""),
-                )
+                ):
+                    runner_service.resolve_request(
+                        req_id, bool(msg.get("ok")),
+                        data=msg.get("data"), error=msg.get("error", ""),
+                    )
+
+            elif mtype == "claude_stream":
+                # R32.F3:流式对话事件 → 按 req_id 路由到等待中的对话队列
+                runner_service.route_stream_event(msg.get("req_id", ""), msg.get("line", ""))
 
             elif mtype in ("file_changed", "file_deleted"):
                 # R11 文件 watcher → 前端任务频道

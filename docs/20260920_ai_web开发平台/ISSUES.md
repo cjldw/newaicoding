@@ -234,3 +234,38 @@
 | BUG | 状态 | 关联 | 根因与修复 | 验证 |
 |---|---|---|---|---|
 | BUG-043 | verified | R31.F1 | 非容器 runner 无终端通道(R26 终端=exec 进自身容器;R31 本机裸跑 runner 成一级能力后缺口凸显)。宿主 shell 降级通道:terminal_manager.py HostSession(subprocess,Windows=cmd.exe/Linux=bash,read1 防凑满阻塞)+ main.py exec "__host__" 哨兵分流 + runners.py 空串分支建 host 会话(键缺失仍 6003);审计 session_kind=runner_host;前端零改动 | runner 单测 6/6(真进程 echo/stdin/kill);后端 r26 11/11 + 触碰面 47 绿;真机:reset-token→新 token 重拉 runner-local→shell-sessions code=0(会话已关)。Windows 管道模式无 pty(resize/真 TTY 降级)接受 |
+
+## rd-fix 第 27 轮迁移(2026-09-25)
+
+| BUG | 状态 | 关联 | 根因与修复 | 验证 |
+|---|---|---|---|---|
+| BUG-UI-071 | verified | R14.F1(波及 R29 导览) | GET /api/requirements/{id}/archive 恒 500:knowledge.py:31 遗留无效 import(get_requirement_or_404 实际在 requirement_service,下一行已正确导入),每请求必 ImportError。修复:删该行(一行,其余零改动);前端 useTourSteps 四查询加 enabled 门(导览开 && 前置数据就绪才发链式请求,未开零请求;TourDialog 增 open prop) | Red 2/2 实录 ImportError→Green 2/2;触碰面 21/21 两轮(bug071+knowledge+kb+requirements+files);真机重启(2905→10750)archive 存在=200 code=0/不存在=404,主会话独立登录复放同结果;tsc 0 错+build 过;浏览器走查归 rd-test |
+| BUG-UI-072 | verified | R28.F2 | 超管 18767169856 avatar_url+avatar_file_path 两列均指向已丢失文件(R19 数据事故遗留)→每页 404。修复:① 数据侧两列置 NULL(.scratch/R28.F2/clear_avatar.py,断言 dev 库 120.27.217.194/aicoding,只动该行);② 前端 utils/avatar.ts 模块级 failedAvatarUrls Set,Avatar/MainLayout 顶栏/ProfileSettings 三消费点命中即首字母回退零请求 | DB 读回断言 NULL;三消费点 grep 断言落位;tsc 0 错+build 过;test_r28_avatar(+upload)批内绿(55 passed);浏览器 network 无 404 复核归 rd-test/用户一瞥 |
+| BUG-UI-073 | verified | R19.F6 | /admin/audit-logs 详情列宽不足,「JSON 摘要」断词两行。修复:TableCell whitespace-nowrap + colgroup 详情列 90→110,文案不变 | grep 断言落位;tsc 0 错+build 过;视觉复核归 rd-test/用户一瞥 |
+
+## rd-fix 第 28 轮迁移(2026-09-25)
+
+| BUG | 状态 | 关联 | 根因与修复 | 验证 |
+|---|---|---|---|---|
+| BUG-UI-074 | fixed(视觉复核归用户) | R4 任务工作台(393c86c 五批整改遗留) | 任务详情页边距重叠/溢出:① .wb 高度魔法数 calc(100vh-108px) 源自 459603a,393c86c 新增 stps-band(~83px)未同步 → 工作台下溢 ~90px,tree-foot/card-foot 出视口+双滚动条;② .page 22/24 padding 与 wb-head 10/16、stps-band 12/16 三重 gutter 无统一对齐线;③ stepper 包整页唯一浮卡与拼贴分栏风格打架,wb-head 底线+卡顶线双重 1px;④ wb 三栏无外框贴页缘毛边;⑤ wb-head 单行 flex-wrap 换行悬挂;⑥ 左 sash right:-3px 被 col-tree overflow:hidden 裁 3px,左右热区不对称;⑦ pendingCenter 独用带框卡与四分支 twrap-fill 语言不一;⑧ 栏内 gutter 10/12/16 五种并存。修复(globals.css wb 区+TaskDetail):页根 .page-fill 零 padding,.main 补 min-height:100dvh 建立 flex 链,.wb 删 calc 改 min-height:600px+margin:0 16px 16px+圆角外框 overflow:hidden;sash 7px 全内探;stepper 去卡并入头带(.stps-band 白带+底线,.stps-card 基类保留零消费者);wb-head 拆两行(.wb-head-main/.wb-head-sub);tabs/d-chips/tree-foot 横向 gutter 统一 16,d-chips 灰底次级化;.rpane 三 pane 统一 12px 空气垫(去 pad-12);pendingCenter 改 twrap-fill;清死代码(.stp.cur 无消费者规则组/重复 [hidden] 块);.stp min-width 86→72;≤1180px .wb min-height:0 解高度锁+col-right min-height:420 | tsc 0 错;grep 断言 stps-card/pad-12/stp.cur 零引用;视觉复核(1440/1920、四任务类型、pending、≤1180、暗色)归用户一瞥 |
+| BUG-UI-076 | fixed(视觉复核归用户) | BUG-UI-074 复核反馈 | 用户复核「边线都重叠了」,两类:① 接缝 1px 线双重——A4 外框 overflow:hidden 虽裁顶/底/左/右缘,但三条内部横缝残留:wb-head-main 底线 × stps-band 内 stepper 上边距、右栏 .tabs 底线 × rpane 12px 空气垫内 chat/activity 内卡(Tailwind border-border)顶线、中栏 .tabs 底线 × 各 pane 顶缘;② A0 高度副作用:仅加 min-height:100dvh 时内容仍把 flex 链撑过视口(.wb 600+头带~150+margin 16>100dvh),工作台底部外框线仍出视口。修复:.main 改 height:100dvh+overflow:hidden(flex 链硬钳位,页级滚动由栏内 scroll 承接);.wb .tabs margin-bottom:-1px 吃掉 pane 顶线(豁免编辑器 h1 边线同色无缝);.col-tree .tree-scroll margin-top:-1px 吃掉外框顶线。未动:嵌入子页(TestCasesReview/TestReport/DeployStatus)的 .card/Card 内卡边框与统计卡 mb-6——半页内容保留卡片语言属设计口径,非重叠 | tsc 0 错+build 过;视觉复核归用户一瞥 |
+| BUG-UI-077 | fixed(视觉复核归用户) | BUG-UI-076 复核反馈 | 用户复核「保持状态轴,页面 border 不要重叠」:① stepper(状态轴)保留在头带不动;② 补 BUG-UI-076 漏网贴边线:stps-band 底线与 wb 外框顶线间隔 0 直接双线(撤 stps-band 底线,状态轴带与外框顶缘自然衔接);三个嵌入子页(用例/测试报告/部署日志)卡片贴 tabs 底线与栏左右缘(embedded 根加 .emb-pad{padding:12px 16px 16px} 空气垫,卡片不再撞线);撤 BUG-UI-076 的 tree-scroll margin-top:-1px(外框顶线已由 stps-band 衔接,该 hack 反成树节点顶撞线) | tsc 0 错+build 过;视觉复核归用户一瞥 |
+| BUG-UI-078 | fixed(视觉复核归用户) | 需求详情页(rd-ui 走查) | requirements/:id「关联任务」标题文字贴卡片左边线:该卡用 vp .card 基类(L266 无内边距,padding 由消费方提供),但漏加卡壳内边距,同页「基本信息」卡有 p-6 故正常。修复:卡片补 p-6,顺带补 mb-6 与基本信息卡对齐(原卡底距缺失贴页底) | tsc 0 错;视觉复核归用户一瞥 |
+| BUG-UI-079 | fixed(视觉复核归用户) | BUG-UI-078 复核反馈 | 用户复核「表头和已有页面(manage/releases)不一致」:① 根因——BUG-UI-078 整卡 p-6 把 .tbl th 灰底(var(--surface-2),globals.css:282)也内缩 24px,而 DimensionPage(manage/* 共用)表格贴卡缘渲染、灰底贯通整宽;② 修复为「标题区 p-6 pb-0 内边距 + 表格区贴卡缘」,灰底贯通,操作列改 th/td.ops 右对齐(DimensionPage 口径),查看按钮 ghost Button 换 vp .btn.btn-sm,行加 rowclick 整行可点跳任务页(按钮 stopPropagation 防双跳);③ 顺带核查:Table.tsx 组件零样式全交 .tbl CSS,此前表头「不一致」主因即 p-6 内缩,非 token 漂移 | tsc 0 错+build 过;视觉复核归用户一瞥 |
+| BUG-UI-080 | fixed(视觉复核归用户) | 用户口径(撤销 BUG-UI-074 状态轴) | 用户口径「任务页面不要 创建/打磨/评审/已评审/开发/测试/发布 状态栏」:整段移除任务页流程 stepper——JSX stps-band 块、FLOW_STEPS/mapStep/curStep 全删(grep 断言全站零其它消费者),.stps-band 容器类与 .stps/.stp.on 规则组同步清除(此前步已删 .stp.cur 死规则),.stepper/.stp 基类保留属 vp 原型体系;wb-head 头带直接与 .wb 工作台外框衔接,头带底缘与外框顶缘间隔 0 无线重叠(沿用 BUG-UI-077 口径) | tsc 0 错+build 过;视觉复核归用户一瞥 |
+| BUG-UI-081 | fixed(视觉复核归用户) | 用户口径(任务页分栏按角色调整) | 用户口径「requirement(需求打磨)任务面向产品、着重对话;dev 等面向开发者保持现状」:① requirement 类型任务左右栏对调(swapPanes)——对话/终端/活动 面板从右栏 384px 移到中栏占 1fr 主工作区,PRD 草稿/工作区 面板移到右栏 384px;dev/test/release 三类型保持 中=工作区/右=对话 不变;② 实现:rightPane 提为与 center 平级 JSX 变量,渲染处按 swapPanes 互换,hidden 保活/全屏/导出能力零改动;③ 停止按钮位置核查:acts 已在 wb-head 主行 margin-left:auto 右侧(BUG-UI-074 拆行后天然满足),零改动;.wb 补 min-width:0 防对调后内容挤压溢出 | tsc 0 错+build 过;视觉复核(打磨/开发两类型对照)归用户一瞥 |
+| BUG-UI-082 | fixed(视觉复核归用户) | BUG-UI-081 复核反馈(打磨任务头带) | 用户复核「打磨任务 wb-head-main/sub 样式乱,停止按钮要同其它页面一样放最右」:根因——主行 flex-wrap:wrap,打磨任务标题(类型徽章+短id+标题+运行中徽章)较长时 acts(停止任务)被挤换行,落到次行左缘与 chip-row 混排;且 .ttl 无收缩约束、truncate 类未定义(Tailwind v3 无该类,纯装饰)长文不省略。修复:.wb-head 改 flex-direction:column 两行独立;主行 flex-wrap:nowrap + .ttl flex:1+overflow:hidden + .ttl .truncate 定义(省略生效) + .acts flex:none 恒贴最右;次行 chip-row 保留 wrap。所有任务类型头带布局统一 | build 过(纯 CSS);视觉复核归用户一瞥 |
+
+**留痕(第 28 轮未动项)**:① 右栏三组件内卡语言分裂(chat/activity Tailwind 内卡 vs 终端 #1e1e1e 硬编码 vs 编辑器零边框)与 R30 暗色 token 核对单独立项;② --color-* shadcn 双轨 token 未合并;③ 全屏覆盖层 Tailwind p-2 与 px 尺度不同源。
+
+## R32 任务对话 Skills/MCP + 流式输出(2026-09-25,需求确认后实施)
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| R32.F1 容器注入 | fixed(真机复核归用户) | 用户口径「任务对话像 claude 终端一样用 skills/mcp」:容器就绪(handle_container_started)后 inject_task_claude_assets 经 exec_tool=claude_inject 下发——项目已装 Skills 写 /root/.claude/skills/{name}.md(名称安全字符过滤防路径穿越),MCP 配置合并写 /root/.claude.json 的 mcpServers 段(既有键保留);Runner 侧线程池执行防堵事件循环;无资产零下发,注入失败降级不阻塞容器就绪。全任务类型生效(claude CLI 进程级读取,对话/终端同享) |
+| R32.F2 / 补全 | fixed(真机复核归用户) | TaskChat 输入框 / 触发项目已装 Skills 下拉(沿用 @ 文件补全模式,互斥),选中插入 @skill名(claude CLI 原生 skill 引用);数据源 GET /projects/:id/skills 现成接口;TaskDetail 传 projectId |
+| R32.F3 流式输出 | fixed(真机复核归用户) | 对话从「转圈等结果(最长 600s)」改逐字流式:容器内 claude -p --output-format stream-json --verbose(socket 按行读,BUG-050 探测式 recv/read)→ Runner claude_stream 行事件上泵(复用 _MAIN_LOOP/_SEND_LOCK 线程泵)→ 平台 runner_service 流式注册表(req_id→queue;result 先结算流式请求)→ task_service.send_message_stream 边迭代边经任务事件 WS 广播 chat_delta → 前端 useTaskChatStream 订阅,发送中 AI 气泡逐字增量+光标,chat_done/消息落库后消失;POST /messages 接口与返回不变,旧非流式链路(run_prompt/claude_prompt)保留未被调用 |
+
+验证:后端 pytest test_r32_chat_stream_inject 5/5(注入下发/零下发/stream 事件转换/流式生命周期);runner pytest test_r32_claude_stream 5/5(注入合并/逐行上泵/非 JSON 兜底/session flags),runner 全量 45/46(1 failed=test_host_shell_alive_after_spawn Windows 专属回归,本机 Darwin 未标记 skip 属存量,git status 断言该文件零改动,与 R32 无关);前端 tsc 0 错+build 过。**真机复核归用户**:① 项目装 Skill 后新任务容器 ls /root/.claude/skills;② 对话发消息看逐字流式;③ / 补全下拉。
+
+**未代修留痕(第 27 轮越界发现)**:① 测试隔离——test_terminal_api 单跑 8/8 绿,紧跟 avatar/r8f4 等文件同会话跑则 9 errors(sqlalchemy 会话状态跨文件泄漏;全量轮 21E 同类+并行会话同库死锁叠加),非产品缺陷,测试基建待办;② 本机 docker SDK 未装(用户口径「docker 本机不装,保证代码 ok」),test_r31_local_runner 4 例 ModuleNotFoundError 属预期环境约束,R31 本机快速创建在本机不可用,部署机启用时需装 docker SDK 并补 pyproject 声明(本轮曾装 7.2.0 已按口径卸回)。

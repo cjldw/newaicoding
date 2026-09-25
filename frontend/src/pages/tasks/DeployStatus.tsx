@@ -66,7 +66,7 @@ export default function DeployStatus({ taskIdProp, embedded = false }: { taskIdP
   }
 
   return (
-    <div className={embedded ? '' : 'page wide'}>
+    <div className={embedded ? 'emb-pad' : 'page wide'}>
       {toast && (
         <Alert variant="success" className="mb-4" onClose={() => setToast('')}>
           {toast}

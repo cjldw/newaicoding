@@ -294,9 +294,11 @@ export function RequirementDetail() {
         </div>
       </div>
 
-      {/* 关联任务列表 */}
-      <div className="card">
-        <h2 className="text-lg font-semibold text-text mb-4">关联任务</h2>
+      {/* 关联任务列表(BUG-UI-078/079:标题区 p-6 内边距 + 表头灰底贯通,与 manage/releases 表格同风格) */}
+      <div className="card mb-6">
+        <div className="p-6 pb-0">
+          <h2 className="text-lg font-semibold text-text mb-4">关联任务</h2>
+        </div>
         {requirement.tasks.length === 0 ? (
           <div className="text-center py-8 text-text-muted">暂无关联任务</div>
         ) : (
@@ -308,14 +310,14 @@ export function RequirementDetail() {
                 <TableHead>标题</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>创建时间</TableHead>
-                <TableHead className="w-[80px]">操作</TableHead>
+                <TableHead className="ops">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {requirement.tasks.map((task: RequirementTask) => {
                 const tt = taskTypeMap[task.type] || taskTypeMap.requirement
                 return (
-                  <TableRow key={task.task_id}>
+                  <TableRow key={task.task_id} className="rowclick" onClick={() => navigate(`/tasks/${task.task_id}`)}>
                     <TableCell>
                       <Badge variant={tt.variant}>{tt.label}</Badge>
                     </TableCell>
@@ -324,10 +326,13 @@ export function RequirementDetail() {
                       <Badge variant="outline">{task.status}</Badge>
                     </TableCell>
                     <TableCell className="text-text-muted">—</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="sm" onClick={() => navigate(`/tasks/${task.task_id}`)}>
+                    <TableCell className="ops">
+                      <button
+                        className="btn btn-sm"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/tasks/${task.task_id}`) }}
+                      >
                         查看
-                      </Button>
+                      </button>
                     </TableCell>
                   </TableRow>
                 )

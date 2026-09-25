@@ -124,6 +124,8 @@ def build_stop_container_message(container_id: str) -> dict:
 # 平台侧 pending Future 表在此结算。
 # ---------------------------------------------------------------------------
 _pending_requests: dict[str, asyncio.Future] = {}
+# R32.F3:流式请求注册表(req_id → {task_id, queue})——claude_stream 事件按 req_id 路由
+_stream_requests: dict[str, dict] = {}
 
 
 async def request_runner(conn: RunnerConnection, message: dict, timeout: float = 15.0) -> dict:
@@ -161,6 +163,54 @@ def resolve_request(req_id: str, ok: bool, data=None, error: str = "") -> bool:
         fut.set_result({"ok": True, "data": data})
     else:
         fut.set_result({"ok": False, "error": error, "data": None})
+    return True
+
+
+# ---------------------------------------------------------------------------
+# R32.F3:流式对话请求(request_runner 的流式变体)
+# ---------------------------------------------------------------------------
+async def request_runner_stream(
+    conn: RunnerConnection, message: dict, timeout: float = 600.0
+) -> tuple[str, "asyncio.Queue"]:
+    """
+    下发流式指令:返回 (req_id, queue)。Runner 的每条 claude_stream 事件
+    由 route_stream_event 投入 queue;终态由 resolve_stream_request(同样吃
+    result 回报)投 {"type":"done", ok, data|error} 并注销。调用方消费队列直到 done。
+    """
+    req_id = uuid.uuid4().hex
+    message = {**message, "req_id": req_id}
+    queue: asyncio.Queue = asyncio.Queue()
+    _stream_requests[req_id] = {"task_id": message.get("task_id", ""), "queue": queue}
+    try:
+        await send_to_runner(conn, message)
+    except Exception as e:
+        _stream_requests.pop(req_id, None)
+        raise TimeoutError(f"Runner 连接不可用: {e}") from e
+
+    async def _timeout_guard() -> None:
+        await asyncio.sleep(timeout)
+        if req_id in _stream_requests:
+            resolve_stream_request(req_id, False, error="Runner 响应超时")
+
+    asyncio.get_running_loop().create_task(_timeout_guard())
+    return req_id, queue
+
+
+def route_stream_event(req_id: str, line: str) -> bool:
+    """Runner claude_stream 事件路由(无匹配 req_id 返回 False)"""
+    entry = _stream_requests.get(req_id)
+    if entry is None:
+        return False
+    entry["queue"].put_nowait({"type": "stream", "line": line})
+    return True
+
+
+def resolve_stream_request(req_id: str, ok: bool, data=None, error: str = "") -> bool:
+    """流式请求终态结算:投 done 事件并注销(result 回报与 stream 共用 req_id)"""
+    entry = _stream_requests.pop(req_id, None)
+    if entry is None:
+        return False
+    entry["queue"].put_nowait({"type": "done", "ok": ok, "data": data, "error": error})
     return True
 
 

@@ -65,6 +65,73 @@ async def run_prompt(
     }
 
 
+async def run_prompt_stream(
+    runner_conn,
+    container_id: str,
+    prompt: str,
+    task_id: str,
+    workdir: str = "/workspace/main",
+    session_id: str | None = None,
+    resume: bool = False,
+):
+    """
+    R32.F3:流式发送一轮 AI 请求(exec_tool=claude_prompt_stream)。
+    返回 (stream_iter, finalize):
+    - stream_iter:async generator,逐条产出 Runner 上泵的 stream-json 行(dict 事件)
+    - finalize():等待终态,返回 {"result", "tokens_in", "tokens_out"}(失败抛 RuntimeError)
+    调用方(task_service)边迭代边广播,结束后 await finalize() 落库。
+    """
+    import json as _json
+
+    from app.services import runner_service
+
+    req_id, queue = await runner_service.request_runner_stream(
+        runner_conn,
+        {
+            "type": "exec_tool",
+            "container_id": container_id,
+            "task_id": task_id,
+            "tool": "claude_prompt_stream",
+            "args": {
+                "prompt": prompt,
+                "workdir": workdir,
+                **({"session_id": session_id} if session_id is not None else {}),
+                **({"resume": True} if (session_id is not None and resume) else {}),
+            },
+        },
+    )
+
+    final: dict = {}
+
+    async def stream_iter():
+        while True:
+            evt = await queue.get()
+            if evt["type"] == "done":
+                final.update(evt)
+                return
+            try:
+                yield _json.loads(evt["line"])
+            except (ValueError, TypeError):
+                yield {"type": "raw", "text": evt["line"]}
+
+    async def finalize() -> dict:
+        # 调用方若提前中断迭代,这里排空队列直到 done
+        while "type" not in final:
+            evt = await queue.get()
+            if evt["type"] == "done":
+                final.update(evt)
+        if not final.get("ok"):
+            raise RuntimeError(final.get("error") or "AI 执行失败")
+        data = final.get("data") or {}
+        return {
+            "result": data.get("result", ""),
+            "tokens_in": int(data.get("tokens_in", 0) or 0),
+            "tokens_out": int(data.get("tokens_out", 0) or 0),
+        }
+
+    return stream_iter(), finalize
+
+
 def build_claude_exec(prompt: str, workdir: str = "/workspace/main") -> tuple[str, str]:
     """构造容器内 claude CLI 命令(Runner exec_tool=claude_prompt 调用)"""
     quoted = shlex.quote(prompt)

@@ -9,6 +9,7 @@
  *   4006 单任务累计上传超限(>200MB)
  */
 
+import { useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from './client'
 import { useAuthStore } from '@/stores/authStore'
@@ -33,6 +34,9 @@ export interface TaskListItem {
   created_at: string
   started_at: string | null
   finished_at: string | null
+  // R26:项目级任务列表需要需求归属信息
+  req_id?: string | null
+  req_title?: string | null
 }
 
 export interface TaskListResponse {
@@ -129,6 +133,11 @@ export function getTaskErrorMessage(code: number, fallback = '操作失败'): st
 }
 
 // ---- API functions ----
+export async function fetchProjectTasks(projectId: string): Promise<TaskListResponse> {
+  const res = await api.get<TaskListResponse>(`/projects/${projectId}/tasks`)
+  return res.data
+}
+
 export async function fetchTasks(reqId: string): Promise<TaskListResponse> {
   const res = await api.get<TaskListResponse>(`/requirements/${reqId}/tasks`)
   return res.data
@@ -218,6 +227,14 @@ export async function fetchTaskPreviews(taskId: string): Promise<{ url: string |
 }
 
 // ---- React Query hooks ----
+export function useProjectTaskList(projectId: string) {
+  return useQuery({
+    queryKey: ['project-tasks', projectId],
+    queryFn: () => fetchProjectTasks(projectId),
+    enabled: !!projectId,
+  })
+}
+
 export function useTaskList(reqId: string) {
   return useQuery({
     queryKey: ['tasks', reqId],
@@ -276,6 +293,34 @@ export function useSendTaskMessage(taskId: string) {
     mutationFn: (content: string) => sendTaskMessage(taskId, content),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['task-messages', taskId] }),
   })
+}
+
+// ---------------------------------------------------------------------------
+// R32.F3:对话流式事件(复用任务事件 WS /ws/tasks/:id/events)
+// ---------------------------------------------------------------------------
+/** 订阅 chat_delta / chat_done 实时事件;组件卸载自动断连 */
+export function useTaskChatStream(
+  taskId: string,
+  handlers: { onDelta: (text: string) => void; onDone: () => void },
+) {
+  const cbRef = useRef(handlers)
+  cbRef.current = handlers
+  useEffect(() => {
+    const token = useAuthStore.getState().token
+    if (!token || !taskId) return
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/tasks/${taskId}/events?token=${token}`)
+    ws.onmessage = (e) => {
+      try {
+        const evt = JSON.parse(e.data)
+        if (evt.type === 'chat_delta' && typeof evt.text === 'string') cbRef.current.onDelta(evt.text)
+        else if (evt.type === 'chat_done') cbRef.current.onDone()
+      } catch {
+        /* 忽略非法消息 */
+      }
+    }
+    return () => ws.close()
+  }, [taskId])
 }
 
 export function useUploadTaskFile(taskId: string) {

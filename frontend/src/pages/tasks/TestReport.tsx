@@ -79,7 +79,7 @@ export default function TestReport({ taskIdProp, embedded = false }: { taskIdPro
   }
 
   return (
-    <div className={embedded ? '' : 'page wide'}>
+    <div className={embedded ? 'emb-pad' : 'page wide'}>
       {!embedded && (
         <div className="page-head">
           {/* R2.F8(BUG-UI-068):h1 补 icon 惯例 */}

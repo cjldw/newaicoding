@@ -30,6 +30,42 @@ ws_router = APIRouter(tags=["任务"])
 
 
 # ---------------------------------------------------------------------------
+# 项目级任务列表(R26:项目详情页任务 tab)
+# ---------------------------------------------------------------------------
+@router.get("/projects/{project_id}/tasks")
+async def list_project_tasks(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """项目下的任务列表(项目成员;按需求聚合)"""
+    # 校验项目成员权限
+    project = (await db.execute(
+        select(Project).where(Project.project_id == project_id)
+    )).scalars().first()
+    if project is None:
+        raise BizError(404, "项目不存在", status_code=404)
+    await project_member_service.require_project_role(db, project, current_user, "viewer")
+
+    # 查询项目下所有任务
+    rows = (await db.execute(
+        select(Task).where(Task.project_id == project_id).order_by(Task.created_at.desc(), Task.id.desc())
+    )).scalars().all()
+    items = []
+    for t in rows:
+        brief = task_service.task_brief(t)
+        brief["created_by"] = await task_service._creator_brief(db, t.created_by)
+        # 补充需求标题(用于分组显示)
+        req = (await db.execute(
+            select(Requirement).where(Requirement.req_id == t.req_id)
+        )).scalars().first()
+        if req:
+            brief["req_title"] = req.title
+        items.append(brief)
+    return success(data={"items": items})
+
+
+# ---------------------------------------------------------------------------
 # 任务列表 / 创建
 # ---------------------------------------------------------------------------
 @router.get("/requirements/{req_id}/tasks")
@@ -404,9 +440,9 @@ async def send_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """发送消息(@filename 引用;Claude CLI 兜底执行)"""
+    """发送消息(@filename 引用;R32.F3 流式执行:增量经 /ws/tasks/:id/events 实时下发)"""
     task = await task_service.get_task_or_404(db, task_id)
-    data = await task_service.send_message(db, task, current_user, req.content)
+    data = await task_service.send_message_stream(db, task, current_user, req.content)
     return success(data=data)
 
 

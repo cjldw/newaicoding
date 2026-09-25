@@ -25,7 +25,7 @@ from app.models.project import Project
 from app.models.requirement import Requirement
 from app.models.task import Task, TaskMessage, TaskUploadedFile
 from app.models.user import User
-from app.services import claude_service, container_service, runner_service
+from app.services import claude_service, container_service, mcp_service, runner_service, skill_service
 from app.services.audit_service import audit_write, spawn_audit_write  # R25 审计接入
 from app.database import async_session_factory
 from app.services.auth_service import AUDIT_PLACEHOLDER_USER_ID as AUDIT_SYSTEM_USER_ID
@@ -414,6 +414,44 @@ async def start_task(db: AsyncSession, task: Task, project: Project, requirement
 
 
 # ---------------------------------------------------------------------------
+# R32.F1:任务容器 claude 资产注入(Skills + MCP)
+# ---------------------------------------------------------------------------
+async def inject_task_claude_assets(db: AsyncSession, task: Task, container: Container) -> None:
+    """
+    容器就绪(container_started)后,把项目已安装 Skills 与 MCP 配置写入容器:
+    - Skills → /root/.claude/skills/{name}.md(claude CLI 进程级加载,对话/终端同享)
+    - MCP    → /root/.claude.json 的 mcpServers 段(脱敏库取解密配置)
+    经 Runner exec_tool=claude_inject 下发,Runner 侧线程池执行(与 claude_prompt 同路,
+    不堵事件循环);无技能且无 MCP 配置时零下发。
+    """
+    runner_conn = runner_registry.get(container.runner_id)
+    if runner_conn is None:
+        return
+
+    skills = await skill_service.list_project_skill_contents(db, task.project_id)
+    # mcp_service 需要 Project 实体;task.project 未必预加载(懒加载在 async 下会炸)
+    project = (
+        await db.execute(select(Project).where(Project.project_id == task.project_id).limit(1))
+    ).scalar_one_or_none()
+    mcp_cfg = await mcp_service.get_decrypted_config(db, project) if project is not None else None
+    mcp_servers = (mcp_cfg or {}).get("mcpServers") or {}
+    if not skills and not mcp_servers:
+        return
+
+    await runner_service.request_runner(
+        runner_conn,
+        {
+            "type": "exec_tool",
+            "container_id": container.container_id,
+            "tool": "claude_inject",
+            "args": {"skills": skills, "mcp_config": {"mcpServers": mcp_servers} if mcp_servers else {}},
+        },
+        timeout=30.0,
+    )
+    logger.info("claude 资产已注入 task=%s skills=%d mcp=%d", task.task_id, len(skills), len(mcp_servers))
+
+
+# ---------------------------------------------------------------------------
 # 对话
 # ---------------------------------------------------------------------------
 async def ensure_claude_session(db: AsyncSession, task: Task) -> tuple[str, bool]:
@@ -503,6 +541,107 @@ async def send_message(db: AsyncSession, task: Task, operator: User, content: st
         "result": response["result"][:500],
     })
     logger.info("任务消息完成 task=%s tokens=%d/%d", task.task_id, response["tokens_in"], response["tokens_out"])
+    return {"message_id": user_msg.message_id}
+
+
+def _stream_event_to_chat(evt: dict) -> dict | None:
+    """
+    R32.F3:claude stream-json 事件 → 前端 chat 增量。
+    assistant 事件:逐 content block 文本增量(与终端流式视觉一致);
+    其余类型(system/init、user 工具结果等)忽略。result 不上泵(终态 finalize 承载)。
+    """
+    if evt.get("type") == "assistant":
+        msg = evt.get("message") or {}
+        for block in msg.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text" and block.get("text"):
+                return {"type": "chat_delta", "text": block["text"]}
+    if evt.get("type") == "raw":
+        return {"type": "chat_delta", "text": evt.get("text", "")}
+    return None
+
+
+async def send_message_stream(db: AsyncSession, task: Task, operator: User, content: str) -> dict:
+    """
+    R32.F3:流式发送消息 —— 同步段(校验+user 落库)同 send_message;
+    AI 执行段走 claude_prompt_stream,assistant 文本增量经 task_event_registry
+    实时广播({"type":"chat_delta"}),终态落库后广播 {"type":"chat_done"}。
+    返回值同 send_message(POST 立即返回,不等 AI 跑完)。
+    """
+    from app.services import file_upload_service
+
+    enhanced_prompt, file_refs = await file_upload_service.resolve_file_refs(db, task.task_id, content)
+
+    has_prior_user = (await db.execute(
+        select(func.count(TaskMessage.id)).where(
+            TaskMessage.task_id == task.task_id, TaskMessage.role == "user"
+        )
+    )).scalar() or 0
+    fix_block = _fix_context_block(task) if has_prior_user == 0 else ""
+    if fix_block:
+        enhanced_prompt = fix_block + enhanced_prompt
+
+    container = (await db.execute(
+        select(Container).where(
+            Container.task_id == task.task_id, Container.status == "running"
+        ).order_by(Container.id.desc()).limit(1)
+    )).scalars().first()
+    if container is None:
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "任务容器不在运行,无法执行 AI 会话")
+    runner_conn = runner_registry.get(container.runner_id)
+    if runner_conn is None:
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "Runner offline,AI 会话暂不可用")
+
+    user_msg = TaskMessage(
+        task_id=task.task_id, role="user", content=content, file_refs=file_refs or None,
+    )
+    db.add(user_msg)
+    await db.flush()
+
+    started = time.monotonic()
+    sid, created_now = await ensure_claude_session(db, task)
+    try:
+        stream_iter, finalize = await claude_service.run_prompt_stream(
+            runner_conn, container.container_id, enhanced_prompt, task.task_id,
+            session_id=sid, resume=not created_now,
+        )
+    except (RuntimeError, TimeoutError) as e:
+        err = TaskMessage(task_id=task.task_id, role="assistant", content=f"执行失败:{e}")
+        db.add(err)
+        await db.flush()
+        await task_event_registry.broadcast(task.task_id, {"type": "tool_call", "name": "claude", "error": str(e)})
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, f"AI 执行失败:{e}")
+
+    try:
+        async for evt in stream_iter:
+            delta = _stream_event_to_chat(evt)
+            if delta is not None:
+                await task_event_registry.broadcast(task.task_id, delta)
+        response = await finalize()
+    except RuntimeError as e:
+        err = TaskMessage(task_id=task.task_id, role="assistant", content=f"执行失败:{e}")
+        db.add(err)
+        await db.flush()
+        await task_event_registry.broadcast(task.task_id, {"type": "chat_done", "ok": False, "error": str(e)})
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, f"AI 执行失败:{e}")
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+
+    ai_msg = TaskMessage(
+        task_id=task.task_id, role="assistant", content=response["result"],
+        tokens_in=response["tokens_in"], tokens_out=response["tokens_out"],
+    )
+    db.add(ai_msg)
+
+    task.total_tokens_in += response["tokens_in"]
+    task.total_tokens_out += response["tokens_out"]
+    await db.flush()
+
+    await task_event_registry.broadcast(task.task_id, {"type": "chat_done", "ok": True, "duration_ms": duration_ms})
+    await task_event_registry.broadcast(task.task_id, {
+        "type": "tool_call", "name": "claude_prompt", "duration_ms": duration_ms,
+        "result": response["result"][:500],
+    })
+    logger.info("任务消息完成(流式) task=%s tokens=%d/%d", task.task_id, response["tokens_in"], response["tokens_out"])
     return {"message_id": user_msg.message_id}
 
 
