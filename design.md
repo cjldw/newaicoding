@@ -117,3 +117,14 @@ shadcn/ui (New York) visual system, translated from the Claude Artisan catalog f
 - Avoid: using the style as decoration without functional hierarchy.
 
 <!-- Source: https://designmd.app/library/shadcn-ui · designmd.app -->
+
+---
+
+## 平台补充规范:新增/邀请类主按钮(2026-09-25 起,后续页面一律遵循)
+
+- **页头右上(acts 区)的「新建/邀请/添加/绑定」类主按钮,必须带 `+` 图标**:
+  - ui/Button 写法:`<Button variant="primary" onClick={...}><Plus className="w-4 h-4 mr-1" />新建××</Button>`
+  - 原生类写法:`<button className="btn btn-pri" onClick={...}><Plus className="w-4 h-4 mr-1" />邀请新用户</button>`
+  - 图标统一 lucide-react `Plus`,`w-4 h-4 mr-1`,文案在前图标在后不换序
+- **不加 Plus 的例外**:表单提交按钮(创建中…/保存)、从对象派生的语义化创建(如需求页「创建开发任务」用 FileText)、行内小按钮
+- 参照实现:`admin/SkillsMarket.tsx:119`、`admin/UserManagementPage.tsx`(邀请新用户)、`knowledge/KnowledgeBase.tsx`(新建条目)、`manage/DimensionPage.tsx:125`

@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Copy, Check, Users } from 'lucide-react'
+import { Search, Copy, Check, Users, Plus } from 'lucide-react'
 import {
   Table,
   TableHeader,
@@ -178,7 +178,7 @@ export default function UserManagementPage() {
           <div className="sub">平台级账号管理(仅超管)· 禁用即全失效:登录被拒 + 现有 JWT 立即失效(token_version)+ 进行中任务立即取消(销毁前强制 push)</div>
         </div>
         <div className="acts">
-          <button className="btn btn-pri" onClick={handleInvite}>邀请新用户</button>
+          <button className="btn btn-pri" onClick={handleInvite}><Plus className="w-4 h-4 mr-1" />邀请新用户</button>
         </div>
       </div>
 
