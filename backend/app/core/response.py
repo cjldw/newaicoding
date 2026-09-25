@@ -103,6 +103,9 @@ class ErrCode:
     # R20 知识库空间
     KB_IMPORT_READONLY = 20002     # repo_import 只读(写操作一律 403,含超管)
 
+    # R2 知识条目详情(2xxxx 段顺延)
+    KB_CODE_UNREACHABLE = 20012    # 代码来源不可达(path 404/仓库已解绑/分支已删除,详情页降级占位)
+
     # R15 网关
     DEPLOY_HOST_CONFLICT = 15001   # deploy_host 全平台唯一,冲突拒绝
 

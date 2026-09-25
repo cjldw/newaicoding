@@ -40,6 +40,7 @@ import ArchivePage from '@/pages/requirements/ArchivePage'
 import KnowledgeBase from '@/pages/knowledge/KnowledgeBase'
 import KnowledgeBaseList from '@/pages/knowledge/KnowledgeBaseList'
 import KnowledgeBaseView from '@/pages/knowledge/KnowledgeBaseView'
+import EntryDetail from '@/pages/knowledge/EntryDetail'
 import { NotificationCenter } from '@/pages/notifications/NotificationCenter'
 import { RequirementsManage, TasksManage, TestsManage, ReleasesManage } from '@/pages/manage/ManagePages'
 import { RequireRole } from '@/components/RequireRole'
@@ -65,6 +66,9 @@ export const router = createBrowserRouter([
       { path: 'tasks/:taskId/report', element: <TestReport /> },
       { path: 'requirements/:reqId/archive', element: <ArchivePage /> },
       { path: 'projects/:projectId/knowledge', element: <KnowledgeBase /> },
+      // R2:知识条目详情(项目级/平台级双路由共用 EntryDetail)
+      { path: 'projects/:projectId/knowledge/:entryId', element: <EntryDetail /> },
+      { path: 'knowledge/:entryId', element: <EntryDetail /> },
       { path: 'projects/:projectId/knowledge-bases', element: <KnowledgeBaseList /> },
       { path: 'projects/:projectId/knowledge-bases/:kbId', element: <KnowledgeBaseView /> },
       { path: 'knowledge', element: <KnowledgeBase /> },

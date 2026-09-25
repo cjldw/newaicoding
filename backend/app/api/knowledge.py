@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.response import BizError, success
+from app.core.response import BizError, ErrCode, success
 from app.database import get_db
 from app.models.project import Project
 from app.models.user import User
@@ -87,17 +87,54 @@ async def list_platform_knowledge(
     return success(data=data)
 
 
+async def _ensure_entry_readable(db: AsyncSession, entry, user: User) -> None:
+    """R2 权限口径:项目级条目要求项目 viewer+(非成员 403);平台级登录即可"""
+    if entry.project_id is None:
+        return
+    project = (await db.execute(
+        select(Project).where(Project.project_id == entry.project_id)
+    )).scalars().first()
+    if project is None:
+        raise BizError(404, "知识条目不存在", status_code=404)
+    await project_member_service.require_project_role(db, project, user, "viewer")
+
+
 @router.get("/knowledge/{entry_id}")
 async def get_knowledge_detail(
     entry_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """知识条目详情(Markdown 内容)"""
+    """知识条目详情(Markdown 内容;R2 收紧权限 + permissions 块 R3 预埋)"""
     entry = await knowledge_service.get_entry_or_404(db, entry_id)
-    data = await knowledge_service._entry_brief(entry)
+    await _ensure_entry_readable(db, entry, current_user)
+    # R14 存量 bug 顺带修复:_entry_brief 为同步函数,误 await 导致 detail 必 500
+    data = knowledge_service._entry_brief(entry)
     data["content"] = entry.content
     data["source_links"] = entry.source_links or []
+    data["permissions"] = await knowledge_service.entry_permissions(db, entry, current_user)
+    return success(data=data)
+
+
+@router.get("/knowledge/{entry_id}/code")
+async def get_knowledge_entry_code(
+    entry_id: str,
+    path: str = Query(default=""),
+    refresh: str = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    条目代码引用按路径拉取(R2 A 型详情逐块消费,失败互不影响):
+    - 文件全量返回不截断;目录递归拉全组树(>200 文件截断 partial:true)
+    - 服务端缓存 TTL 5 分钟,refresh=1 穿透;404/仓库解绑 → code 20012
+    - 鉴权同 detail(项目级 viewer / 平台级登录)
+    """
+    entry = await knowledge_service.get_entry_or_404(db, entry_id)
+    await _ensure_entry_readable(db, entry, current_user)
+    data = await knowledge_service.get_entry_code(
+        db, entry, path=path, refresh=refresh in ("1", "true"),
+    )
     return success(data=data)
 
 

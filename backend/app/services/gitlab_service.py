@@ -456,26 +456,38 @@ async def bot_create_branch(bot_token: str, gitlab_url: str, repo_id: int, branc
 
 
 async def bot_get_tree(bot_token: str, gitlab_url: str, repo_id: int,
-                       ref: str, path: str) -> list:
+                       ref: str, path: str, recursive: bool = False) -> list:
     """
-    仓库文件树:GET /api/v4/projects/{id}/repository/tree?ref&path(单层)
-    失败(分支/路径不存在)抛 BizError。
+    仓库文件树:GET /api/v4/projects/{id}/repository/tree?ref&path
+    recursive=True 时递归取全树(R2 条目详情目录拉全用)。
+    GitLab 单页 ≤100 条,此处按 page 循环拉齐(短页即止);失败(分支/路径不存在)抛 BizError。
     """
     from app.core.response import BizError
 
     client = _get_client()
     try:
-        resp = await client.get(
-            f"{gitlab_url.rstrip('/')}/api/v4/projects/{repo_id}/repository/tree",
-            headers=_bot_headers(bot_token),
-            params={"ref": ref, "path": path or "", "per_page": 100},
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        if resp.status_code == 404:
-            return []
-        logger.warning("GitLab tree 失败 repo=%s %s: %s", repo_id, resp.status_code, resp.text[:200])
-        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "无法加载,请稍后重试")
+        entries: list = []
+        page = 1
+        while True:
+            params = {"ref": ref, "path": path or "", "per_page": 100, "page": page}
+            if recursive:
+                params["recursive"] = "true"
+            resp = await client.get(
+                f"{gitlab_url.rstrip('/')}/api/v4/projects/{repo_id}/repository/tree",
+                headers=_bot_headers(bot_token),
+                params=params,
+            )
+            if resp.status_code == 200:
+                batch = resp.json() or []
+                entries.extend(batch)
+                if len(batch) < 100:   # 短页 = 最后一页
+                    return entries
+                page += 1
+                continue
+            if resp.status_code == 404:
+                return []
+            logger.warning("GitLab tree 失败 repo=%s %s: %s", repo_id, resp.status_code, resp.text[:200])
+            raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "无法加载,请稍后重试")
     except httpx.HTTPError as e:
         logger.warning("GitLab tree 连接失败: %s", e)
         raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "无法加载,请稍后重试")

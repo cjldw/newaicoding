@@ -7,7 +7,7 @@
  * 分页 + 新建条目 Dialog
  */
 import { useState, useMemo, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { BookOpen } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -75,6 +75,7 @@ type TabKey = 'project' | 'platform'
 
 export default function KnowledgeBase() {
   const { projectId } = useParams<{ projectId: string }>()
+  const nav = useNavigate()
   const isProjectScope = !!projectId
 
   // Tab(仅项目级显示)
@@ -200,7 +201,14 @@ export default function KnowledgeBase() {
           const tb = typeBadgeMap[entry.type] ?? typeBadgeMap.doc
           const sb = statusBadgeMap[entry.status] ?? statusBadgeMap.draft
           return (
-            <Card key={entry.entry_id} className="card p-4 flex flex-col gap-2 hover:border-primary transition-colors">
+            <Card
+              key={entry.entry_id}
+              className="card p-4 flex flex-col gap-2 hover:border-primary transition-colors cursor-pointer"
+              /* R2:卡片点击进详情(项目级/平台级按 entry.project_id 选路由) */
+              onClick={() => nav(entry.project_id
+                ? `/projects/${entry.project_id}/knowledge/${entry.entry_id}`
+                : `/knowledge/${entry.entry_id}`)}
+            >
               <div className="flex items-center justify-between">
                 <Badge variant={tb.variant}>{tb.label}</Badge>
                 <Badge variant={sb.variant}>{sb.label}</Badge>
