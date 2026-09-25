@@ -273,6 +273,7 @@ export default function KnowledgeBase() {
         </div>
         <div className="acts">
           <Button variant="primary" onClick={openCreate}>
+            <Plus className="w-4 h-4 mr-1" />
             新建条目
           </Button>
         </div>
