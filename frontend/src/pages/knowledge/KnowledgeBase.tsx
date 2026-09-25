@@ -1,7 +1,8 @@
 /**
  * KnowledgeBase — 知识库页
  * - /projects/:projectId/knowledge(项目级,带 Tab 切换 项目知识库 / 平台知识库)
- * - /knowledge(平台级,无 Tab,标题"知识条目",对齐 vp L1544:icon + 标题 + 说明)
+ * - /knowledge(平台级,R4.F2/BUG-KB-003:同渲染双 Tab;默认「平台知识库」,
+ *   项目 Tab 用 scopePid + 项目 Select 选项目浏览;创建入口按 activeTab 语义)
  * 工具栏:搜索(300ms 防抖)+ 类型筛选 + "新建条目"
  * 卡片网格:xl=3 / md=2 / sm=1,每张卡=类型徽章+标题+摘要行(R4:接口 summary;A 型无 content 显示「关联代码 · n 个路径」占位,否则不显示)+标签+状态徽章+创建时间
  * 分页 + 新建条目 Dialog(R1 双类型:直接创建 | 关联代码;R1.F1:平台级创建成功进 Dialog 成功态,引导前往项目知识库)
@@ -109,8 +110,10 @@ export default function KnowledgeBase() {
   const nav = useNavigate()
   const isProjectScope = !!projectId
 
-  // Tab(仅项目级显示)
-  const [tab, setTab] = useState<TabKey>('project')
+  // Tab(R4.F2:项目/平台 scope 均渲染双 Tab;项目 scope 默认「项目知识库」,平台 scope 默认「平台知识库」)
+  const [tab, setTab] = useState<TabKey>(isProjectScope ? 'project' : 'platform')
+  // R4.F2:平台 scope「项目知识库」Tab 浏览的项目(项目 scope 固定路由 projectId,不用)
+  const [scopePid, setScopePid] = useState('')
 
   // 列表参数(搜索 / 类型 / 页码)
   const [q, setQ] = useState('')
@@ -124,8 +127,8 @@ export default function KnowledgeBase() {
     return () => clearTimeout(t)
   }, [q])
 
-  // 切换 tab / 筛选时重置页码
-  useEffect(() => { setPage(1) }, [tab, debouncedQ, typeFilter])
+  // 切换 tab / 筛选 / 项目(scopePid)时重置页码
+  useEffect(() => { setPage(1) }, [tab, debouncedQ, typeFilter, scopePid])
 
   const params: KnowledgeListParams = useMemo(() => ({
     q: debouncedQ || undefined,
@@ -134,11 +137,12 @@ export default function KnowledgeBase() {
     page_size: PAGE_SIZE,
   }), [debouncedQ, typeFilter, page])
 
-  const projectQ = useProjectKnowledge(projectId ?? '', params)
+  // R4.F2:项目列表 pid = 项目 scope 路由参数,平台 scope 取 scopePid;
+  // 未选项目时 pid 为空,hook enabled:!!pid 兜底不发请求
+  const listPid = projectId ?? scopePid
+  const projectQ = useProjectKnowledge(listPid, params)
   const platformQ = usePlatformKnowledge(params)
-  const activeQ = isProjectScope
-    ? (tab === 'project' ? projectQ : platformQ)
-    : platformQ
+  const activeQ = tab === 'project' ? projectQ : platformQ
 
   const items = activeQ.data?.items ?? []
   const total = activeQ.data?.total ?? 0
@@ -214,7 +218,8 @@ export default function KnowledgeBase() {
     setCodeBranch('')
     setCodePaths([''])
     setCreateErr(null)
-    setTargetProjectId('')
+    // R4.F2:平台 scope 按 Tab 语义预填归属项目(项目 Tab=当前选中项目;平台 Tab=留空自选)
+    setTargetProjectId(!isProjectScope && tab === 'project' ? scopePid : '')
     setCreateSuccess(null)
     setShowCreate(true)
   }
@@ -294,23 +299,31 @@ export default function KnowledgeBase() {
         </div>
       </div>
 
-      {/* Tab(仅项目级) */}
-      {isProjectScope && (
-        <div className="tabs">
-          {(['project', 'platform'] as TabKey[]).map((k) => (
-            <button
-              key={k}
-              onClick={() => setTab(k)}
-              className={`tab${tab === k ? ' active' : ''}`}
-            >
-              {k === 'project' ? '项目知识库' : '平台知识库'}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Tab(R4.F2:项目/平台 scope 均渲染) */}
+      <div className="tabs">
+        {(['project', 'platform'] as TabKey[]).map((k) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className={`tab${tab === k ? ' active' : ''}`}
+          >
+            {k === 'project' ? '项目知识库' : '平台知识库'}
+          </button>
+        ))}
+      </div>
 
       {/* 工具栏 */}
       <div className="flex flex-wrap items-center gap-3 mb-5">
+        {/* R4.F2:平台 scope「项目知识库」Tab 左侧项目选择(项目 scope 固定当前项目,不显示) */}
+        {!isProjectScope && tab === 'project' && (
+          <Select
+            options={projectOptions}
+            value={scopePid}
+            placeholder="请选择项目"
+            onChange={(e) => setScopePid(e.target.value)}
+            className="w-[180px]"
+          />
+        )}
         <Input
           placeholder="搜索知识条目..."
           value={q}
@@ -369,7 +382,8 @@ export default function KnowledgeBase() {
         })}
         {!activeQ.isLoading && items.length === 0 && (
           <div className="col-span-full text-center text-text-muted py-16">
-            暂无知识条目
+            {/* R4.F2:平台 scope 项目 Tab 未选项目时给引导空态 */}
+            {!isProjectScope && tab === 'project' && !scopePid ? '请选择项目' : '暂无知识条目'}
           </div>
         )}
         {activeQ.isLoading && (

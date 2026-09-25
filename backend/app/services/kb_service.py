@@ -168,6 +168,8 @@ async def rename_kb(db: AsyncSession, kb: KnowledgeBase, name: Optional[str], de
     if description is not None:
         kb.description = description
     await db.flush()
+    # R2.F4:同 update_doc —— flush 后 _kb_brief 读过期的 updated_at 触发 MissingGreenlet
+    await db.refresh(kb)
     return _kb_brief(kb)
 
 
@@ -245,6 +247,9 @@ async def update_doc(db: AsyncSession, kb: KnowledgeBase, operator: User,
         doc.content = content
     doc.updated_by = operator.user_id
     await db.flush()
+    # R2.F4:onupdate=func.now() 使 updated_at 过期,flush 后直接读会触发
+    # 隐式同步 SELECT → MissingGreenlet(编辑保存恒 500);refresh 后再取值
+    await db.refresh(doc)
     return {"doc_id": doc.doc_id, "updated_at": doc.updated_at}
 
 

@@ -4,4 +4,4 @@
 
 ## UI 相关问题
 
-(当前无活跃问题——BUG-KB-001 已 verified,迁移至 ISSUES.md)
+(当前无活跃问题——BUG-KB-001/002/003/004 均 verified,迁移至 ISSUES.md)
