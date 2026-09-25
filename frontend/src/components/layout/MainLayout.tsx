@@ -375,7 +375,10 @@ export function MainLayout() {
             </div>
           </div>
         </header>
-        <Outlet />
+        {/* R2.F3:路由内容滚动容器——滚动收敛到内层,搜索框等页面内容不再滚入半透明顶栏下方(BUG-KB-002) */}
+        <div className="route-scroll">
+          <Outlet />
+        </div>
       </div>
 
       {/* R29:平台导览弹窗(条件挂载,open 时才拉取步骤数据) */}
