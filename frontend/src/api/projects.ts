@@ -214,6 +214,24 @@ export function useUnbindRepo() {
   })
 }
 
+// ---- 仓库分支列表(R1:知识条目「关联代码」创建 Dialog 的分支下拉) ----
+export interface RepoBranch {
+  name: string
+  default: boolean
+}
+
+export function useProjectRepoBranches(projectId: string, repoId: string) {
+  return useQuery({
+    queryKey: ['project-repo-branches', projectId, repoId],
+    queryFn: async () => {
+      const res = await api.get<RepoBranch[]>(`/projects/${projectId}/repos/${repoId}/branches`)
+      return res.data
+    },
+    enabled: !!projectId && !!repoId,
+    retry: false,
+  })
+}
+
 // ---- 成员管理(R12) ----
 export interface ProjectMember {
   user_id: string

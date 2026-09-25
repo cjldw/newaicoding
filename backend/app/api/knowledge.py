@@ -1,20 +1,23 @@
-"""知识库路由 - R14(归档数据/知识条目 CRUD/发布/提升)"""
+"""知识库路由 - R14(归档数据/知识条目 CRUD/发布/提升)- R2(详情权限/代码引用)- R1(双类型创建/分支列表)"""
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.core.response import BizError, ErrCode, success
 from app.database import get_db
-from app.models.project import Project
+from app.models.project import Project, ProjectRepo
 from app.models.user import User
-from app.services import knowledge_service, project_member_service
+from app.services import gitlab_service, knowledge_service, project_member_service
 
 router = APIRouter(prefix="/api", tags=["知识库"])
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -144,9 +147,64 @@ async def get_knowledge_entry_code(
 class CreateKnowledgeRequest(BaseModel):
     type: str = Field(min_length=1, max_length=32)
     title: str = Field(min_length=1, max_length=128)
-    content: str = Field(min_length=1)
+    content: str = ""
     tags: list[str] = Field(default_factory=list)
     source_links: list[dict] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _content_required_for_direct_create(self):
+        """R1 字段定义:A 型(含 code 引用)content 可选=说明文字;
+        B 型直接创建仍必填正文(缺省 422,与存量 min_length=1 口径一致)"""
+        has_code = any(
+            isinstance(link, dict) and link.get("type") == "code"
+            for link in (self.source_links or [])
+        )
+        if not has_code and len(self.content) < 1:
+            raise ValueError("直接创建必须填写 Markdown 正文")
+        return self
+
+
+# R1 A 型代码引用上限(DEVPLAN/R1.md:paths 1-10 个、单个 ≤500 字符)
+MAX_CODE_LINK_PATHS = 10
+MAX_CODE_LINK_PATH_LEN = 500
+
+
+async def _validate_code_source_links(
+    db: AsyncSession, project_id: str, source_links: Optional[list[dict]]
+) -> None:
+    """
+    R1 创建校验:source_links 含 type="code" 对象时——
+    repo_id/branch/paths 必填(缺 → 400);repo_id 必属本项目(否 → 20011);
+    paths 去空行后须 1-10 个(越界 → 20010)、单个 ≤500 字符(超 → 400)。
+    B 型/无 code 对象不校验(存量行为不变);通过后就地剔除空路径项再落库。
+    """
+    for link in source_links or []:
+        if not isinstance(link, dict) or link.get("type") != "code":
+            continue
+        paths = link.get("paths")
+        if not link.get("repo_id") or not link.get("branch") or not isinstance(paths, list):
+            logger.info("知识条目创建缺代码引用必填字段 project=%s", project_id)
+            raise BizError(400, "代码引用缺少必填字段(repo_id/branch/paths)", status_code=400)
+        cleaned = [p.strip() for p in paths if isinstance(p, str) and p.strip()]
+        if not cleaned:
+            raise BizError(ErrCode.KB_PATHS_LIMIT, "至少填写 1 个路径", status_code=400)
+        if len(cleaned) > MAX_CODE_LINK_PATHS:
+            logger.info("知识条目创建路径数超限 project=%s count=%s", project_id, len(cleaned))
+            raise BizError(ErrCode.KB_PATHS_LIMIT, "路径最多 10 个", status_code=400)
+        if any(len(p) > MAX_CODE_LINK_PATH_LEN for p in cleaned):
+            logger.info("知识条目创建单路径超长 project=%s", project_id)
+            raise BizError(400, "单个路径不能超过 500 字符", status_code=400)
+        repo = (await db.execute(
+            select(ProjectRepo).where(
+                ProjectRepo.repo_id == str(link["repo_id"]),
+                ProjectRepo.project_id == project_id,
+            )
+        )).scalars().first()
+        if repo is None:
+            logger.info("知识条目创建仓库不属于项目 project=%s repo_id=%s",
+                        project_id, link["repo_id"])
+            raise BizError(ErrCode.KB_REPO_MISMATCH, "该仓库不属于本项目", status_code=400)
+        link["paths"] = cleaned
 
 
 @router.post("/projects/{project_id}/knowledge")
@@ -156,11 +214,12 @@ async def create_project_knowledge(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """项目内成员创建知识条目(人工创建直接 published)"""
+    """项目内成员创建知识条目(人工创建直接 published;R1 双类型:A 关联代码 / B 直接创建)"""
     project = (await db.execute(
         select(Project).where(Project.project_id == project_id)
     )).scalars().first()
     await project_member_service.require_project_role(db, project, current_user, "viewer")
+    await _validate_code_source_links(db, project_id, req.source_links)
     data = await knowledge_service.create_entry(
         db, project_id, current_user,
         type=req.type, title=req.title, content=req.content,
@@ -208,3 +267,41 @@ async def promote_knowledge(
     await project_member_service.require_project_role(db, project, current_user, "owner")
     await knowledge_service.promote_entry(db, entry_id, current_user)
     return success(message="已提升到平台级")
+
+
+# ---------------------------------------------------------------------------
+# R1 分支列表(关联代码 Dialog 分支下拉)
+# ---------------------------------------------------------------------------
+@router.get("/projects/{project_id}/repos/{repo_id}/branches")
+async def list_repo_branches(
+    project_id: str,
+    repo_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """项目绑定仓库的分支列表(鉴权项目 viewer;default 分支置顶;[{name, default}])"""
+    project = (await db.execute(
+        select(Project).where(Project.project_id == project_id)
+    )).scalars().first()
+    if project is None:
+        raise BizError(404, "项目不存在", status_code=404)
+    await project_member_service.require_project_role(db, project, current_user, "viewer")
+    repo = (await db.execute(
+        select(ProjectRepo).where(
+            ProjectRepo.repo_id == repo_id,
+            ProjectRepo.project_id == project_id,
+        )
+    )).scalars().first()
+    if repo is None:
+        logger.info("分支列表仓库不属于项目 project=%s repo_id=%s", project_id, repo_id)
+        raise BizError(404, "仓库不存在", status_code=404)
+
+    from app.services.platform_settings_service import get_gitlab_bot_config
+    gitlab_url, bot_token, _group_id = await get_gitlab_bot_config(db)
+    branches = await gitlab_service.bot_list_branches(bot_token, gitlab_url, repo.gitlab_repo_id)
+    items = [
+        {"name": b.get("name") or "", "default": bool(b.get("default"))}
+        for b in branches if isinstance(b, dict)
+    ]
+    items.sort(key=lambda x: not x["default"])   # 稳定排序:default 分支置顶
+    return success(data=items)

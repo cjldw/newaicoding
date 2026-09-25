@@ -103,6 +103,10 @@ class ErrCode:
     # R20 知识库空间
     KB_IMPORT_READONLY = 20002     # repo_import 只读(写操作一律 403,含超管)
 
+    # R1 知识条目手动添加(A 型代码引用校验;2xxxx 段顺延)
+    KB_PATHS_LIMIT = 20010         # A 型代码引用 paths 数量超限(去空行后须 1-10 个)
+    KB_REPO_MISMATCH = 20011       # A 型代码引用 repo_id 不属于本项目
+
     # R2 知识条目详情(2xxxx 段顺延)
     KB_CODE_UNREACHABLE = 20012    # 代码来源不可达(path 404/仓库已解绑/分支已删除,详情页降级占位)
 

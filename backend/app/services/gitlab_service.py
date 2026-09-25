@@ -523,3 +523,30 @@ async def bot_get_file(bot_token: str, gitlab_url: str, repo_id: int, ref: str, 
         raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "无法加载,请稍后重试")
     finally:
         await client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# R1 手动添加双类型:分支列表(关联代码 Dialog 下拉)
+# ---------------------------------------------------------------------------
+async def bot_list_branches(bot_token: str, gitlab_url: str, repo_id: int) -> list:
+    """
+    分支列表:GET /api/v4/projects/{id}/repository/branches?per_page=100
+    返回 GitLab 原始数组([{name, default, commit...}]),裁剪/default 置顶由调用方负责;
+    非 200 / 网络异常 → BizError(2014,写法同 bot_get_file)。
+    """
+    client = _get_client()
+    try:
+        resp = await client.get(
+            f"{gitlab_url.rstrip('/')}/api/v4/projects/{repo_id}/repository/branches",
+            headers=_bot_headers(bot_token),
+            params={"per_page": 100},
+        )
+        if resp.status_code == 200:
+            return resp.json() or []
+        logger.warning("GitLab branches 失败 repo=%s %s: %s", repo_id, resp.status_code, resp.text[:200])
+        raise BizError(ErrCode.GITLAB_UNREACHABLE, MSG_GITLAB_UNREACHABLE)
+    except httpx.HTTPError as e:
+        logger.warning("GitLab branches 连接失败: %s", e)
+        raise BizError(ErrCode.GITLAB_UNREACHABLE, MSG_GITLAB_UNREACHABLE)
+    finally:
+        await client.aclose()

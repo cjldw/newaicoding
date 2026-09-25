@@ -120,7 +120,8 @@ export interface CreateKnowledgePayload {
   title: string
   content: string
   tags: string[]
-  source_links?: string[]
+  /** R1:B 型不传;A 型含且仅含一个 code 对象 {type:"code",repo_id,branch,paths[]} */
+  source_links?: KnowledgeSourceLink[]
 }
 
 // ---- API functions ----
