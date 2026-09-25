@@ -4,12 +4,11 @@
  * - /knowledge(平台级,无 Tab,标题"知识条目",对齐 vp L1544:icon + 标题 + 说明)
  * 工具栏:搜索(300ms 防抖)+ 类型筛选 + "新建条目"
  * 卡片网格:xl=3 / md=2 / sm=1,每张卡=类型徽章+标题+摘要行(R4:接口 summary;A 型无 content 显示「关联代码 · n 个路径」占位,否则不显示)+标签+状态徽章+创建时间
- * 分页 + 新建条目 Dialog(R1 双类型:直接创建 | 关联代码)
+ * 分页 + 新建条目 Dialog(R1 双类型:直接创建 | 关联代码;R1.F1:平台级创建成功进 Dialog 成功态,引导前往项目知识库)
  */
 import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, BookOpen, Plus, X } from 'lucide-react'
+import { AlertCircle, BookOpen, CheckCircle, Plus, X } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -164,7 +163,8 @@ export default function KnowledgeBase() {
   // 平台级(/knowledge)创建:先选归属项目,提交到该项目知识库;项目级即当前项目
   const [targetProjectId, setTargetProjectId] = useState('')
   const targetPid = isProjectScope ? (projectId ?? '') : targetProjectId
-  const qc = useQueryClient()
+  // R1.F1(BUG-KB-001):平台级创建成功态(Dialog 内引导,替代纯 toast + 无效 invalidate)
+  const [createSuccess, setCreateSuccess] = useState<{ pid: string; pname: string } | null>(null)
   const createMut = useCreateProjectKnowledge(targetPid)
 
   // 归属项目下拉(平台级):项目列表接口按当前用户成员关系返回
@@ -215,6 +215,7 @@ export default function KnowledgeBase() {
     setCodePaths([''])
     setCreateErr(null)
     setTargetProjectId('')
+    setCreateSuccess(null)
     setShowCreate(true)
   }
 
@@ -239,19 +240,33 @@ export default function KnowledgeBase() {
     }
     createMut.mutate(payload, {
       onSuccess: () => {
-        setShowCreate(false)
         if (isProjectScope) {
+          // 项目 scope 行为不变:关 Dialog + toast(列表刷新由 mutation 内 project-knowledge 失效完成)
+          setShowCreate(false)
           showToast('ok', '已创建')
         } else {
-          // 平台级:归属项目刚创建的条目不会立刻出现在平台列表,主动失效重取
-          qc.invalidateQueries({ queryKey: ['platform-knowledge'] })
+          // R1.F1(BUG-KB-001):平台 scope 不再 invalidate platform-knowledge(条目是项目级,
+          // 平台列表按设计不显示,该动作无效);Dialog 进成功态,引导前往项目知识库
           const pname = projectsData?.items.find((p) => p.project_id === targetPid)?.name
             ?? '所选项目'
-          showToast('ok', `已创建到项目「${pname}」知识库;平台级条目由项目 owner 提升产生`)
+          setCreateSuccess({ pid: targetPid, pname })
         }
       },
       onError: (e) => setCreateErr(createErrorMessage(e)),
     })
+  }
+
+  // 成功态:前往项目知识库查看(mutation 已失效项目列表,落页即可见新条目)
+  const goCreatedProjectKnowledge = () => {
+    if (!createSuccess) return
+    nav(`/projects/${createSuccess.pid}/knowledge`)
+    setShowCreate(false)
+    setCreateSuccess(null)
+  }
+  // 成功态:关闭 Dialog
+  const closeCreateSuccess = () => {
+    setShowCreate(false)
+    setCreateSuccess(null)
   }
 
   const title = isProjectScope
@@ -389,9 +404,36 @@ export default function KnowledgeBase() {
         </div>
       )}
 
-      {/* 新建条目 Dialog(R1 双类型:顶部 Tab「直接创建 | 关联代码」) */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      {/* 新建条目 Dialog(R1 双类型:顶部 Tab「直接创建 | 关联代码」;R1.F1:平台级创建成功进成功态) */}
+      <Dialog
+        open={showCreate}
+        onOpenChange={(o) => { setShowCreate(o); if (!o) setCreateSuccess(null) }}
+      >
         <DialogContent>
+          {!isProjectScope && createSuccess ? (
+            <>
+              {/* R1.F1(BUG-KB-001):平台级创建成功态 — CheckCircle + 成功文案 + 引导按钮 */}
+              <div className="flex flex-col items-center text-center gap-2 py-6">
+                <CheckCircle className="w-10 h-10 text-green-fg" />
+                <h2 className="text-lg font-semibold text-text">创建成功</h2>
+                <p className="text-sm text-text-muted max-w-[360px]">
+                  条目已创建到项目「{createSuccess.pname}」知识库;平台级条目由项目 owner 提升产生
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button variant="primary" onClick={goCreatedProjectKnowledge}>
+                  前往项目知识库查看
+                </Button>
+                <Button variant="outline" onClick={openCreate}>
+                  继续创建
+                </Button>
+                <Button variant="ghost" onClick={closeCreateSuccess}>
+                  关闭
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
           <DialogHeader>
             <DialogTitle>新建知识条目</DialogTitle>
             <DialogDescription>在项目知识库中创建一条新知识</DialogDescription>
@@ -607,6 +649,8 @@ export default function KnowledgeBase() {
               {createMut.isPending ? '创建中...' : '创建'}
             </Button>
           </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
       {ToastEl}
