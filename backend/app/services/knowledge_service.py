@@ -14,6 +14,7 @@ from app.models.project import Project, ProjectRepo
 from app.models.requirement import Requirement
 from app.models.user import User
 from app.services import gitlab_service
+from app.services.audit_service import audit_write   # R3 编辑/删除审计(事务内,失败不阻塞)
 from app.services.project_member_service import get_project_role, require_project_role
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,8 @@ async def create_entry(
         tags=tags or [],
         source_links=source_links or [],
         created_by=created_by_kind,
+        # R3:创建者用户 id(创建者本人可编删判定;operator 为空=系统/历史路径 → NULL)
+        created_by_user_id=operator.user_id if operator is not None else None,
         status=status,
     )
     db.add(entry)
@@ -179,10 +182,10 @@ AI_EDITABLE_FIELDS = ["tags"]
 
 async def entry_permissions(db: AsyncSession, entry: KnowledgeEntry, user: User) -> dict:
     """
-    详情页 permissions 块:{can_edit, can_delete, editable_fields}。
-    项目级:按有效角色(viewer 只读/editor 可编辑可删/owner 可编辑可删,超管=虚拟 owner);
-    平台级:普通用户只读,仅超管可编辑可删(R3 矩阵)。
-    注:R3「创建者本人可编辑」依赖 created_by_user_id 列(该列落地后在此追加判断)。
+    详情页 permissions 块:{can_edit, can_delete, editable_fields}(R3 口径)。
+    项目级:创建者本人(created_by_user_id 相等)或 owner/editor 可编可删;viewer/非成员只读;
+    平台级:仅超管可编可删(创建者本人不放宽)。
+    历史行 created_by_user_id=NULL → 创建者判定不命中,回落角色判定(回落安全)。
     """
     if entry.project_id is not None:
         project = (await db.execute(
@@ -192,9 +195,17 @@ async def entry_permissions(db: AsyncSession, entry: KnowledgeEntry, user: User)
     else:
         role = "owner" if user.role == "superadmin" else ""
 
-    can_edit = role in ("editor", "owner")
-    # R3 口径:创建者本人 + 项目 owner/editor 可删(B1 收口:editor 亦有删除权)
-    can_delete = role in ("editor", "owner")
+    # R3 创建者本人判定(NULL 不命中)
+    is_creator = bool(entry.created_by_user_id) and entry.created_by_user_id == user.user_id
+
+    if entry.project_id is not None:
+        can_edit = role in ("editor", "owner") or is_creator
+        # R3 口径:创建者本人 + 项目 owner/editor 可删(B1 收口:editor 亦有删除权)
+        can_delete = role in ("editor", "owner") or is_creator
+    else:
+        # R3 矩阵:平台级仅超管
+        can_edit = role == "owner"
+        can_delete = role == "owner"
     if not can_edit:
         editable_fields: list = []
     elif entry.created_by == "ai":
@@ -202,6 +213,82 @@ async def entry_permissions(db: AsyncSession, entry: KnowledgeEntry, user: User)
     else:
         editable_fields = list(HUMAN_EDITABLE_FIELDS)
     return {"can_edit": can_edit, "can_delete": can_delete, "editable_fields": editable_fields}
+
+
+# ---------------------------------------------------------------------------
+# R3 编辑 / 删除(物理删除;写口径:项目级=创建者本人或 owner/editor,平台级=仅超管)
+# ---------------------------------------------------------------------------
+# 条目类型合法值(model Enum 同款;PATCH 改 type 时校验,非法 → 400 避免 500)
+ALLOWED_ENTRY_TYPES = ("code_snippet", "pattern", "pitfall", "doc")
+
+MSG_AI_ONLY_TAGS = "AI 条目仅支持编辑标签"
+
+
+async def _ensure_entry_writable(db: AsyncSession, entry: KnowledgeEntry, operator: User) -> str:
+    """
+    R3 写操作(PATCH/DELETE)统一鉴权,返回有效角色(仅供日志):
+    - 项目级:创建者本人(created_by_user_id 相等且非 NULL)或 owner/editor 放行;
+      viewer/非成员 → require_project_role("editor") 抛 403/1901(与项目 Guard 同码)
+    - 平台级:仅超管(创建者本人不放宽)→ 403 NOT_SUPERADMIN(与平台发布口同码)
+    """
+    if entry.project_id is not None:
+        project = (await db.execute(
+            select(Project).where(Project.project_id == entry.project_id)
+        )).scalars().first()
+        if project is None:
+            raise BizError(404, "知识条目不存在", status_code=404)
+        role = await get_project_role(db, project, operator)
+        is_creator = bool(entry.created_by_user_id) and entry.created_by_user_id == operator.user_id
+        if role not in ("editor", "owner") and not is_creator:
+            await require_project_role(db, project, operator, "editor")   # → 403/1901
+    else:
+        if operator.role != "superadmin":
+            logger.info("知识条目写操作被拒(平台级非超管) entry=%s by=%s",
+                        entry.entry_id, operator.user_id)
+            raise BizError(ErrCode.NOT_SUPERADMIN, "需要平台超级管理员权限", status_code=403)
+        role = "owner"
+    return role
+
+
+async def update_entry(
+    db: AsyncSession, entry: KnowledgeEntry, operator: User, changes: dict
+) -> KnowledgeEntry:
+    """
+    R3 编辑条目(changes 仅含请求体显式提供的字段):
+    - AI 条目字段白名单:携带 tags 之外任一可编辑字段 → 400 + 20013(正文为归档产物不可改)
+    - 人工条目全字段生效;审计 knowledge.update 记录操作人
+    """
+    role = await _ensure_entry_writable(db, entry, operator)
+    if entry.created_by == "ai":
+        illegal = [f for f in changes if f not in AI_EDITABLE_FIELDS]
+        if illegal:
+            logger.info("知识条目编辑被拒(AI 仅标签) entry=%s fields=%s by=%s",
+                        entry.entry_id, illegal, operator.user_id)
+            raise BizError(ErrCode.KB_AI_ONLY_TAGS, MSG_AI_ONLY_TAGS, status_code=400)
+    if "type" in changes and changes["type"] not in ALLOWED_ENTRY_TYPES:
+        raise BizError(400, "非法的条目类型", status_code=400)
+    for field, value in changes.items():
+        setattr(entry, field, value)
+    await db.flush()
+    await audit_write(db, operator, "knowledge.update",
+                      project_id=entry.project_id,
+                      target_type="knowledge_entry", target_id=entry.entry_id,
+                      detail={"fields": sorted(changes.keys())})
+    logger.info("知识条目编辑 entry=%s by=%s role=%s fields=%s",
+                entry.entry_id, operator.user_id, role, sorted(changes.keys()))
+    return entry
+
+
+async def delete_entry(db: AsyncSession, entry: KnowledgeEntry, operator: User) -> None:
+    """R3 删除条目(物理删除,无版本管理;鉴权同编辑口径,AI 条目不设白名单)"""
+    await _ensure_entry_writable(db, entry, operator)
+    await audit_write(db, operator, "knowledge.delete",
+                      project_id=entry.project_id,
+                      target_type="knowledge_entry", target_id=entry.entry_id,
+                      detail={"title": entry.title, "created_by": entry.created_by})
+    await db.delete(entry)
+    await db.flush()
+    logger.info("知识条目删除 entry=%s by=%s", entry.entry_id, operator.user_id)
 
 
 # ---------------------------------------------------------------------------

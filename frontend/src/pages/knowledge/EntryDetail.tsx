@@ -13,9 +13,11 @@
  *   └─ 代码引用区(仅 A 型):标题「关联代码 · {repo} · {branch}」+ 逐路径块
  *      每块:.card 头(路径 mono + 重新拉取按钮)+ 体(monaco 只读 / 目录清单 / 错误占位)
  *
- * 权限:消费详情接口 permissions{can_edit,can_delete,editable_fields}(R3 预埋);
+ * 权限:消费详情接口 permissions{can_edit,can_delete,editable_fields}(R3);
  * 后端未返回 permissions 时容错缺省 —— 发布/提升用项目成员角色兜底(viewer 不见发布,
- * 仅 owner 见提升),编辑/删除仅在后端明确授予时显示。
+ * 仅 owner 见提升),编辑/删除仅在后端明确授予时显示。编辑照 R1 双类型表单回填
+ * (A 型可改代码引用,B 型可改正文);AI 条目按 editable_fields 仅放行 tags,
+ * 其余字段 disabled + 提示条。删除为危险按钮确认弹窗,成功回列表。
  * 代码块逐路径懒加载(进入视口才请求,失败互不影响);目录树节点可折叠,文本文件
  * 展开即显示内容(数据随递归响应一次带回,无需二次请求)。
  */
@@ -23,26 +25,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, ChevronDown, ChevronRight, FileCode, FileText,
-  GitBranch, Link as LinkIcon, Loader2, RefreshCw,
+  AlertCircle, ArrowLeft, ChevronDown, ChevronRight, FileCode, FileText,
+  GitBranch, Link as LinkIcon, Loader2, Plus, RefreshCw, X,
 } from 'lucide-react'
 import CodeEditor from '@/components/Editor'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
+import { Select } from '@/components/ui/Select'
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from '@/components/ui/Dialog'
 import { useToast } from '@/hooks/useToast'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
-import { useProjectDetail, useProjectMembers } from '@/api/projects'
+import { useProjectDetail, useProjectMembers, useProjectRepoBranches } from '@/api/projects'
 import { renderMarkdown } from '@/utils/markdown'
 import {
   useKnowledgeDetail, useKnowledgeCode, usePublishKnowledge, usePromoteKnowledge,
+  useUpdateKnowledge, useDeleteKnowledge,
   isCodeSource,
   type KnowledgeCodeFileNode,
   type KnowledgeEntryDetail,
+  type KnowledgeType,
+  type UpdateKnowledgePayload,
 } from '@/api/knowledge'
 
 // ---- 徽章映射(与列表页 KnowledgeBase 同口径,原值照抄) ----
@@ -57,6 +65,27 @@ const statusBadgeMap = {
   draft: { label: '草稿', variant: 'outline' },
   published: { label: '已发布', variant: 'success' },
 } as const
+
+// ---- R3:编辑表单共用常量(与 R1 KnowledgeBase 同口径,原值照抄) ----
+const newEntryTypeOptions = [
+  { label: '代码片段', value: 'code_snippet' },
+  { label: '通用模式', value: 'pattern' },
+  { label: '踩坑', value: 'pitfall' },
+  { label: '文档', value: 'doc' },
+]
+
+// 仓库角色标注(与 RepoManagement.tsx roleMap 同文案)
+const repoRoleLabel: Record<string, string> = {
+  main: '主仓库', test: '测试', docs: '文档', other: '其他',
+}
+
+/** gitlab repo url → group/repo 短名(下拉展示用) */
+function repoShortName(url: string): string {
+  const seg = url.replace(/\/+$/, '').replace(/\.git$/, '').split('/')
+  return seg.length >= 2 ? seg.slice(-2).join('/') : url
+}
+
+const PATHS_LIMIT = 10
 
 type ProjectRole = 'owner' | 'editor' | 'viewer'
 
@@ -358,6 +387,133 @@ export default function EntryDetail() {
     return repoDisplayName(repoId, r?.gitlab_repo_url)
   }
 
+  // ---- R3:编辑 / 删除(editable_fields 字段白名单由后端算好,前端零猜测直接消费) ----
+  const editFields = perms?.editable_fields
+  const fieldEditable = (f: string) => !editFields || editFields.includes(f)
+  // AI 条目白名单只含 tags → 编辑态其余字段全禁用 + 提示条(逐字照分片「文案清单」)
+  const tagsOnly = !!editFields && editFields.length > 0 && !editFields.includes('title')
+
+  const updateMut = useUpdateKnowledge(entryId)
+  const deleteMut = useDeleteKnowledge(entryId)
+
+  const [editOpen, setEditOpen] = useState(false)
+  const [editType, setEditType] = useState<KnowledgeType>('code_snippet')
+  const [editTitle, setEditTitle] = useState('')
+  const [editContent, setEditContent] = useState('')
+  const [editTags, setEditTags] = useState('')
+  const [contentPreview, setContentPreview] = useState(false)
+  const [editRepoId, setEditRepoId] = useState('')
+  const [editBranch, setEditBranch] = useState('')
+  const [editPaths, setEditPaths] = useState<string[]>([''])
+  const [editErr, setEditErr] = useState<string | null>(null)
+  const [showDelete, setShowDelete] = useState(false)
+
+  // 编辑表单仓库下拉(项目绑定仓库;平台级条目无项目上下文 → 仅保留原值可显示)
+  const repoOptions = useMemo(() => {
+    const opts = (project?.repos ?? []).map((r) => ({
+      value: r.repo_id,
+      label: `${repoShortName(r.gitlab_repo_url)}（${repoRoleLabel[r.role] ?? '其他'}）`,
+    }))
+    if (editRepoId && !opts.some((o) => o.value === editRepoId)) {
+      opts.unshift({ value: editRepoId, label: repoDisplayName(editRepoId) })
+    }
+    return opts
+  }, [project, editRepoId])
+
+  // 分支下拉:选仓库后加载;default 分支置顶并标注(照 R1)
+  const branchesQ = useProjectRepoBranches(entry?.project_id ?? '', editRepoId)
+  const branchOptions = useMemo(() => {
+    const list = [...(branchesQ.data ?? [])].sort((a, b) => Number(b.default) - Number(a.default))
+    const opts = list.map((b) => ({ value: b.name, label: b.default ? `${b.name}（默认）` : b.name }))
+    // 分支未随项目分支列表返回(平台级条目/分支已删):保留原值可显示
+    if (editBranch && !opts.some((o) => o.value === editBranch)) {
+      opts.unshift({ value: editBranch, label: editBranch })
+    }
+    return opts
+  }, [branchesQ.data, editBranch])
+  // 分支加载完成:当前值失效(或为空)时自动选中 default 分支,避免空值提交(照 R1)
+  useEffect(() => {
+    const list = branchesQ.data
+    if (!list || list.length === 0) return
+    setEditBranch((cur) => (
+      cur && list.some((b) => b.name === cur) ? cur : (list.find((b) => b.default) ?? list[0]).name
+    ))
+  }, [branchesQ.data])
+
+  // 非空路径数(提交时剔除空行;上限 10,照 R1)
+  const validEditPaths = useMemo(
+    () => editPaths.map((p) => p.trim()).filter(Boolean),
+    [editPaths],
+  )
+  // 条目是否含代码引用(A 型)——编辑按原条目形态渲染对应表单,不做 A↔B 互转
+  const isCodeEntry = codeSources.length > 0
+
+  // 打开编辑:照 R1 双类型表单结构回填(A 型回填代码引用,B 型回填正文)
+  const openEdit = () => {
+    if (!entry) return
+    setEditType(entry.type)
+    setEditTitle(entry.title)
+    setEditContent(entry.content ?? '')
+    setEditTags((entry.tags ?? []).join(','))
+    setContentPreview(false)
+    const src = (entry.source_links ?? []).find(isCodeSource)
+    setEditRepoId(src?.repo_id ?? '')
+    setEditBranch(src?.branch ?? '')
+    setEditPaths(src?.paths?.length ? [...src.paths] : [''])
+    setEditErr(null)
+    setEditOpen(true)
+  }
+
+  // 保存:仅提交 editable_fields 放行的字段(AI 条目只带 tags,避开 400 20013)
+  const handleSave = () => {
+    if (!entry || updateMut.isPending) return
+    if (fieldEditable('title') && !editTitle.trim()) {
+      setEditErr('请输入标题')
+      return
+    }
+    if (isCodeEntry && fieldEditable('source_links')) {
+      if (!editRepoId) {
+        setEditErr('请先选择仓库')
+        return
+      }
+      if (validEditPaths.length === 0) {
+        setEditErr('请至少填写一个路径')
+        return
+      }
+    }
+    const payload: UpdateKnowledgePayload = {}
+    if (fieldEditable('title')) payload.title = editTitle.trim()
+    if (fieldEditable('type')) payload.type = editType
+    if (fieldEditable('tags')) payload.tags = editTags.split(',').map((t) => t.trim()).filter(Boolean)
+    if (fieldEditable('content')) payload.content = editContent
+    if (isCodeEntry && fieldEditable('source_links')) {
+      payload.source_links = [{
+        type: 'code', repo_id: editRepoId, branch: editBranch, paths: validEditPaths,
+      }]
+    }
+    updateMut.mutate(payload, {
+      onSuccess: () => {
+        setEditOpen(false)
+        showToast('ok', '已保存') // 详情经 invalidate 自动刷新(徽章/正文/代码引用区同步)
+      },
+      onError: (e) => setEditErr(e instanceof Error ? e.message : '保存失败'),
+    })
+  }
+
+  // 删除:成功关窗回列表 + toast(列表缓存已随 hook invalidate)
+  const handleDelete = () => {
+    if (!entry || deleteMut.isPending) return
+    deleteMut.mutate(undefined, {
+      onSuccess: () => {
+        setShowDelete(false)
+        showToast('ok', '已删除')
+        const pid = entry.project_id || projectId
+        nav(pid ? `/projects/${pid}/knowledge` : '/knowledge')
+      },
+      onError: (e) => showToast('err', e instanceof Error ? e.message : '删除失败'),
+    })
+  }
+
   const goBack = () => {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0
     if (idx > 0) {
@@ -442,18 +598,12 @@ export default function EntryDetail() {
             </Button>
           )}
           {canEdit && (
-            <Button
-              variant="outline" size="sm"
-              onClick={() => showToast('info', '编辑功能即将上线')}
-            >
+            <Button variant="outline" size="sm" onClick={openEdit}>
               编辑
             </Button>
           )}
           {canDelete && (
-            <Button
-              variant="danger" size="sm"
-              onClick={() => showToast('info', '删除功能即将上线')}
-            >
+            <Button variant="danger" size="sm" onClick={() => setShowDelete(true)}>
               删除
             </Button>
           )}
@@ -554,6 +704,238 @@ export default function EntryDetail() {
               {confirmMode === 'publish'
                 ? (publishMut.isPending ? '发布中...' : '发布')
                 : (promoteMut.isPending ? '提升中...' : '提升到平台级')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 编辑 Dialog(R3:照 R1 双类型表单结构回填;AI 条目按 editable_fields 仅放行 tags) */}
+      <Dialog open={editOpen} onOpenChange={(o) => { if (!o) setEditOpen(false) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑条目</DialogTitle>
+            <DialogDescription>修改知识条目的内容</DialogDescription>
+          </DialogHeader>
+          {/* AI 归档条目限制提示(逐字照分片「文案清单」) */}
+          {tagsOnly && (
+            <div className="flex items-center gap-2 p-3 rounded-md bg-amber-bg border border-amber-border">
+              <AlertCircle className="w-4 h-4 text-amber-fg flex-shrink-0" />
+              <p className="text-sm text-amber-fg">AI 归档条目仅支持编辑标签</p>
+            </div>
+          )}
+          <div className="flex flex-col gap-3 py-3">
+            {isCodeEntry ? (
+              <>
+                {/* A 型:标题/类型/标签/说明 + 仓库/分支/路径(R1「关联代码」表单回填) */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">标题</label>
+                  <Input
+                    placeholder="请输入标题"
+                    value={editTitle}
+                    disabled={!fieldEditable('title')}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">类型</label>
+                  <Select
+                    options={newEntryTypeOptions}
+                    value={editType}
+                    disabled={!fieldEditable('type')}
+                    onChange={(e) => setEditType(e.target.value as KnowledgeType)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">标签</label>
+                  <Input
+                    placeholder="多个标签用英文逗号分隔"
+                    value={editTags}
+                    disabled={!fieldEditable('tags')}
+                    onChange={(e) => setEditTags(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">说明</label>
+                  <Textarea
+                    placeholder="为什么这段代码值得沉淀?(Markdown,可选)"
+                    value={editContent}
+                    disabled={!fieldEditable('content')}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">仓库</label>
+                  <Select
+                    options={repoOptions}
+                    value={editRepoId}
+                    placeholder="请选择仓库"
+                    disabled={!fieldEditable('source_links') || !entry.project_id}
+                    onChange={(e) => { setEditRepoId(e.target.value); setEditBranch('') }}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">分支</label>
+                  <Select
+                    options={branchOptions}
+                    value={editBranch}
+                    placeholder={!editRepoId
+                      ? '请先选择仓库'
+                      : (branchesQ.isLoading ? '分支加载中...' : undefined)}
+                    disabled={!fieldEditable('source_links') || !entry.project_id
+                      || !editRepoId || branchesQ.isLoading}
+                    onChange={(e) => setEditBranch(e.target.value)}
+                  />
+                  {branchesQ.error && (
+                    <div className="text-xs text-red-fg">
+                      {branchesQ.error instanceof Error ? branchesQ.error.message : '分支加载失败'}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">路径</label>
+                  <div className="flex flex-col gap-2">
+                    {editPaths.map((p, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Input
+                          className="flex-1 font-mono text-[12.5px]"
+                          placeholder="如 backend/app/services/"
+                          value={p}
+                          disabled={!fieldEditable('source_links')}
+                          onChange={(e) => setEditPaths((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={editPaths.length <= 1 || !fieldEditable('source_links')}
+                          title="删除此路径"
+                          onClick={() => setEditPaths((arr) => arr.filter((_, j) => j !== i))}
+                        >
+                          <X size={14} />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={editPaths.length >= PATHS_LIMIT || !fieldEditable('source_links')}
+                      title={editPaths.length >= PATHS_LIMIT ? '路径最多 10 个' : undefined}
+                      onClick={() => setEditPaths((arr) => [...arr, ''])}
+                    >
+                      <Plus size={13} />添加路径
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* B 型:类型/标题/内容(编辑|预览)/标签(R1「直接创建」表单回填) */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">类型</label>
+                  <Select
+                    options={newEntryTypeOptions}
+                    value={editType}
+                    disabled={!fieldEditable('type')}
+                    onChange={(e) => setEditType(e.target.value as KnowledgeType)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">标题</label>
+                  <Input
+                    placeholder="请输入标题"
+                    value={editTitle}
+                    disabled={!fieldEditable('title')}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-text">内容</label>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant={contentPreview ? 'ghost' : 'outline'}
+                        onClick={() => setContentPreview(false)}
+                      >
+                        编辑
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={contentPreview ? 'outline' : 'ghost'}
+                        onClick={() => setContentPreview(true)}
+                      >
+                        预览
+                      </Button>
+                    </div>
+                  </div>
+                  {contentPreview ? (
+                    <div className="input md min-h-[120px] max-h-[280px] overflow-auto">
+                      {editContent.trim() ? (
+                        <div dangerouslySetInnerHTML={{ __html: renderMarkdown(editContent) }} />
+                      ) : (
+                        <span className="text-text-muted">暂无内容</span>
+                      )}
+                    </div>
+                  ) : (
+                    <Textarea
+                      placeholder="请输入内容"
+                      value={editContent}
+                      disabled={!fieldEditable('content')}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      rows={5}
+                    />
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-text">标签</label>
+                  <Input
+                    placeholder="多个标签用英文逗号分隔"
+                    value={editTags}
+                    disabled={!fieldEditable('tags')}
+                    onChange={(e) => setEditTags(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+            {/* 保存失败提示(服务端错误码 message 透传,含 400 20013「AI 条目仅支持编辑标签」) */}
+            {editErr && (
+              <div className="flex items-start gap-2 p-3 rounded-md bg-red-bg border border-red-border">
+                <AlertCircle className="w-4 h-4 text-red-fg mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-red-fg">{editErr}</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSave}
+              disabled={updateMut.isPending
+                || (fieldEditable('title') && !editTitle.trim())
+                || (isCodeEntry && fieldEditable('source_links')
+                  && (!editRepoId || validEditPaths.length === 0))}
+            >
+              {updateMut.isPending ? '保存中...' : '保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认 Dialog(R3:危险按钮;确认文案逐字照分片「文案清单」) */}
+      <Dialog open={showDelete} onOpenChange={(o) => { if (!o) setShowDelete(false) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除</DialogTitle>
+            <DialogDescription>删除后不可恢复,确认删除该条目?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowDelete(false)}>取消</Button>
+            <Button variant="danger" onClick={handleDelete} disabled={deleteMut.isPending}>
+              {deleteMut.isPending ? '删除中...' : '删除'}
             </Button>
           </DialogFooter>
         </DialogContent>

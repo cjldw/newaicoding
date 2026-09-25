@@ -31,7 +31,6 @@ async def get_archive(
 ):
     """归档页数据(时间线 + 归档总结路径 + 关联知识条目)"""
     from app.services.archive_service import get_archive_data
-    from app.services.project_service import get_requirement_or_404 as _get_req
     # R3 的 get_requirement_or_404 在 requirement_service
     from app.services.requirement_service import get_requirement_or_404
 
@@ -139,6 +138,62 @@ async def get_knowledge_entry_code(
         db, entry, path=path, refresh=refresh in ("1", "true"),
     )
     return success(data=data)
+
+
+# ---------------------------------------------------------------------------
+# R3 编辑 / 删除
+# ---------------------------------------------------------------------------
+class UpdateKnowledgeRequest(BaseModel):
+    """R3 编辑条目请求体:全字段可选,仅显式提供的字段生效;
+    AI 条目仅 tags 允许(其余字段 → 400 + 20013,由服务层白名单拦截)"""
+    title: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    type: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    tags: Optional[list[str]] = None
+    content: Optional[str] = None
+    source_links: Optional[list[dict]] = None
+
+
+@router.patch("/knowledge/{entry_id}")
+async def update_knowledge(
+    entry_id: str,
+    req: UpdateKnowledgeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    编辑条目(R3):
+    - 人工条目:创建者本人(created_by_user_id 相等)或项目 owner/editor 全字段
+    - AI 条目:仅 tags 生效,携带其他可编辑字段 → 400 + 20013「AI 条目仅支持编辑标签」
+    - 平台级条目:仅超管
+    审计 knowledge.update 记录操作人(沿用现有审计体系)
+    """
+    entry = await knowledge_service.get_entry_or_404(db, entry_id)
+    provided = req.model_dump(exclude_unset=True)
+    if "source_links" in provided and provided["source_links"] is not None \
+            and entry.project_id is not None:
+        # A 型代码引用校验与创建口同口径(仓库归属项目/路径 1-10 个;仅项目级)
+        await _validate_code_source_links(db, entry.project_id, provided["source_links"])
+    changes = {k: v for k, v in provided.items() if v is not None}
+    if not changes:
+        raise BizError(400, "未提供任何可更新字段", status_code=400)
+    entry = await knowledge_service.update_entry(db, entry, current_user, changes)
+    return success(data=knowledge_service._entry_brief(entry), message="已保存")
+
+
+@router.delete("/knowledge/{entry_id}")
+async def delete_knowledge(
+    entry_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    删除条目(R3,物理删除无版本管理):
+    - 项目级:创建者本人或 owner/editor;平台级:仅超管
+    - 审计 knowledge.delete 记录操作人
+    """
+    entry = await knowledge_service.get_entry_or_404(db, entry_id)
+    await knowledge_service.delete_entry(db, entry, current_user)
+    return success(message="已删除")
 
 
 # ---------------------------------------------------------------------------

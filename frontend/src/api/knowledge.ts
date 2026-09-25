@@ -6,6 +6,7 @@
  * - 知识条目详情:GET /api/knowledge/{entry_id}(R2:返回 content/source_links + permissions 预埋)
  * - 代码引用:GET /api/knowledge/{entry_id}/code?path={path}(&refresh=1 穿透缓存)
  * - 发布/提升:POST /api/knowledge/{entry_id}/publish, /promote
+ * - 编辑/删除(R3):PATCH/DELETE /api/knowledge/{entry_id}
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -124,6 +125,15 @@ export interface CreateKnowledgePayload {
   source_links?: KnowledgeSourceLink[]
 }
 
+/** R3:编辑条目 payload(全字段可选;AI 条目仅 tags 生效,携带其他字段 → 400 20013) */
+export interface UpdateKnowledgePayload {
+  title?: string
+  type?: KnowledgeType
+  tags?: string[]
+  content?: string
+  source_links?: KnowledgeSourceLink[]
+}
+
 // ---- API functions ----
 export async function fetchArchive(reqId: string): Promise<ArchiveData> {
   const res = await api.get<ArchiveData>(`/requirements/${reqId}/archive`)
@@ -199,6 +209,19 @@ export async function publishKnowledge(entryId: string): Promise<void> {
 
 export async function promoteKnowledge(entryId: string): Promise<void> {
   await api.post(`/knowledge/${entryId}/promote`)
+}
+
+/** R3:编辑条目(权限/字段白名单由后端算;响应忽略,详情以 invalidate 后的 GET 为准) */
+export async function updateKnowledge(
+  entryId: string,
+  payload: UpdateKnowledgePayload,
+): Promise<void> {
+  await api.patch(`/knowledge/${entryId}`, payload)
+}
+
+/** R3:删除条目(物理删除;项目级=创建者本人或 owner/editor,平台级=仅超管) */
+export async function deleteKnowledge(entryId: string): Promise<void> {
+  await api.delete(`/knowledge/${entryId}`)
 }
 
 // ---- React Query hooks ----
@@ -284,6 +307,32 @@ export function usePromoteKnowledge(entryId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => promoteKnowledge(entryId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['knowledge', entryId] })
+      qc.invalidateQueries({ queryKey: ['project-knowledge'] })
+      qc.invalidateQueries({ queryKey: ['platform-knowledge'] })
+    },
+  })
+}
+
+/** R3:编辑成功 → 详情 + 项目/平台两个列表缓存全部失效 */
+export function useUpdateKnowledge(entryId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: UpdateKnowledgePayload) => updateKnowledge(entryId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['knowledge', entryId] })
+      qc.invalidateQueries({ queryKey: ['project-knowledge'] })
+      qc.invalidateQueries({ queryKey: ['platform-knowledge'] })
+    },
+  })
+}
+
+/** R3:删除成功 → 详情 + 两个列表缓存失效(页面随即跳回列表) */
+export function useDeleteKnowledge(entryId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => deleteKnowledge(entryId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['knowledge', entryId] })
       qc.invalidateQueries({ queryKey: ['project-knowledge'] })

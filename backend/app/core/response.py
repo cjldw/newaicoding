@@ -110,6 +110,9 @@ class ErrCode:
     # R2 知识条目详情(2xxxx 段顺延)
     KB_CODE_UNREACHABLE = 20012    # 代码来源不可达(path 404/仓库已解绑/分支已删除,详情页降级占位)
 
+    # R3 知识条目编辑删除(2xxxx 段顺延)
+    KB_AI_ONLY_TAGS = 20013        # AI 条目仅支持编辑标签(携带其他可编辑字段 → 400)
+
     # R15 网关
     DEPLOY_HOST_CONFLICT = 15001   # deploy_host 全平台唯一,冲突拒绝
 
