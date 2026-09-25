@@ -178,6 +178,15 @@ export default function KnowledgeBase() {
     label: p.name,
   })), [projectsData])
 
+  // R4.F2 审计建议:平台 scope(/knowledge)「项目知识库」Tab 且 scopePid 为空时,
+  // 自动预选第一个项目,消除「请选择项目」空态;仅在为空时兜底,不覆盖用户手动切换
+  useEffect(() => {
+    if (isProjectScope || tab !== 'project' || scopePid !== '') return
+    const first = projectOptions[0]
+    if (first) setScopePid(first.value)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scopePid 只做空值判定,刻意不入依赖
+  }, [projectOptions, tab, isProjectScope])
+
   // 项目绑定仓库(仓库下拉数据源,参照 RepoManagement;平台级跟随所选归属项目)
   const { data: project } = useProjectDetail(targetPid)
   const repoOptions = useMemo(() => (project?.repos ?? []).map((r) => ({
@@ -312,8 +321,8 @@ export default function KnowledgeBase() {
         ))}
       </div>
 
-      {/* 工具栏 */}
-      <div className="flex flex-wrap items-center gap-3 mb-5">
+      {/* 工具栏(R4.F2 审计建议:mt-3 与上方 .tabs 拉开间距;仅此页作用域,不动全局 .tabs) */}
+      <div className="mt-3 flex flex-wrap items-center gap-3 mb-5">
         {/* R4.F2:平台 scope「项目知识库」Tab 左侧项目选择(项目 scope 固定当前项目,不显示) */}
         {!isProjectScope && tab === 'project' && (
           <Select
