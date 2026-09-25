@@ -16,8 +16,15 @@
  *   5) 链接仅放行 http(s):// 与相对路径(/、./、../、# 或无 scheme 的裸路径),
  *      javascript:/data: 等带 scheme 的降级为纯文本;外链追加 target=_blank + rel=noopener;
  *   6) 围栏未闭合时该段降级为普通文本(字面展示 ```),不吞正文;lang 仅作 data-lang 标注
- *      (不做客户端高亮)。
+ *      (不做客户端高亮);
+ *   7) h1-h3 输出带 id="md-h-{序号}"(按出现顺序,围栏代码块内的 # 行不计),
+ *      extractOutline 用同一序号规则,供详情页目录锚点滚动(R28.F2)。
  */
+
+/** 标题 id 状态:renderBlocks 递归全程共享一个计数器(引用块内的标题不编号不加 id) */
+interface MdIdState { n: number }
+
+const mdHeadingId = (st: MdIdState) => `md-h-${++st.n}`
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -49,8 +56,8 @@ function isTableSep(line: string): boolean {
   return t.length > 0 && t.split('|').every((c) => /^ *:?-+:? *$/.test(c))
 }
 
-/** 块级解析:逐行状态机,空行分段,段内单换行 <br/> 保形 */
-function renderBlocks(src: string): string {
+/** 块级解析:逐行状态机,空行分段,段内单换行 <br/> 保形(ids 传入时为 h1-h3 输出序号 id) */
+function renderBlocks(src: string, ids?: MdIdState): string {
   const lines = src.replace(/\r\n?/g, '\n').split('\n')
   const out: string[] = []
   let para: string[] = []
@@ -78,12 +85,13 @@ function renderBlocks(src: string): string {
         continue
       }
     }
-    // 标题
+    // 标题(带序号 id,与 extractOutline 同规则;引用块递归不传 ids,块内标题不参与编号)
     const h = line.match(/^(#{1,3}) (.+)$/)
     if (h) {
       flushPara()
       const level = h[1].length
-      out.push(`<h${level}>${renderInline(h[2])}</h${level}>`)
+      const idAttr = ids ? ` id="${mdHeadingId(ids)}"` : ''
+      out.push(`<h${level}${idAttr}>${renderInline(h[2])}</h${level}>`)
       i++
       continue
     }
@@ -152,5 +160,35 @@ function renderBlocks(src: string): string {
 }
 
 export function renderMarkdown(md: string): string {
-  return renderBlocks(md)
+  return renderBlocks(md, { n: 0 })
+}
+
+/**
+ * 提取 h1-h3 大纲(目录用,EntryDetail 左栏):跳过 ``` 围栏代码块内的 # 行,
+ * id 序号与 renderMarkdown 输出一致(同 md-h-{序号} 规则);围栏未闭合时与渲染口径
+ * 相同 —— 该段降级普通文本,后续 # 行照常计入。
+ */
+export function extractOutline(markdownText: string): { level: number; text: string; id: string }[] {
+  const lines = markdownText.replace(/\r\n?/g, '\n').split('\n')
+  const outline: { level: number; text: string; id: string }[] = []
+  const ids: MdIdState = { n: 0 }
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    // 围栏代码块整段跳过(闭合判定与 renderBlocks 一致;未闭合则不跳,照渲染降级口径)
+    if (/^```/.test(line)) {
+      let end = -1
+      for (let j = i + 1; j < lines.length; j++) {
+        if (/^```\s*$/.test(lines[j])) { end = j; break }
+      }
+      if (end > i) {
+        i = end + 1
+        continue
+      }
+    }
+    const h = line.match(/^(#{1,3}) (.+)$/)
+    if (h) outline.push({ level: h[1].length, text: h[2].trim(), id: mdHeadingId(ids) })
+    i++
+  }
+  return outline
 }

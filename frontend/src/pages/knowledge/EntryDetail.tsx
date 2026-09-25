@@ -9,6 +9,8 @@
  *   .page
  *   ├─ .page-head:←返回 | 类型徽章+标题 | 状态徽章 | .acts(发布/提升/编辑/删除,按权限显示)
  *   ├─ 信息行:创建者(AI/人)·创建时间·标签 chips·source_links 链接
+ *   ├─ 正文区(R28.F2 左右模式):大纲 ≥2 条时左 .md-toc 目录(sticky,点击锚点平滑
+ *   │  滚动)+ 右列(正文卡 + 代码引用区);<2 条退单栏;≤1180px 隐藏目录
  *   ├─ .card 正文区:.md 渲染 content(无 content 且为 A 型时不显示此卡)
  *   └─ 代码引用区(仅 A 型):标题「关联代码 · {repo} · {branch}」+ 逐路径块
  *      每块:.card 头(路径 mono + 重新拉取按钮)+ 体(monaco 只读 / 目录清单 / 错误占位)
@@ -44,7 +46,7 @@ import { useToast } from '@/hooks/useToast'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useProjectDetail, useProjectMembers, useProjectRepoBranches } from '@/api/projects'
-import { renderMarkdown } from '@/utils/markdown'
+import { extractOutline, renderMarkdown } from '@/utils/markdown'
 import {
   useKnowledgeDetail, useKnowledgeCode, usePublishKnowledge, usePromoteKnowledge,
   useUpdateKnowledge, useDeleteKnowledge,
@@ -391,6 +393,12 @@ export default function EntryDetail() {
     () => (entry?.source_links ?? []).filter(isCodeSource),
     [entry?.source_links],
   )
+  // R28.F2:正文大纲 h1-h3(id 与 renderMarkdown 输出同规则);编辑保存随 content 刷新。
+  // 代码引用区不在大纲内(只收正文标题);须在早退分支前取值(hooks 顺序)
+  const outline = useMemo(
+    () => (entry?.content ? extractOutline(entry.content) : []),
+    [entry?.content],
+  )
   const repoLabelOf = (repoId: string) => {
     const r = project?.repos?.find((x) => x.repo_id === repoId)
     return repoDisplayName(repoId, r?.gitlab_repo_url)
@@ -581,6 +589,8 @@ export default function EntryDetail() {
   const hasContent = !!entry.content
   // A 型(有关联代码)且无说明文字 → 不显示正文卡(分片「页面结构说明」)
   const showBodyCard = hasContent || codeSources.length === 0
+  // R28.F2:大纲 ≥2 条启用左右模式(左目录 + 右正文),否则退单栏现状
+  const showToc = outline.length >= 2
   const tags = entry.tags ?? []
 
   return (
@@ -658,39 +668,64 @@ export default function EntryDetail() {
         </span>
       </div>
 
-      {/* 正文卡:.md 渲染 content(A 型无 content 时不显示) */}
-      {showBodyCard && (
-        <Card className="p-5 mb-5">
-          {hasContent ? (
-            <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.content) }} />
-          ) : (
-            <div className="empty">暂无内容</div>
-          )}
-        </Card>
-      )}
-
-      {/* 代码引用区(仅 A 型):标题「关联代码」+ repo/branch 标注 + 逐路径块 */}
-      {codeSources.length > 0 && (
-        <div className="flex flex-col gap-3">
-          <div className="card-title">
-            <FileCode size={15} />关联代码
-            {codeSources.map((s, i) => (
-              <span key={i} className="chip">
-                <GitBranch size={12} />{repoLabelOf(s.repo_id)} · {s.branch}
-              </span>
+      {/* 正文区(R28.F2 左右模式):大纲 ≥2 条 → 左 .md-toc 目录 + 右正文/代码引用;
+          否则不套 grid,保持单栏现状。目录项点击平滑滚动到对应标题 id */}
+      <div className={showToc ? 'md-layout' : undefined}>
+        {showToc && (
+          <aside className="md-toc">
+            <div className="md-toc-title">目录</div>
+            {outline.map((o) => (
+              <a
+                key={o.id}
+                href={`#${o.id}`}
+                className={`md-toc-item lv${o.level}`}
+                title={o.text}
+                onClick={(e) => {
+                  e.preventDefault()
+                  document.getElementById(o.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+              >
+                {o.text}
+              </a>
             ))}
-          </div>
-          {codeSources.flatMap((s) => s.paths.map((p) => (
-            <CodePathBlock
-              key={p}
-              entryId={entry.entry_id}
-              path={p}
-              repoLabel={repoLabelOf(s.repo_id)}
-              branch={s.branch}
-            />
-          )))}
+          </aside>
+        )}
+        <div className={showToc ? 'md-main' : undefined}>
+          {/* 正文卡:.md 渲染 content(A 型无 content 时不显示) */}
+          {showBodyCard && (
+            <Card className="p-5 mb-5">
+              {hasContent ? (
+                <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.content) }} />
+              ) : (
+                <div className="empty">暂无内容</div>
+              )}
+            </Card>
+          )}
+
+          {/* 代码引用区(仅 A 型):标题「关联代码」+ repo/branch 标注 + 逐路径块 */}
+          {codeSources.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <div className="card-title">
+                <FileCode size={15} />关联代码
+                {codeSources.map((s, i) => (
+                  <span key={i} className="chip">
+                    <GitBranch size={12} />{repoLabelOf(s.repo_id)} · {s.branch}
+                  </span>
+                ))}
+              </div>
+              {codeSources.flatMap((s) => s.paths.map((p) => (
+                <CodePathBlock
+                  key={p}
+                  entryId={entry.entry_id}
+                  path={p}
+                  repoLabel={repoLabelOf(s.repo_id)}
+                  branch={s.branch}
+                />
+              )))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* 发布/提升确认弹窗(确认文案逐字照分片「文案清单」) */}
       <Dialog open={confirmMode !== null} onOpenChange={(o) => { if (!o) setConfirmMode(null) }}>
