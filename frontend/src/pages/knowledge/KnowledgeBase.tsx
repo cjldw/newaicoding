@@ -3,7 +3,7 @@
  * - /projects/:projectId/knowledge(项目级,带 Tab 切换 项目知识库 / 平台知识库)
  * - /knowledge(平台级,无 Tab,标题"知识条目",对齐 vp L1544:icon + 标题 + 说明)
  * 工具栏:搜索(300ms 防抖)+ 类型筛选 + "新建条目"
- * 卡片网格:xl=3 / md=2 / sm=1,每张卡=类型徽章+标题+前 100 字+标签+状态徽章+创建时间
+ * 卡片网格:xl=3 / md=2 / sm=1,每张卡=类型徽章+标题+摘要行(R4:接口 summary;A 型无 content 显示「关联代码 · n 个路径」占位,否则不显示)+标签+状态徽章+创建时间
  * 分页 + 新建条目 Dialog(R1 双类型:直接创建 | 关联代码)
  */
 import { useState, useMemo, useEffect } from 'react'
@@ -26,6 +26,7 @@ import {
   useProjectKnowledge,
   usePlatformKnowledge,
   useCreateProjectKnowledge,
+  isCodeSource,
   type KnowledgeType,
   type KnowledgeStatus,
   type KnowledgeEntry,
@@ -99,11 +100,6 @@ function formatTime(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
   return d.toLocaleDateString('zh-CN')
-}
-
-function truncate(s: string, n: number): string {
-  if (!s) return ''
-  return s.length > n ? s.slice(0, n) + '...' : s
 }
 
 type TabKey = 'project' | 'platform'
@@ -299,6 +295,11 @@ export default function KnowledgeBase() {
         {items.map((entry: KnowledgeEntry) => {
           const tb = typeBadgeMap[entry.type] ?? typeBadgeMap.doc
           const sb = statusBadgeMap[entry.status] ?? statusBadgeMap.draft
+          // R4:摘要读接口 summary(后端截前 100 字);为空且 A 型(source_links 含 code 对象)
+          // 显示「关联代码 · n 个路径」占位,否则不显示摘要行
+          const codeSource = entry.source_links?.find(isCodeSource)
+          const summary = entry.summary
+            || (codeSource ? `关联代码 · ${codeSource.paths?.length ?? 0} 个路径` : '')
           return (
             <Card
               key={entry.entry_id}
@@ -315,9 +316,11 @@ export default function KnowledgeBase() {
               <div className="text-base font-semibold text-text line-clamp-1">
                 {entry.title}
               </div>
-              <div className="text-sm text-text-muted line-clamp-3">
-                {truncate(entry.content, 100)}
-              </div>
+              {summary !== '' && (
+                <div className="text-sm text-text-muted line-clamp-3">
+                  {summary}
+                </div>
+              )}
               <div className="flex flex-wrap gap-1">
                 {(entry.tags ?? []).slice(0, 5).map((tag, i) => (
                   <Badge key={i} variant="default">{tag}</Badge>

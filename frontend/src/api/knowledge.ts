@@ -44,6 +44,8 @@ export interface KnowledgeEntry {
   type: KnowledgeType
   title: string
   content: string
+  /** R4:列表 brief 摘要(content 去 markdown 符号后截前 100 字;后端 _entry_brief 提供) */
+  summary?: string
   tags: string[]
   source_links: KnowledgeSourceLink[]
   status: KnowledgeStatus
@@ -84,23 +86,28 @@ export interface KnowledgeCodeResponse {
   branch?: string
 }
 
+/** 时间线节点(对齐后端 archive_service.build_timeline:键名为 timestamp,非 created_at) */
 export interface ArchiveTimelineNode {
   type: string
+  timestamp: string
   description: string
-  created_at: string
-  operator?: string
+  task_id?: string
+  task_type?: string
+  deploy_url?: string
+  actor?: { user_id: string }
 }
 
+/** 归档页响应(对齐后端 archive_service.get_archive_data:平铺结构,无嵌套 requirement) */
 export interface ArchiveData {
+  req_id: string
+  title: string
+  status: string
+  summary_file_path: string
   timeline: ArchiveTimelineNode[]
-  summary_file_path: string | null
-  requirement: {
-    title: string
-    status: string
-    created_by: { user_id: string; username: string; nickname: string }
-    created_at: string
-  }
-  knowledge_entries: KnowledgeEntry[]
+  /** 后端键名为 knowledge(非 knowledge_entries);行为列表级字段投影 */
+  knowledge: KnowledgeEntry[]
+  created_by: { user_id: string; username: string; nickname: string | null }
+  created_at: string
 }
 
 export interface KnowledgeListResponse {

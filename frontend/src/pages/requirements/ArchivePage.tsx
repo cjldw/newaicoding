@@ -2,7 +2,7 @@
  * ArchivePage — 需求归档页 /requirements/:reqId/archive
  * 结构:页面标题 + 需求信息卡片 + 时间线 + 归档总结 + 关联知识条目 Table
  */
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { Archive } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -40,6 +40,7 @@ function formatTime(iso: string): string {
 
 export default function ArchivePage() {
   const { reqId = '' } = useParams<{ reqId: string }>()
+  const nav = useNavigate()
   const { data: archive, isLoading } = useArchive(reqId)
 
   if (isLoading) {
@@ -49,7 +50,8 @@ export default function ArchivePage() {
     return <div className="container mx-auto px-4 py-6 text-text-muted">暂无归档数据</div>
   }
 
-  const { requirement, timeline, summary_file_path, knowledge_entries } = archive
+  // R4 P1 修复:对齐后端 archive_service.get_archive_data 平铺响应(无嵌套 requirement,knowledge 键名)
+  const { title, status, created_by, created_at, timeline, summary_file_path, knowledge } = archive
 
   return (
     <div className="page wide">
@@ -62,12 +64,12 @@ export default function ArchivePage() {
       {/* 需求信息卡片 */}
       <Card className="p-5 mb-6">
         <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-lg font-semibold text-text">{requirement.title}</h2>
-          <Badge variant="outline">archived</Badge>
+          <h2 className="text-lg font-semibold text-text">{title}</h2>
+          <Badge variant="outline">{status}</Badge>
         </div>
         <div className="flex gap-6 text-sm text-text-muted">
-          <span>创建人:{requirement.created_by?.nickname ?? requirement.created_by?.username ?? '-'}</span>
-          <span>创建时间:{formatTime(requirement.created_at)}</span>
+          <span>创建人:{created_by?.nickname || created_by?.username || '-'}</span>
+          <span>创建时间:{formatTime(created_at)}</span>
         </div>
       </Card>
 
@@ -88,8 +90,8 @@ export default function ArchivePage() {
                     <span className="text-sm text-text">{node.description}</span>
                   </div>
                   <div className="text-xs text-text-muted">
-                    {formatTime(node.created_at)}
-                    {node.operator ? ` · ${node.operator}` : ''}
+                    {formatTime(node.timestamp)}
+                    {node.task_type ? ` · ${node.task_type}` : ''}
                   </div>
                 </div>
               </div>
@@ -128,7 +130,7 @@ export default function ArchivePage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {knowledge_entries.map((entry: KnowledgeEntry) => {
+              {knowledge.map((entry: KnowledgeEntry) => {
                 const tb = typeBadgeMap[entry.type] ?? typeBadgeMap.doc
                 const sb = statusBadgeMap[entry.status] ?? statusBadgeMap.draft
                 return (
@@ -154,7 +156,10 @@ export default function ArchivePage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => {/* 查看:跳详情弹层或展开(预留) */ }}
+                        /* R4:查看接通条目详情(项目级/平台级按 entry.project_id 选路由,同列表卡片口径) */
+                        onClick={() => nav(entry.project_id
+                          ? `/projects/${entry.project_id}/knowledge/${entry.entry_id}`
+                          : `/knowledge/${entry.entry_id}`)}
                       >
                         查看
                       </Button>
@@ -162,7 +167,7 @@ export default function ArchivePage() {
                   </TableRow>
                 )
               })}
-              {knowledge_entries.length === 0 && (
+              {knowledge.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-text-muted py-8">
                     暂无关联知识条目

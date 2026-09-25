@@ -2,6 +2,7 @@
 
 import base64
 import logging
+import re
 import time
 from typing import Optional
 
@@ -19,12 +20,41 @@ from app.services.project_member_service import get_project_role, require_projec
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# R4 列表摘要:content 纯文本化(去 markdown 标记,简单处理不做完整渲染)
+# ---------------------------------------------------------------------------
+# 图片语法先行:![alt](url) → alt 文字(先于链接处理,避免残留 !)
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+# 链接语法:[text](url) → 链接文字(url 不进纯文本摘要)
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+# 剩余标记符号:标题 # / 强调 * / 行内代码 `(契约:去 #/*/` 符号即可)
+_MD_MARK_RE = re.compile(r"[#*`]")
+
+SUMMARY_MAX_LEN = 100   # R4 契约:content 纯文本前 100 字
+
+
+def _content_summary(content: Optional[str], limit: int = SUMMARY_MAX_LEN) -> str:
+    """
+    R4:content → 纯文本摘要(前 limit 字):
+    - 图片语法取 alt、链接语法取链接文字(比分片口径更严:提取而非整段删除)
+    - 剩余 #/*/` 标记符号剔除;首尾空白折叠
+    - content 为空 → 空串(A 型无说明条目,前端据 source_links 显示占位)
+    """
+    text = (content or "").strip()
+    if not text:
+        return ""
+    text = _MD_IMAGE_RE.sub(r"\1", text)
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _MD_MARK_RE.sub("", text)
+    return text.strip()[:limit]
+
 
 def _entry_brief(e: KnowledgeEntry) -> dict:
     return {
         "entry_id": e.entry_id,
         "type": e.type,
         "title": e.title,
+        "summary": _content_summary(e.content),
         "tags": e.tags or [],
         "status": e.status,
         "created_by": e.created_by,

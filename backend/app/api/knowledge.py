@@ -114,6 +114,8 @@ async def get_knowledge_detail(
     data = knowledge_service._entry_brief(entry)
     data["content"] = entry.content
     data["source_links"] = entry.source_links or []
+    # R4 契约:detail 同时返回 created_by_user_id 与 permissions(R3 列已有值)
+    data["created_by_user_id"] = entry.created_by_user_id
     data["permissions"] = await knowledge_service.entry_permissions(db, entry, current_user)
     return success(data=data)
 
