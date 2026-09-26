@@ -201,7 +201,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
             <TableHead>角色</TableHead>
             <TableHead>邀请人</TableHead>
             <TableHead>加入时间</TableHead>
-            <TableHead className="w-[150px]">操作</TableHead>
+            <TableHead className="ops">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -228,33 +228,29 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
                   {m.invited_by?.username ?? '-'}
                 </TableCell>
                 <TableCell className="text-text-muted">{formatTime(m.joined_at)}</TableCell>
-                <TableCell className="w-[150px]">
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                <TableCell className="ops">
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      className="btn btn-sm"
                       onClick={() => { setChangeTarget(m); setNewRole(m.role); setError(null) }}
                     >
                       改角色
-                    </Button>
+                    </button>
                     {m.role !== 'owner' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                      <button
+                        className="btn btn-sm"
                         onClick={() => { setTransferTarget(m); setError(null) }}
                       >
                         转让
-                      </Button>
+                      </button>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                    <button
+                      className="btn btn-sm btn-danger"
                       disabled={isLastOwner}
-                      className={isLastOwner ? '' : 'text-red-fg hover:text-red-fg'}
                       onClick={() => { setRemoveTarget(m); setError(null) }}
                     >
                       移除
-                    </Button>
+                    </button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -263,6 +259,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
         </TableBody>
       </Table>
       </div>
+      {members.length === 0 && <div className="empty">暂无成员</div>}
       </div>
 
       {/* 邀请成员对话框 */}
@@ -272,8 +269,8 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
             <DialogTitle>邀请成员</DialogTitle>
             <DialogDescription>通过手机号搜索并邀请用户加入项目</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
+          <div className="dlg-form">
+            <div className="field">
               <Label>手机号</Label>
               <Input
                 placeholder="输入手机号搜索"
@@ -294,7 +291,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
                 </div>
               )}
             </div>
-            <div className="space-y-2">
+            <div className="field">
               <Label>角色</Label>
               <Select
                 options={inviteRoleOptions}
@@ -325,8 +322,8 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
             <DialogTitle>修改角色</DialogTitle>
             <DialogDescription>修改成员 {changeTarget?.username} 的角色</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
+          <div className="dlg-form">
+            <div className="field">
               <Label>当前角色</Label>
               <div>
                 <Badge variant={(roleBadgeMap[changeTarget?.role ?? 'viewer'] ?? roleBadgeMap.viewer).variant}>
@@ -334,7 +331,7 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
                 </Badge>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="field">
               <Label>新角色</Label>
               <Select
                 options={roleSelectOptions}

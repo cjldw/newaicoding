@@ -15,6 +15,13 @@ export default {
         'text-muted': 'var(--color-text-muted)',
         faint: 'var(--faint)',
         primary: 'var(--color-primary)',
+        // R33.F3:对话气泡 token 对齐(Tailwind 默认色板无此项,此前 bg-muted/text-foreground
+        // 落默认 zinc 亮灰 bg + 近黑文字,与主题脱节;dark 下 user 泡 primary 浅底+黑字不可读)
+        muted: 'var(--surface-2)',
+        foreground: 'var(--color-text)',
+        'primary-foreground': 'var(--color-primary-fg, #ffffff)',
+        background: 'var(--color-bg)',
+        popover: 'var(--color-surface)',
         accent: 'var(--color-accent)',
         ring: 'var(--color-ring)',
         // R14/R18/R20 语义色三件套(bg / fg / border)

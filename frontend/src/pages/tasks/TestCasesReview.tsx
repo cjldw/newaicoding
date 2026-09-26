@@ -87,7 +87,7 @@ export default function TestCasesReview({ taskIdProp, embedded = false }: { task
   }
 
   if (!task) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">加载中...</div>
+    return <div className="page wide"><div className="page-loading">加载中...</div></div>
   }
 
   return (

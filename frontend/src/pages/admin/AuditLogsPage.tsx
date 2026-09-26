@@ -218,7 +218,7 @@ export default function AuditLogsPage() {
               <col style={{ width: 110 }} />
               <col style={{ width: 110 }} />
               <col />
-              <col style={{ width: 90 }} />
+              <col style={{ width: 110 }} />
               <col style={{ width: 110 }} />
             </colgroup>
             <TableHeader>
@@ -296,7 +296,8 @@ export default function AuditLogsPage() {
                           : '—'}
                       </span>
                     </TableCell>
-                    <TableCell>
+                    {/* BUG-UI-073:nowrap 防「JSON 摘要」断词换行 */}
+                    <TableCell className="whitespace-nowrap">
                       {log.detail ? (
                         <div className="group relative">
                           <span className="cursor-help text-text-muted border-b border-dashed border-text-muted/30">

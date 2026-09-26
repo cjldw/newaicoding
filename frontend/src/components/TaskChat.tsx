@@ -276,10 +276,8 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
               className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
-                  isUser
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-foreground'
+                className={`chat-bubble max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
+                  isUser ? 'chat-bubble-user' : 'chat-bubble-ai'
                 }`}
               >
                 {isUser ? msg.content : renderContent(msg.content, files)}
@@ -290,7 +288,7 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
         {/* R32.F3:流式增量气泡(AI 正在输出;chat_done/消息落库后消失) */}
         {streamText && (
           <div className="flex justify-start">
-            <div className="max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words bg-muted text-foreground">
+            <div className="chat-bubble chat-bubble-ai max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words">
               {streamText}
               <span className="inline-block w-1.5 h-3.5 ml-0.5 align-text-bottom bg-foreground/60 animate-pulse" />
             </div>

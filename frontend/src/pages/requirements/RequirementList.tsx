@@ -103,9 +103,21 @@ export function RequirementList() {
   const totalPages = Math.ceil(total / pageSize)
 
   // 实时生成分支预览
-  const branchPreview = formData.title
-    ? `req-${formData.title.toLowerCase().replace(/[^a-z0-9一-龥]+/g, '-').replace(/^-|-$/g, '')}`
-    : 'req-'
+  // R34.F1:分支默认策略对齐后端 feat/{需求名首拼≤10}{日期}(后端权威生成;
+  // 前端仅做预览——ASCII 取首字母,汉字逐字转□占位提示,实际首拼以后端为准;
+  // 预览日期取本地墙钟,与后端 Asia/Shanghai 同日(跨日边界偏差可接受,仅预览)
+  const branchPreview = (() => {
+    const t = formData.title.trim()
+    const slug = t
+      ? Array.from(t.replace(/\s+/g, ''))
+          .map((ch) => (/[a-z0-9]/i.test(ch) ? ch.toLowerCase() : /[一-龥]/.test(ch) ? '□' : ''))
+          .join('')
+          .slice(0, 10) || 'req'
+      : '…'
+    const now = new Date()
+    const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+    return `feat/${slug}${day}`
+  })()
 
   // R4:原型链接行操作(追加/删除/编辑)
   function addPrototypeLink() {
@@ -313,6 +325,7 @@ export function RequirementList() {
               {formData.title && (
                 <div className="mt-1 text-xs text-text-muted">
                   分支预览: <code className="text-primary">{branchPreview}</code>
+                  (□ = 汉字首拼,以创建时系统生成为准;可手动改填覆盖)
                 </div>
               )}
             </div>

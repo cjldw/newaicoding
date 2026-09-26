@@ -102,9 +102,11 @@ function DialogHeader({ className = '', ...props }: DialogHeaderProps) {
 interface DialogFooterProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 function DialogFooter({ className = '', ...props }: DialogFooterProps) {
+  // R33.F9:统一 vp 弹窗底栏——横排右对齐 gap 12 上间距 16(与 tour-dialog-foot 同构;
+  // 原 shadcn 移动端纵排叠加 + space-x 依赖旧版 Tailwind 在该工程无对应间距 token)
   return (
     <div
-      className={`flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 ${className}`}
+      className={`dlg-foot ${className}`}
       {...props}
     />
   )

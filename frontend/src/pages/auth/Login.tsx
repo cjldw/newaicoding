@@ -2,6 +2,7 @@
  * 登录页 — /login
  * 视觉对齐 vp 原型 pageLogin: login-wrap > login-card > login-logo + login-box
  * 保留原有 react-hook-form + zod + useMutation 登录逻辑,只换外壳与类名
+ * 2026-09-25 视觉优化:标题区升级(.auth-title/.auth-sub)+ 辅助链接收敛(.auth-links),逻辑零改动
  */
 
 import { useState } from 'react'
@@ -69,7 +70,8 @@ export function Login() {
         {/* 登录卡片 */}
         <div className="login-box">
           <div>
-            <h2 style={{ fontSize: 17, marginBottom: 4 }}>登录</h2>
+            <h2 className="auth-title">登录</h2>
+            <p className="auth-sub">使用手机号登录平台</p>
           </div>
 
           {/* 错误提示 */}
@@ -157,20 +159,9 @@ export function Login() {
         </div>
 
         {/* 辅助链接 */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginTop: 10,
-            fontSize: 12,
-          }}
-        >
-          <Link to="/register" style={{ color: 'var(--accent)' }}>
-            没有账号?注册
-          </Link>
-          <Link to="/forgot-password" style={{ color: 'var(--accent)' }}>
-            忘记密码?
-          </Link>
+        <div className="auth-links">
+          <Link to="/register">没有账号?注册</Link>
+          <Link to="/forgot-password">忘记密码?</Link>
         </div>
       </div>
     </div>

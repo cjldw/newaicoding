@@ -5,6 +5,7 @@
  */
 
 import * as React from 'react'
+import { isAvatarUrlFailed, markAvatarUrlFailed } from '@/utils/avatar'
 
 export interface AvatarProps extends React.HTMLAttributes<HTMLDivElement> {
   src?: string | null
@@ -17,7 +18,8 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
     const [imgError, setImgError] = React.useState(false)
     const initial = alt ? alt.charAt(0).toUpperCase() : '?'
 
-    const showFallback = !src || imgError
+    // BUG-UI-072:已记忆为加载失败的 URL 直接走首字母回退,不再发请求
+    const showFallback = !src || imgError || isAvatarUrlFailed(src)
 
     return (
       <div
@@ -33,7 +35,10 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
             src={src}
             alt={alt}
             className="absolute inset-0 w-full h-full object-cover"
-            onError={() => setImgError(true)}
+            onError={() => {
+              markAvatarUrlFailed(src) // 记忆失效 URL,重挂载不再重复请求
+              setImgError(true)
+            }}
           />
         )}
       </div>

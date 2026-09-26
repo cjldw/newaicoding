@@ -198,7 +198,10 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .tour .n{width:15px;height:15px;border-radius:999px;background:#fff;border:1px solid var(--border-strong);color:var(--muted);font-size:10px;display:grid;place-items:center;flex:none;font-family:var(--mono)}
 .main{min-width:0;display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
 /* R2.F3:Outlet 滚动容器(flex 子项需 min-height:0 才能收缩出内层滚动) */
-.route-scroll{flex:1;min-height:0;overflow-y:auto}
+.route-scroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column}
+.route-scroll>*{flex:1 0 auto;min-height:0}
+/* R33.F5:page-fill(任务工作台等满屏页)在滚动口内占满全高 —— 工作台曾只撑内容高(用户实测≈半屏) */
+.route-scroll>.page-fill{flex:1 1 auto}
 .topbar{display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(255,255,255,.92);backdrop-filter:blur(6px);z-index:20;min-height:50px;transition:background-color .2s ease}
 .crumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);min-width:0;flex-wrap:wrap}
 .crumb b{color:var(--text);font-weight:600}
@@ -475,6 +478,10 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .m-head .x{margin-left:auto}
 .m-body{padding:18px;display:flex;flex-direction:column;gap:13px}
 .m-foot{display:flex;justify-content:flex-end;gap:8px;padding:13px 18px;border-top:1px solid var(--border)}
+/* R33.F9:弹窗底栏统一(DialogFooter 基件专用,与 tour-dialog-foot 同构) */
+.dlg-foot{display:flex;justify-content:flex-end;gap:12px;margin-top:16px}
+/* R33.F8:弹窗表单纵向节奏(Label+控件组间距统一,替代 Tailwind space-y 组合) */
+.dlg-form{display:flex;flex-direction:column;gap:14px}
 .field label{display:block;font-size:12.5px;font-weight:500;margin-bottom:5px}
 .field .hint{font-size:11.5px;color:var(--faint);margin-top:5px}
 /* ===== toast ===== */
@@ -719,6 +726,23 @@ select.input{cursor:pointer}
   .page{padding:16px 16px 40px}
   .kv{min-width:45%}
 }
+/* ===== R33.F3:对话气泡(挂 vp token,亮暗双主题可读;
+   替代 Tailwind bg-muted/text-foreground 默认色板——HMR 下不重组装的根治)===== */
+.chat-bubble-user{background:var(--primary);color:var(--color-primary-fg,#fff)}
+.chat-bubble-ai{background:var(--surface-2);color:var(--text)}
+[data-theme="dark"] .chat-bubble-user{color:#0d1117}
+/* ===== R33.F4:工作台三栏 title 条等高对齐(1px 差根治)=====
+   三栏 title 条统一 34px 高、底线同一 y 坐标:
+   - 中/右栏 .tabs(.wb 作用域):行高 33 + border-bottom 1
+   - 左树 FileTree tab 条(.ft-tabs,此前裸 Tailwind 无等高约束):同 33+1,
+     margin-bottom:-1px 与 wb 外框顶线重叠(与中/右栏 .tabs margin-bottom:-1px 同手法) */
+.wb .tabs{height:34px;box-sizing:border-box;flex:none}
+.ft-tabs{display:flex;height:34px;box-sizing:border-box;flex:none;border-bottom:1px solid var(--border);margin-bottom:-1px;position:relative;z-index:1}
+.ft-tab{flex:1;padding:0 8px;font-size:12px;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap}
+.ft-tab:hover{color:var(--text)}
+.ft-tab.on{color:var(--text);border-bottom-color:var(--primary);font-weight:500}
+/* R33.F6:归档总结等 mono 块(浅底,与 md-code 深底终端块区分) */
+.md-pre{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.65;margin:0;white-space:pre-wrap;word-break:break-all}
 /* ===== R33 侧栏抽屉(220px ↔ 56px 图标栏)===== */
 .shell.side-collapsed{grid-template-columns:56px minmax(0,1fr)}
 .shell.side-collapsed .sidebar{padding:14px 8px}
@@ -731,6 +755,7 @@ select.input{cursor:pointer}
 .shell.side-collapsed .tour{display:none}
 /* 收起态导航项 tooltip(原生 title 属性) */
 .shell.side-collapsed .sitem{position:relative}
+/* ===== R33.F3:工作台右栏满屏(顶部对齐由 R33.F4 等高 title 条承接,无 -1px hack)=====*/
 /* ===== R29 导览弹窗样式优化(R33;覆盖 L489-491 旧规则,特异性同级靠后生效)===== */
 .tour-dialog .tour-title-ico{display:inline-flex;align-items:center;gap:8px}
 .tour-dialog .tour-step{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:var(--vp-radius-sm);background:none;border:1px solid transparent;cursor:pointer;color:var(--text);font-size:13px;font-family:inherit;text-align:left;width:100%;transition:background .12s,border-color .12s}
@@ -760,6 +785,8 @@ select.input{cursor:pointer}
   --color-bg:#0d1117; --color-surface:#161b22; --color-surface-strong:#21262d;
   --color-border:#30363d; --color-text:#f0f6fc; --color-text-muted:#9198a1;
   --color-primary:#f0f6fc; --color-accent:#58a6ff; --color-ring:#8b949e;
+  /* R33.F3:primary 反色主题下的前景(对话 user 泡/主按钮文字) */
+  --color-primary-fg:#0d1117;
   /* vp 原型扩展变量 */
   --bg:#0d1117; --surface:#161b22; --surface-2:#21262d; --surface-3:#30363d;
   --border:#30363d; --border-strong:#444c56;

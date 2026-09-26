@@ -41,8 +41,8 @@ export function BreadcrumbOverrideProvider({ crumbs, children }: { crumbs: Crumb
 /** 路由 → 面包屑层级映射(精确匹配表) */
 const EXACT_MAP: Record<string, CrumbItem[]> = {
   '/': [{ label: '工作台' }],
-  '/projects': [{ label: '项目列表' }],
-  '/knowledge': [{ label: '知识条目' }],
+  '/projects': [{ label: '工作台', href: '/' }, { label: '项目管理', href: '/projects' }, { label: '项目列表' }],
+  '/knowledge': [{ label: '知识' }, { label: '知识条目' }],
   '/manage/requirements': [
     { label: '工作台', href: '/' },
     { label: '项目管理', href: '/projects' },
@@ -126,11 +126,12 @@ function getBreadcrumbs(pathname: string): CrumbItem[] {
       { label: '项目详情' }, // 兜底,详情页会用 context 覆盖为 project.name
     ]
   }
-  // 归档页: /requirements/:reqId/archive
+  // 归档页: /requirements/:reqId/archive(R33.F7:补完整父级链,与需求详情同构)
   const archiveMatch = pathname.match(/^\/requirements\/([^/]+)\/archive\/?$/)
   if (archiveMatch) {
     return [
-      { label: '需求详情', href: `/requirements/${archiveMatch[1]}` },
+      { label: '项目管理', href: '/projects' },
+      { label: '需求', href: `/requirements/${archiveMatch[1]}` },
       { label: '归档' },
     ]
   }

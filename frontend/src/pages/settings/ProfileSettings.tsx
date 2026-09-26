@@ -22,7 +22,7 @@ import { usersApi } from '@/api/users'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/hooks/useToast'
-import { getAvColor, getInitial } from '@/utils/avatar'
+import { getAvColor, getInitial, isAvatarUrlFailed, markAvatarUrlFailed } from '@/utils/avatar'
 
 /** 头像限制(R28):JPG/PNG/WebP,≤ 2MB */
 const AVATAR_ACCEPT = 'image/jpeg,image/png,image/webp'
@@ -185,8 +185,11 @@ export function ProfileSettings() {
   }
 
   // 头像显示源:本地预览 > 已保存头像(加载失败回退首字母)
+  // BUG-UI-072:已记忆失败的已保存 URL 命中集合直接回退,不再发请求(本地预览 blob 不受影响)
   const displayName = user?.nickname || user?.phone || ''
-  const avatarSrc = previewUrl ?? (avatarImgError ? null : user?.avatar_url)
+  const avatarSrc =
+    previewUrl ??
+    (avatarImgError || isAvatarUrlFailed(user?.avatar_url) ? null : user?.avatar_url)
 
   return (
     <div>
@@ -232,6 +235,7 @@ export function ProfileSettings() {
                         setSelectedFile(null)
                         setPreviewUrl(null)
                       } else {
+                        markAvatarUrlFailed(user?.avatar_url) // BUG-UI-072:记忆失效 URL,重挂载不再重复请求
                         setAvatarImgError(true) // 头像文件缺失:回退首字母
                       }
                     }}
