@@ -712,7 +712,11 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
 
 
 async def retry_task(db: AsyncSession, task: Task) -> None:
-    """重试任务:failed/cancelled/timeout → pending(等待重新拉起)"""
+    """
+    重试任务:failed/cancelled/timeout → pending → 立即重新拉起(R35.F3 补语义)。
+    原实现只置 pending 无人拉起(僵尸);现 retry 后直接走 start_task 容器链
+    (test 型自然落 cases_review;release 型走原调度)。拉不起(8003 无 Runner)维持 pending 排队。
+    """
     if task.status not in ("failed", "cancelled", "timeout"):
         raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "当前状态不可重试")
     task.status = "pending"
@@ -720,6 +724,25 @@ async def retry_task(db: AsyncSession, task: Task) -> None:
     task.finished_at = None
     await db.flush()
     await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": "pending"})
+
+    # R35.F3:立即重新拉起(原死代码语义补齐);无可用 Runner 时 start_task 抛 8003,
+    # 此处吞回 pending 排队语义(与创建路径一致:pending 等重试/调度)
+    requirement = (
+        await db.execute(select(Requirement).where(Requirement.req_id == task.req_id).limit(1))
+    ).scalar_one_or_none()
+    project = (
+        await db.execute(select(Project).where(Project.project_id == task.project_id).limit(1))
+    ).scalar_one_or_none()
+    if requirement is None or project is None:
+        logger.warning("retry 拉起缺归属数据 task=%s(维持 pending)", task.task_id)
+        return
+    try:
+        await start_task(db, task, project, requirement)
+    except BizError as e:
+        if e.code == ErrCode.NO_RUNNER_AVAILABLE:
+            logger.info("retry 拉起无可用 Runner,任务回 pending 排队 task=%s", task.task_id)
+        else:
+            raise
 
 
 async def sweep_timeouts(db: AsyncSession) -> int:

@@ -24,7 +24,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Square, Sparkles, FileCode, FlaskConical, Rocket, GitBranch, Box, Server,
   GitCommit, Eye, FolderOpen, FileText, MessageSquare, Terminal, Activity, Maximize2, Minimize2,
-  Save, Clock, Check, ExternalLink, Loader2,
+  Save, Clock, Check, ExternalLink, Loader2, RotateCcw,
 } from 'lucide-react'
 import CodeEditor from '@/components/Editor'
 import DiffViewer from '@/components/DiffViewer'
@@ -39,7 +39,7 @@ import DeployStatus from '@/pages/tasks/DeployStatus'
 import { BreadcrumbOverrideProvider, type CrumbItem } from '@/components/layout/Breadcrumb'
 import { useToast } from '@/hooks/useToast'
 import {
-  useTaskDetail, useStopTask, useTaskPreviews,
+  useTaskDetail, useStopTask, useRetryTask, useTaskPreviews,
 } from '@/api/tasks'
 import {
   useTaskFiles, useTaskFileContent, useUpdateTaskFileContent,
@@ -160,6 +160,7 @@ export default function TaskDetail() {
 
   const { data: previews } = useTaskPreviews(taskId)
   const stopTask = useStopTask(taskId)
+  const retryTask = useRetryTask(taskId)
   const offlineTask = useOfflineTask(taskId)
 
   // 文件树 / 变更 / 文件内容 / diff 数据
@@ -255,19 +256,22 @@ export default function TaskDetail() {
   const swapPanes = task.type === 'requirement'
   const tabCls = (key: CenterTab | RightTab, cur: string) => `tab${cur === key ? ' on' : ''}`
 
-  /* ---------------- wb-head acts(vp L1462-1464 条件) ---------------- */
-  // running → 停止任务(btn-danger);test → 创建发布任务(驳回回开发入口在中栏 TestReport 面板,带标题/描述输入);release → 打开:{port} + 下线;其余空
-  let acts: ReactNode = null
-  if (isRun) {
-    acts = (
-      <button className="btn btn-danger" onClick={() => stopTask.mutate()}>
-        <Square size={13} />停止任务
-      </button>
-    )
-  }
-  if (task.type === 'test') {
-    acts = (
-      <>
+  /* ---------------- wb-head acts(vp L1462-1464 条件;R35.F3/F6 追加式) ---------------- */
+  // R35.F3:failed/cancelled/timeout → 重试(useRetryTask 死代码激活,retry 后立即重新拉起)
+  // R35.F6:running 恒有 停止任务;test/release 附加按钮紧随其后(原覆盖 bug 修复)
+  const acts: ReactNode = (
+    <>
+      {isRun && (
+        <button className="btn btn-danger" onClick={() => stopTask.mutate()}>
+          <Square size={13} />停止任务
+        </button>
+      )}
+      {['failed', 'cancelled', 'timeout'].includes(task.status) && (
+        <button className="btn" onClick={() => retryTask.mutate()} disabled={retryTask.isPending}>
+          <RotateCcw size={13} />{retryTask.isPending ? '重试中…' : '重试'}
+        </button>
+      )}
+      {task.type === 'test' && (
         <button
           className="btn btn-pri"
           onClick={() => {
@@ -278,32 +282,30 @@ export default function TaskDetail() {
         >
           <Rocket size={13} />创建发布任务
         </button>
-      </>
-    )
-  }
-  if (task.type === 'release') {
-    acts = (
-      <>
-        <a
-          className="btn"
-          href={previewItem?.preview_url || undefined}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => {
-            if (!previewItem?.preview_url) {
-              e.preventDefault()
-              showToast('info', '部署地址未就绪')
-            }
-          }}
-        >
-          <ExternalLink size={13} />打开 :{previewItem?.port ?? '—'}
-        </a>
-        <button className="btn btn-danger" onClick={() => offlineTask.mutate()}>
-          <Square size={13} />下线
-        </button>
-      </>
-    )
-  }
+      )}
+      {task.type === 'release' && (
+        <>
+          <a
+            className="btn"
+            href={previewItem?.preview_url || undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => {
+              if (!previewItem?.preview_url) {
+                e.preventDefault()
+                showToast('info', '部署地址未就绪')
+              }
+            }}
+          >
+            <ExternalLink size={13} />打开 :{previewItem?.port ?? '—'}
+          </a>
+          <button className="btn btn-danger" onClick={() => offlineTask.mutate()}>
+            <Square size={13} />下线
+          </button>
+        </>
+      )}
+    </>
+  )
 
   /* ---------------- 中栏 centerPane 五分支(vp L1253-1377) ---------------- */
 

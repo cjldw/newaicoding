@@ -63,6 +63,12 @@ class ErrCode:
     LAST_OWNER_UNREMOVABLE = 12004 # 不可移除/降级最后一个 owner
     TRANSFER_NON_MEMBER = 12005    # owner 转让给非成员
 
+    # R2 成员批量邀请(12xxx 段顺延;含重复按 PRD 定稿=整批 400 预检拒绝,不静默去重)
+    BATCH_INVITE_EMPTY = 12006           # user_ids 为空
+    BATCH_INVITE_TOO_MANY = 12007        # 单次批量邀请超上限(>50)
+    BATCH_INVITE_PRECHECK_FAILED = 12008 # 批量预检失败整批拒绝(含重复/不存在/停用/已成员,data.errors=[{user_id, reason}])
+    BATCH_INVITE_CONFLICT = 12009        # 并发撞车(uq_project_member_user 兜底,整批回滚请刷新重试)
+
     # R13 模型接入
     LLM_CONNECT_FAILED = 13001     # base_url 不通/超时/401/404(连通性测试失败)
     CONFIG_NAME_DUPLICATE = 13002  # 同项目下配置名重复
@@ -190,13 +196,19 @@ def register_exception_handlers(app: FastAPI):
     async def validation_error_handler(request: Request, exc: RequestValidationError):
         # 提取第一个校验错误信息
         errors = exc.errors()
-        msg = errors[0]["msg"] if errors else "请求参数校验失败"
+        first = errors[0] if errors else None
+        msg = first["msg"] if first else "请求参数校验失败"
         # 去掉 "Value error, " 前缀（pydantic v2 自定义校验器抛出的）
         if msg.startswith("Value error, "):
             msg = msg[len("Value error, "):]
+        # R1.F3:带字段名,便于前端定位(如 description 校验失败)
+        loc = (first.get("loc") or [])[1:] if first else ()
+        field = ".".join(str(p) for p in loc) or None
+        if field:
+            msg = f"{field}: {msg}"
         return JSONResponse(
             status_code=422,
-            content=error(422, msg),
+            content=error(422, msg, {"field": field} if field else None),
         )
 
     @app.exception_handler(Exception)

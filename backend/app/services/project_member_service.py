@@ -14,6 +14,7 @@ import time
 from typing import Optional
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import BizError, ErrCode
@@ -259,6 +260,154 @@ async def invite_member(db: AsyncSession, project: Project, operator: User, phon
 
     brief = await _user_brief(db, target.user_id)
     return {"user_id": target.user_id, "username": brief["username"], "role": role}
+
+
+# ---------------------------------------------------------------------------
+# R2 批量邀请(owner 专属,整体事务:任一校验失败整批拒绝,不留半批)
+# ---------------------------------------------------------------------------
+async def _precheck_batch_invite(
+    db: AsyncSession,
+    project: Project,
+    user_ids: list[str],
+) -> list[dict]:
+    """
+    批量邀请预检(全量只读,与插入分离;调用方任一 error 即整批 400):
+    含重复/不存在/status!=active/已是成员逐条列 reason;
+    现成员数+len(user_ids) ≤ 50。
+    返回 errors:[{user_id, reason}](空列表 = 全部通过);
+    容量超限不逐条列,直接 12003 整批拒绝(与 invite 同码同文案口径)。
+    """
+    # 按 user_id IN 一次批量查 users(避免逐条查询)
+    rows = (await db.execute(
+        select(User.user_id, User.status).where(User.user_id.in_(user_ids))
+    )).all()
+    status_by_id = {uid: status for uid, status in rows}
+
+    # 项目现有成员集合(owner 行懒回填前 owner_id 也算成员,与候选列表 is_member 同口径);
+    # 同一份集合兼做容量核算(现成员数 ≤50 行,一次查询两用)
+    member_ids = set((await db.execute(
+        select(ProjectMember.user_id).where(ProjectMember.project_id == project.project_id)
+    )).scalars().all())
+    member_ids.add(project.owner_id)
+
+    if len(member_ids) + len(user_ids) > MAX_MEMBERS_PER_PROJECT:
+        raise BizError(
+            ErrCode.MEMBER_LIMIT_EXCEEDED,
+            f"项目成员数已达上限({MAX_MEMBERS_PER_PROJECT}人)",
+            status_code=400,
+        )
+
+    # 重复计数(契约裁决:含重复整批 400,不再静默去重)
+    counts: dict[str, int] = {}
+    for uid in user_ids:
+        counts[uid] = counts.get(uid, 0) + 1
+
+    errors: list[dict] = []
+    reported: set[str] = set()  # 同一 id 只列一条(重复 id 不再叠加其他原因)
+    for uid in user_ids:
+        if uid in reported:
+            continue
+        reported.add(uid)
+        if counts[uid] > 1:
+            errors.append({"user_id": uid, "reason": "重复提交"})
+        elif uid not in status_by_id:
+            errors.append({"user_id": uid, "reason": "用户不存在"})
+        elif status_by_id[uid] != "active":
+            errors.append({"user_id": uid, "reason": "用户已停用"})
+        elif uid in member_ids:
+            errors.append({"user_id": uid, "reason": "该用户已是项目成员"})
+    return errors
+
+
+async def batch_invite_members(
+    db: AsyncSession,
+    project: Project,
+    operator: User,
+    user_ids: list[str],
+    role: str,
+) -> dict:
+    """
+    owner 批量邀请已注册用户为 editor/viewer(整体事务):
+    空/超 50 拒绝 → 全量预检(含重复=整批 400)任一失败整批 400(errors 列 {user_id, reason})
+    → 单事务批量 INSERT(invited_by=operator)+ 逐条审计 project_member.add
+    → 沿用 invite 的 _sync_all_repos 链路同步 GitLab(失败不回滚成员)。
+    并发撞车由 uq_project_member_user 兜底:IntegrityError → 整体回滚 400。
+    """
+    op_role = await require_project_role(db, project, operator, "viewer")
+    require_owner(op_role)
+
+    started = time.monotonic()
+    logger.info(
+        "批量邀请入口 project=%s n=%s role=%s by=%s",
+        project.project_id, len(user_ids), role, operator.user_id,
+    )
+
+    # 非空 / 单次 ≤50(原始列表;含重复不做静默去重,由预检整批拒绝,契约裁决 20260927)
+    if not user_ids:
+        raise BizError(ErrCode.BATCH_INVITE_EMPTY, "user_ids 不能为空", status_code=400)
+    if len(user_ids) > MAX_MEMBERS_PER_PROJECT:
+        raise BizError(
+            ErrCode.BATCH_INVITE_TOO_MANY,
+            f"单次最多邀请 {MAX_MEMBERS_PER_PROJECT} 人",
+            status_code=400,
+        )
+
+    # 全量预检(含重复检查):任一失败整批 400,零插入(异常路径不触碰成员表)
+    errors = await _precheck_batch_invite(db, project, user_ids)
+    if errors:
+        raise BizError(
+            ErrCode.BATCH_INVITE_PRECHECK_FAILED,
+            "部分用户不可加入,整批未加入",
+            status_code=400,
+            data={"errors": errors},
+        )
+
+    # 单事务批量 INSERT + 逐条审计;并发撞车唯一约束兜底 → 整体回滚 400
+    db.add_all([
+        ProjectMember(
+            project_id=project.project_id,
+            user_id=uid,
+            role=role,
+            invited_by=operator.user_id,
+        )
+        for uid in user_ids
+    ])
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise BizError(
+            ErrCode.BATCH_INVITE_CONFLICT, "部分用户刚被加入,请刷新重试", status_code=400,
+        )
+
+    # 逐条审计 project_member.add,与单邀请同格式(invited_by=operator)
+    for uid in user_ids:
+        logger.info("批量邀请成员 project=%s user=%s role=%s by=%s", project.project_id, uid, role, operator.user_id)
+        await audit_write(
+            db, operator, "project_member.add",
+            project_id=project.project_id, target_type="user", target_id=uid,
+            detail={"role": role},
+        )
+
+    # GitLab 同步沿用 invite 链路(逐用户加所有绑定 repo;失败仅告警不回滚成员)
+    target_rows = (await db.execute(
+        select(User).where(User.user_id.in_(user_ids))
+    )).scalars().all()
+    users_by_id = {u.user_id: u for u in target_rows}
+    for uid in user_ids:
+        target = users_by_id.get(uid)
+        if target is not None:
+            await _sync_all_repos(db, project, target, "add", role)
+
+    users = [{
+        "user_id": uid,
+        "nickname": users_by_id[uid].nickname if uid in users_by_id else None,
+    } for uid in user_ids]
+    logger.info(
+        "批量邀请完成 project=%s added=%s 耗时=%.0fms by=%s",
+        project.project_id, len(user_ids), (time.monotonic() - started) * 1000, operator.user_id,
+    )
+    return {"added": len(user_ids), "role": role, "users": users}
 
 
 # ---------------------------------------------------------------------------

@@ -79,6 +79,8 @@ async def build_detail(db: AsyncSession, req: Requirement) -> dict:
         "reviewed_at": req.reviewed_at,
         "reject_reason": req.reject_reason,
         "polish_task_id": req.polish_task_id,
+        # R35.F1:打磨任务状态透传(前端「重新打磨」按钮可见性,免二次请求)
+        "polish_task_status": next((t["status"] for t in tasks if t["task_id"] == req.polish_task_id), None),
         "tasks": tasks,
         "created_at": req.created_at,
         "updated_at": req.updated_at,
@@ -257,10 +259,26 @@ async def start_polish(db: AsyncSession, project: Project, operator: User, req: 
     1. 重复校验(3001)
     2. 经 task_service 创建并启动打磨任务(type=requirement;R13 配置校验 + R8 容器)
     3. 生成 prd_file_path(Q26);status=polishing,polish_task_id
+
+    R35.F1 打磨可重启:status=="polishing" 且 polish_task_id 指向的 task 已终态
+    (cancelled/failed/timeout/done)→ 清空 polish_task_id 后走原创建链路(重新打磨);
+    关联 task 仍 active(running/pending/cases_review)→ 维持 3001。
     """
-    if req.status != "draft":
-        raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
-    if req.polish_task_id:
+    if req.status == "draft":
+        if req.polish_task_id:
+            raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
+    elif req.status == "polishing" and req.polish_task_id:
+        from app.models.task import Task
+
+        old = (await db.execute(
+            select(Task.status).where(Task.task_id == req.polish_task_id).limit(1)
+        )).scalar_one_or_none()
+        if old in ("cancelled", "failed", "timeout", "done") or old is None:
+            logger.info("打磨任务已终态(%s),允许重新打磨 req=%s", old, req.req_id)
+            req.polish_task_id = None
+        else:
+            raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
+    else:
         raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
 
     from app.services import task_service
@@ -405,9 +423,28 @@ async def review_requirement(
 
 
 async def cancel_requirement(db: AsyncSession, operator: User, req: Requirement, reason: str) -> None:
-    """取消需求(owner;非 done/archived;分支保留只读,30 天清理归 R14)"""
+    """
+    取消需求(owner;非 done/archived;分支保留只读,30 天清理归 R14)
+    R35.F2:同步收尾——polish_task_id 指向的打磨任务未终态时,先走 finish_task(cancelled)
+    停止并销毁容器,消除孤儿容器;收尾失败不阻塞需求取消(warning 留痕)。
+    """
     if req.status in ("done", "archived"):
         raise BizError(ErrCode.NOT_IN_POLISHING, "已完成/已归档需求不可取消")
+
+    # R35.F2:打磨任务/容器收尾(孤儿泄漏修复)
+    if req.polish_task_id:
+        from app.models.task import Task
+        from app.services import task_service
+
+        polish_task = (await db.execute(
+            select(Task).where(Task.task_id == req.polish_task_id).limit(1)
+        )).scalar_one_or_none()
+        if polish_task is not None and polish_task.status not in ("done", "cancelled", "failed", "timeout"):
+            try:
+                await task_service.finish_task(db, polish_task, operator, status="cancelled")
+            except Exception as e:  # 收尾失败不阻塞取消(容器泄漏风险降级为告警)
+                logger.warning("取消需求:打磨任务收尾失败 task=%s: %s", polish_task.task_id, e)
+
     req.status = "rejected"
     req.reject_reason = reason
     await db.flush()

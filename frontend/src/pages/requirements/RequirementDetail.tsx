@@ -241,10 +241,19 @@ export function RequirementDetail() {
               开始打磨
             </Button>
           )}
+          {/* R35.F1:打磨任务已终态(cancelled/failed/timeout)→ 允许重新打磨(active 时不显示) */}
           {requirement.status === 'polishing' && (
             <Button variant="primary" onClick={handleSubmitReview} disabled={submitReview.isPending}>
               <Send className="w-4 h-4 mr-2" />
               提交评审
+            </Button>
+          )}
+          {requirement.status === 'polishing'
+            && !!requirement.polish_task_id
+            && ['cancelled', 'failed', 'timeout'].includes(requirement.polish_task_status ?? '') && (
+            <Button variant="primary" onClick={handlePolish} disabled={polishRequirement.isPending}>
+              <Play className="w-4 h-4 mr-2" />
+              重新打磨
             </Button>
           )}
           {requirement.status === 'reviewing' && (
@@ -265,13 +274,14 @@ export function RequirementDetail() {
               创建开发任务
             </Button>
           )}
-          {requirement.status === 'in_progress' && hasDevTaskDone && (
+          {/* R35.F4:in_progress 永不出现(后端无赋值点)→ 按任务态挂 approved(后端 _TYPE_REQ_STATUS 本就允许 approved 建 test/release) */}
+          {requirement.status === 'approved' && hasDevTaskDone && (
             <Button variant="primary" onClick={() => navigate('/tasks/create?type=test')}>
               <FileText className="w-4 h-4 mr-2" />
               创建测试任务
             </Button>
           )}
-          {requirement.status === 'in_progress' && hasTestTaskPassed && (
+          {requirement.status === 'approved' && hasTestTaskPassed && (
             <Button variant="primary" onClick={() => setReleaseDialog(true)}>
               <FileText className="w-4 h-4 mr-2" />
               创建发布任务

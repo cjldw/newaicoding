@@ -13,6 +13,7 @@ from app.schemas.project import (
     UpdateProjectRequest,
 )
 from app.schemas.project_member import (
+    BatchInviteMemberRequest,
     ChangeRoleRequest,
     InviteMemberRequest,
     TransferOwnershipRequest,
@@ -208,6 +209,22 @@ async def invite_member(
     project = await project_service.get_project_or_404(db, project_id)
     data = await project_member_service.invite_member(db, project, current_user, req.phone, req.role)
     return success(data=data, message="邀请成功")
+
+
+# -------------------------------------------------------------------
+# POST /api/projects/{project_id}/members/batch - 批量邀请(R2 成员批量邀请)
+# -------------------------------------------------------------------
+@router.post("/{project_id}/members/batch")
+async def batch_invite_members(
+    project_id: str,
+    req: BatchInviteMemberRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner 按 user_ids 批量邀请为 editor/viewer;整体事务:预检任一失败整批 400(errors 列原因),全过单事务插入+审计+GitLab 同步"""
+    project = await project_service.get_project_or_404(db, project_id)
+    data = await project_member_service.batch_invite_members(db, project, current_user, req.user_ids, req.role)
+    return success(data=data, message="批量邀请成功")
 
 
 # -------------------------------------------------------------------

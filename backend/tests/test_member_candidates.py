@@ -8,8 +8,9 @@ R1 候选用户列表接口测试(owner 专属)
 2. q=昵称片段 / 手机号片段 均命中
 3. 分页正确(total/page/page_size 回显,跨页不重不漏)
 4. phone 打码非明文(复用 mask_phone 口径)
-5. editor / 非成员 403(1901)
+5. editor / viewer / 非成员 403(1901)
 6. 超管(非项目成员)可访问
+7. R1 审计移交补测:owner 自身行 is_member=True;viewer 403 显式用例
 
 脚手架照抄 test_project_members_api.py:
 - _register_user:注册+登录普通用户
@@ -216,6 +217,35 @@ class TestForbiddenForNonOwner:
         outsider = await _register_user(client)
 
         resp, data = await _candidate_items(client, outsider["headers"], project.project_id)
+        assert resp.status_code == 403
+        assert data["code"] == 1901
+
+
+# ---------------------------------------------------------------------------
+# R1 审计移交补测(DEVPLAN.md 2026-09-26 决策留痕:2 条非阻塞跟进移交 R2 QA 顺带补)
+# ---------------------------------------------------------------------------
+class TestR1AuditHandoff:
+    @pytest.mark.asyncio
+    async def test_owner_own_row_is_member_true(self, client, db_session, registered_user):
+        """owner 自身行 is_member=True(未懒回填 owner 行时按 projects.owner_id 兜底口径)"""
+        owner = await _register_user(client)
+        project = await _insert_project(db_session, owner["user_id"])
+
+        resp, data = await _candidate_items(client, owner["headers"], project.project_id)
+        assert resp.status_code == 200
+        assert data["code"] == 0
+        by_uid = {i["user_id"]: i for i in data["data"]["items"]}
+        assert by_uid[owner["user_id"]]["is_member"] is True
+
+    @pytest.mark.asyncio
+    async def test_viewer_403(self, client, db_session, registered_user):
+        """项目 viewer(成员但非 owner)访问:403 / 1901(补齐 editor/非成员之外的显式角色)"""
+        owner = await _register_user(client)
+        project = await _insert_project(db_session, owner["user_id"])
+        viewer = await _register_user(client)
+        await _insert_member(db_session, project.project_id, viewer["user_id"], "viewer")
+
+        resp, data = await _candidate_items(client, viewer["headers"], project.project_id)
         assert resp.status_code == 403
         assert data["code"] == 1901
 
