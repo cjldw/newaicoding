@@ -20,7 +20,8 @@ ALTER TABLE notifications
 
 > ⚠️ MODIFY ENUM 必须先 `SHOW COLUMNS` 抄全现有枚举值再追加新值,漏值会截断数据;上线前在测试库演练。
 > R6:该语句已落 alembic 迁移 f8b2d4a6c1e3(全文与回滚见 .scratch/R6/deploy-sql.md);
-> 测试库已应用,开发库 aicoding 待应用。
+> 测试库/开发库均已应用(开发库 aicoding head=f8b2d4a6c1e3,2026-09-26 `alembic current` 核对),
+> 上线环境执行 alembic upgrade head。
 
 ```sql
 -- downgrade
