@@ -16,12 +16,12 @@
 
 ## 当前进度
 
-**当前进度: 1/3 (33%) - R2 开发中(归 codingplatform-70 会话)**
+**当前进度: 2/3 (67%) - R2 已完成,接下来 R3**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
 | R1 | 候选用户列表接口 | M1 后端 | ✅ | ./DEVPLAN/R1.md |
-| R2 | 批量邀请接口(整体事务) | M1 后端 | ⬜ | ./DEVPLAN/R2.md |
+| R2 | 批量邀请接口(整体事务) | M1 后端 | ✅ | ./DEVPLAN/R2.md |
 | R3 | 选择式邀请 Dialog(替换手机号直添) | M2 前端 | ⬜ | ./DEVPLAN/R3.md |
 
 ## 模块拆分与时间线
@@ -47,3 +47,5 @@
 |---|---|---|
 | 2026-09-26 | 初始版本;PRD 四项确认(替换/统一角色/整体事务/停用禁选) | 人工拍板 |
 | 2026-09-26 | R1 完成并提交:is_member 并入 project.owner_id 兜底为合理扩展(与 D16 get_project_role owner 直判口径一致,防 owner 被低角色重插脏行);轻量审计通过(读端点无资损逻辑,未走 code-review 双轴,定级留痕);非阻塞跟进 2 条移交 R2 QA 顺带补:owner 自身行 is_member=True 断言、viewer 403 显式用例;QA 8/8 GREEN(Red 不可观测系 QA∥实现并行落盘,测试独立按分片契约编写);8 条 teardown ERROR 为外部锁噪声(trx 214745) | rd-dev 决策留痕 |
+| 2026-09-27 | R2 契约裁决:「含重复 user_ids」按 PRD.md:46+完成判据=整批 400/12008,推翻分片「静默去重」行为规格行(R2.md 已修正留痕),实现同步反转 | rd-dev 决策留痕 |
+| 2026-09-27 | R2 完成并提交:ErrCode 12006-12009;预检/插入分离同事务;IntegrityError→回滚 400/12009;QA 22 passed/0 failed(12 批量+10 candidates,跨三轮拼图,ERROR 级均为 teardown 1213 锁噪声);深度审计 Pass(五维达标 Low×7):①容量文案未列超出人数②GitLab 同步实为提交前执行(语义成立,与「提交后」措辞不符)③role 枚举违反 422 非字面 400(全站 pydantic 惯例)④测试 #12 回滚断言共享 session 下空真——均不阻塞,留 rd-check;工作树混有并行会话 R35.F1 WIP,未走全量 code-review 双轴,rd-check 兜底 | rd-dev 决策留痕 |
