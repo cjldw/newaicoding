@@ -28,3 +28,12 @@
 - **期望 vs 实际**:期望(R7.md 接口契约)recent 行透传 `delivery_date/related` 两个字段;实际仅透传 `delivery_date`,`related` 不存在;frontend/src/api/dashboard.ts 的 RecentRequirement 与 Dashboard.tsx 均未引用 `related` → 零功能影响
 - **错误信息**:无(字段缺失,真实环境复现)
 - **来源**:rd-check 接口断言(.scratch/check/R7/result.md #21)
+
+### BUG-KB-006:首页「开发任务」卡最近列表为空,开发管理列表却有记录
+
+- **严重程度**:待分析(可能是口径设计行为,也可能是 R7 传导查询 bug)
+- **关联页面**:工作台 / vs /manage/tasks
+- **问题描述**:用户登录后首页「开发任务」卡最近 5 条为空;进入开发管理列表有记录。需判定:① 首页口径=「与我相关」,若登录用户与那些记录无创建/关联关系则为设计行为(但超管视角是否应见全量=规格问题);② 若存在关联关系仍为空,则 R7 传导查询有 bug
+- **复现步骤**:登录 → 首页看「开发任务」卡 → 对比 /manage/tasks 记录
+- **建议方案**:待分析(API 实证:summary dev 块 total/recent vs manage 列表数据;用当前登录用户身份核对关联关系)
+- **状态**:open
