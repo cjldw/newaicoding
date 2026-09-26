@@ -71,7 +71,8 @@ async def test_create_requirement_success(client, auth_headers, db_session, regi
         )
     data = resp.json()
     assert data["code"] == 0, data
-    assert data["data"]["req_branch"].startswith("req-")
+    # R34.F1:默认分支策略 req-{id8} → feat/{需求名首拼≤10}{日期}(用户登录功能 → yhdlgn)
+    assert data["data"]["req_branch"].startswith("feat/yhdlgn")
     assert any(m == "POST" and "/repository/branches" in u for m, u in calls)
 
     # 详情

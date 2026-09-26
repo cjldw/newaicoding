@@ -17,6 +17,8 @@ dependencies = [
     "cryptography>=42.0",
     "httpx>=0.27,<1.0",
     "python-multipart>=0.0.9",
+    # R34.F1:需求分支默认策略 feat/{需求名首拼}(拼音首字母取字)
+    "pypinyin>=0.50,<1.0",
 ]
 
 [project.optional-dependencies]

@@ -132,6 +132,45 @@ def _normalize_prototype_links(links: Optional[list]) -> list:
 # ---------------------------------------------------------------------------
 # 创建(所有绑定 repo 建需求分支)
 # ---------------------------------------------------------------------------
+def gen_req_branch_slug(title: str, max_len: int = 10) -> str:
+    """
+    R34.F1:需求名 → 简称首拼(最多 max_len 字符):
+    逐字取拼音首字母(pypinyin FIRST_LETTER);ASCII 字母/数字取其自身小写,
+    其余(空白/标点/未识别)忽略;空结果回退 "req"。
+    例:「用户登录功能优化」→ yhdlgnyh(截 10);「AI 助手」→ azs;「登录」→ dl。
+    """
+    import re as _re
+
+    from pypinyin import Style, lazy_pinyin
+
+    text = (title or '').strip()
+    if not text:
+        return 'req'
+    # 先按 [ASCII 字母数字串 | 其它单字] 切分,ASCII 段取首字母,单字走拼音首字母
+    out: list[str] = []
+    for token in _re.findall(r'[A-Za-z0-9]+|.', text, flags=_re.S):
+        if token[0].isascii() and token[0].isalnum():
+            out.append(token[0].lower())
+        else:
+            ini = lazy_pinyin(token, style=Style.FIRST_LETTER, errors='ignore')
+            if ini and ini[0] and ini[0][0].isascii() and ini[0][0].isalnum():
+                out.append(ini[0][0])
+        if len(out) >= max_len:
+            break
+    return ''.join(out) or 'req'
+
+
+def default_req_branch(title: str) -> str:
+    """
+    R34.F1:需求分支默认生成策略(用户口径):feat/{简称首拼≤10}{日期YYYYMMDD}
+    日期取 Asia/Shanghai 墙钟(与平台 func.now() +08:00 固化口径一致,BUG-039)。
+    """
+    from zoneinfo import ZoneInfo
+
+    day = datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y%m%d')
+    return f"feat/{gen_req_branch_slug(title)}{day}"
+
+
 async def create_requirement(db: AsyncSession, project: Project, operator: User, req_data: dict) -> dict:
     """
     创建需求:生成 req_id/req_branch → 在所有绑定 repo 上从默认分支切需求分支
@@ -149,7 +188,8 @@ async def create_requirement(db: AsyncSession, project: Project, operator: User,
     gitlab_url, bot_token, _ = await get_gitlab_bot_config(db)
 
     req_id = str(uuid.uuid4())
-    branch = req_data.get("req_branch") or f"req-{req_id[:8]}"
+    # R34.F1:默认分支策略 req-{id8} → feat/{需求名首拼≤10}{日期YYYYMMDD}(用户口径)
+    branch = req_data.get("req_branch") or default_req_branch(req_data.get("title") or "")
 
     # 同项目分支名查重(requirements 表口径;GitLab 侧 400 也兜底)
     dup = await db.execute(
@@ -159,7 +199,11 @@ async def create_requirement(db: AsyncSession, project: Project, operator: User,
         ).limit(1)
     )
     if dup.scalar_one_or_none() is not None:
-        raise BizError(ErrCode.CONFIG_NAME_DUPLICATE, f"需求分支 {branch} 已存在")
+        # R34.F1:自动生成的分支撞名(同项目同日同首拼)→ 追加 req_id 短码脱撞;
+        # 显式填写的分支撞名维持报错(用户语义,400 口径不变)
+        if req_data.get("req_branch"):
+            raise BizError(ErrCode.CONFIG_NAME_DUPLICATE, f"需求分支 {branch} 已存在")
+        branch = f"{branch}-{req_id[:4]}"
 
     # 在所有绑定 repo 建分支(从项目默认分支切出)
     repos_result = await db.execute(
