@@ -183,7 +183,13 @@ def local_container_states() -> list[dict]:
     try:
         containers = manager.client.containers.list(filters={"label": "qicheng.managed=true"})
         return [
-            {"container_id": c.short_id, "status": "running" if c.status == "running" else "stopped"}
+            {
+                "container_id": c.short_id,
+                "status": "running" if c.status == "running" else "stopped",
+                # R8.F5(BUG-055):带 task 标签,平台对账可按 task_id 收养
+                # 「started 回报丢失」的容器,而非误判为未知/孤儿
+                "task_id": (c.labels or {}).get("qicheng.task_id", ""),
+            }
             for c in containers
         ]
     except Exception:

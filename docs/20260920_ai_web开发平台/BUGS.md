@@ -926,3 +926,24 @@
 - **位置**:`frontend/src/pages/requirements/RequirementList.tsx` L114-128(WIP)创建弹窗分支预览
 - **问题**:汉字在预览里渲染为 `□`(`feat/□□□□□20260926`)——系有意设计(注释注明「汉字以□占位提示,后端权威」),但用户看到的 `□` 极易被当成「乱码」,可能是本次报「中文汉字首拼音乱码」的直观来源之一
 - **修法建议**:保留 □ 但强化提示文案,或后续加后端 preview 接口返回真首拼
+
+## BUG-054 | 任务打磨(调整)接口 500:pick_runner_db 缺 task_tag 形参 | open
+
+- **现象**:POST /api/requirements/d2371ea9-b719-484d-a28b-2c9f63009184/polish → `{"code":500,"data":null,"message":"服务器内部错误"}`(用户报告,2026-09-27)
+- **一手证据**:backend 日志(.runner_restart/backend-0927-000236.log)`TypeError: pick_runner_db() got an unexpected keyword argument 'task_tag'`(container_service.py:99 调用点)
+- **根因**:并行会话提交时 runner_service.py 被回退到 HEAD(该文件 R32 改动丢失:validate_tags/ALLOWED_TASK_TAGS/update_runner/pick_runner_db task_tag 全部消失),而调用方(container_service/task_service/api/admin/runners.py)的 R32 改动均存活且已入库——形成"调用方在、被调方缺失"的断链;打磨链 create_polish_task→schedule_and_start→pick_runner_db(task_tag=...) 即 500
+- **波及面**:打磨(500)/start_task 任意任务(500)/PATCH 编辑 Runner(AttributeError)/创建带 tags(16008 路径断)——不止 polish 一处
+- **修复**:R32.F4——向 runner_service.py 原样恢复四处 R32 改动(validate_tags 单遍版/create_runner tags 参数/update_runner 含 before 快照/pick_runner_db task_tag 过滤+细分日志)
+- **验证**:R32 套件 21/21 全绿;波及面 10 文件回归;真机复测 polish 归用户
+
+## BUG-055 | 对账误杀:started 回报丢失的容器被判 destroyed,真容器成 docker 孤儿 | open
+
+- **现象**:任务 2456bb57 进入后对话/终端均 9001「任务无运行中的容器」(用户报告,2026-09-27)
+- **一手证据链**(backend 日志 + runner 容器日志 + dev 库三表):
+  1. 00:29:39 start_container 下发 → 00:30:03 runner 实际启动容器 cf6b4df15119(ports 27291/22756)并发 container_started 回报
+  2. 00:30:08-00:30:28 平台事件循环疑似停滞,回报帧滞留缓冲;00:30:19 平台侧 ping 超时断连 → **帧丢失,handle_container_started 从未执行**(DB container_id 停留 pending 占位)
+  3. 00:30:30 runner 重注册对账:handle_sync 仅按 container_id 匹配 → pending 占位行不在上报集 → 判 destroyed;真容器 cf6b4df15119 成「未知(忽略)」→ **docker 侧仍 Up(孤儿),DB=destroyed,任务=running 三方分裂**
+- **根因**:handle_sync 的匹配键只有 container_id;对「占位 id 未被真实 id 替换」的行天然失配。容器 docker labels 已带 qicheng.task_id(R31.F3 既有),但 sync 上报载荷未带 task_id,平台无法收养
+- **修复**(R8.F5):① runner local_container_states 上报补 task_id(labels 读取);② 平台 handle_sync 增加 task_id 收养路径——上报容器 id 不匹配时按 task_id 匹配 DB 行,收养(替换真实 id+置上报状态+计数),仅 id 与 task_id 双双失配才判 destroyed
+- **波及面**:所有「启动回报丢失」场景(WS 抖动/重注册)从此自愈;对账破坏性从"误杀活容器"收窄为"真消失才判毁"
+- **验证**:新增 pytest(收养/真消失仍毁/无 task_id 旧协议兼容);真机 E2E=重启 runner 触发重注册对账,孤儿 cf6b4df15119 被收养,任务 2456bb57 恢复可用
