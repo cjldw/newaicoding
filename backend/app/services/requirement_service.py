@@ -70,6 +70,7 @@ async def build_detail(db: AsyncSession, req: Requirement) -> dict:
         "priority": req.priority,
         "related_user_ids": req.related_user_ids or [],  # R1:存量 NULL 归一为 []
         "prototype_links": req.prototype_links or [],  # R4:存量 NULL 归一为 []
+        "delivery_date": req.delivery_date,  # R5:交付时间(date;NULL → None,前端无值不渲染行)
         "req_branch": req.req_branch,
         "prd_file_path": req.prd_file_path,
         "created_by": await _creator_brief(db, req.created_by),
@@ -184,6 +185,7 @@ async def create_requirement(db: AsyncSession, project: Project, operator: User,
         priority=req_data.get("priority", "medium"),
         related_user_ids=related_user_ids,
         prototype_links=prototype_links,  # R4 原型链接(已规范化)
+        delivery_date=req_data.get("delivery_date"),  # R5 交付时间(None/缺省 → NULL)
         created_by=operator.user_id,
         status="draft",
     )

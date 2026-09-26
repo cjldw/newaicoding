@@ -64,6 +64,22 @@ const roleBadgeMap: Record<string, { label: string; variant: 'primary' | 'second
   viewer: { label: '观察者', variant: 'outline' },
 }
 
+// R5:「今天」按 GMT+8(Asia/Shanghai)计算,与后端「UTC naive +8h」同约定;
+// now + 8h 后取 UTC 年月日即为 GMT+8 墙钟日期,输出 YYYY-MM-DD 与 delivery_date(DATE 串)直接比较
+function gmt8Today(): string {
+  const gmt8 = new Date(Date.now() + 8 * 3600 * 1000)
+  const y = gmt8.getUTCFullYear()
+  const m = String(gmt8.getUTCMonth() + 1).padStart(2, '0')
+  const d = String(gmt8.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+// R5:逾期 = 已设交付时间 && delivery_date < 今天(GMT+8) && 非终态(done/archived 不标)
+function isDeliveryOverdue(deliveryDate: string, status: RequirementStatus): boolean {
+  if (['done', 'archived'].includes(status)) return false
+  return deliveryDate < gmt8Today()
+}
+
 export function RequirementList() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
@@ -79,6 +95,7 @@ export function RequirementList() {
     acceptance_criteria: '',
     priority: 'medium' as RequirementPriority,
     req_branch: '',
+    delivery_date: '', // R5 交付时间(input[type=date] 原生值 YYYY-MM-DD;空串=不设置)
     related_user_ids: [] as string[], // R1 关联用户(项目成员多选)
     prototype_links: [] as PrototypeLinkDraft[], // R4 原型链接(标签可选 + URL 必填)
   })
@@ -138,6 +155,7 @@ export function RequirementList() {
           acceptance_criteria: formData.acceptance_criteria.trim() || undefined,
           priority: formData.priority,
           req_branch: formData.req_branch.trim() || undefined,
+          delivery_date: formData.delivery_date || undefined, // R5:可选不填
           related_user_ids: formData.related_user_ids, // R1:空数组照传,后端静默剔除非成员
           prototype_links: formData.prototype_links
             .filter((row) => row.label.trim() !== '' || row.url.trim() !== '') // 整行全空不提交
@@ -157,6 +175,7 @@ export function RequirementList() {
             acceptance_criteria: '',
             priority: 'medium',
             req_branch: '',
+            delivery_date: '',
             related_user_ids: [],
             prototype_links: [],
           })
@@ -201,6 +220,7 @@ export function RequirementList() {
                 <TableHead>优先级</TableHead>
                 <TableHead>创建人</TableHead>
                 <TableHead>创建时间</TableHead>
+                <TableHead>交付时间</TableHead>
                 <TableHead className="ops w-[80px]">操作</TableHead>
               </TableRow>
             </TableHeader>
@@ -224,6 +244,19 @@ export function RequirementList() {
                     </TableCell>
                     <TableCell className="text-text-muted">
                       {new Date(item.created_at).toLocaleDateString('zh-CN')}
+                    </TableCell>
+                    {/* R5:交付时间(DATE 串直显)+ 逾期红徽章(非终态 && <GMT+8 今天;终态不标) */}
+                    <TableCell className="text-text-muted">
+                      {item.delivery_date ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          {item.delivery_date}
+                          {isDeliveryOverdue(item.delivery_date, item.status) && (
+                            <span className="bdg b-red">已逾期</span>
+                          )}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
                     </TableCell>
                     <TableCell className="ops">
                       <Button
@@ -338,6 +371,17 @@ export function RequirementList() {
                 value={formData.req_branch}
                 onChange={(e) => setFormData({ ...formData, req_branch: e.target.value })}
                 placeholder={branchPreview}
+              />
+            </div>
+            {/* R5:交付时间(可选;原生 input[type=date] 复用 .input 体系,到天) */}
+            <div>
+              <label className="block text-sm font-medium text-text mb-1.5">
+                交付时间 <span className="text-xs font-normal text-text-muted">(可选)</span>
+              </label>
+              <Input
+                type="date"
+                value={formData.delivery_date}
+                onChange={(e) => setFormData({ ...formData, delivery_date: e.target.value })}
               />
             </div>
             {/* R1:关联用户多选(项目成员,可搜索,chips 可移除) */}

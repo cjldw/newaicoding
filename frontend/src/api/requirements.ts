@@ -20,6 +20,8 @@ export interface RequirementListItem {
   priority: RequirementPriority
   created_by: RequirementUser
   created_at: string
+  // R5 交付时间(DATE 纯日期串 YYYY-MM-DD;存量行 NULL,前端列表逾期徽章判定用)
+  delivery_date?: string | null
 }
 
 export type RequirementStatus =
@@ -62,6 +64,8 @@ export interface RequirementDetail {
   related_user_ids?: string[]
   // R4 原型链接(存量行 NULL=空;空列表详情不渲染该行)
   prototype_links?: RequirementPrototypeLink[]
+  // R5 交付时间(DATE 纯日期串;存量行 NULL=空,详情有值才渲染该行)
+  delivery_date?: string | null
   created_by: RequirementUser
   reviewed_by: RequirementUser | null
   reviewed_at: string | null
@@ -79,6 +83,8 @@ export interface CreateRequirementRequest {
   acceptance_criteria?: string
   priority?: RequirementPriority
   req_branch?: string
+  // R5 交付时间:非必填(date picker 到天,YYYY-MM-DD;不填=不设置)
+  delivery_date?: string | null
   // R1 关联用户:项目成员 user_id 列表,非必填,空数组照传(后端静默剔除非成员+去重)
   related_user_ids?: string[]
   // R4 原型链接:非必填;≤10 条、url http(s):// 开头、label 截断 20(后端非法整组 400)
@@ -96,6 +102,8 @@ export interface UpdateRequirementRequest {
   description?: string
   acceptance_criteria?: string
   priority?: RequirementPriority
+  // R5 交付时间:与创建同形(date|None,可清空)
+  delivery_date?: string | null
   // R4 原型链接:与创建同校验(≤10 条、url http(s):// 开头;编辑维护走 PATCH)
   prototype_links?: RequirementPrototypeLink[]
 }

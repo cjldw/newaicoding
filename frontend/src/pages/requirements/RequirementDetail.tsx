@@ -267,6 +267,13 @@ export function RequirementDetail() {
               <div className="text-text font-mono text-sm">{requirement.prd_file_path || '—'}</div>
             </div>
           </div>
+          {/* R5:交付时间(有值才渲染,空清空合法;DATE 纯日期串直显) */}
+          {requirement.delivery_date && (
+            <div>
+              <label className="block text-sm font-medium text-text-muted mb-1">交付时间</label>
+              <div className="text-text">{requirement.delivery_date}</div>
+            </div>
+          )}
           {/* R4:原型链接 chips(新开标签页 rel=noopener;label 空则「链接 N」;空列表不渲染该行) */}
           {!!requirement.prototype_links?.length && (
             <div>
