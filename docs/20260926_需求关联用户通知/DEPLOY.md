@@ -13,10 +13,14 @@ ALTER TABLE requirements
   ADD COLUMN prototype_links JSON NULL COMMENT '原型链接[{label,url}]' AFTER related_user_ids,
   ADD COLUMN delivery_date DATE NULL COMMENT '交付截止日' AFTER prototype_links;
 ALTER TABLE notifications
-  MODIFY COLUMN type ENUM('review_approved','task_created','task_status_changed','requirement_status_changed','req_delivery_reminder', '<补齐现有全部枚举值>') NOT NULL COMMENT '通知类型';
+  MODIFY COLUMN type ENUM('deploy_failed','runner_offline','task_failed','push_failed',
+                          'review_approved','review_rejected','invited_to_project',
+                          'task_done','deployed','req_delivery_reminder') NOT NULL COMMENT '通知类型';
 ```
 
 > ⚠️ MODIFY ENUM 必须先 `SHOW COLUMNS` 抄全现有枚举值再追加新值,漏值会截断数据;上线前在测试库演练。
+> R6:该语句已落 alembic 迁移 f8b2d4a6c1e3(全文与回滚见 .scratch/R6/deploy-sql.md);
+> 测试库已应用,开发库 aicoding 待应用。
 
 ```sql
 -- downgrade

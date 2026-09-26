@@ -30,7 +30,11 @@ class Notification(Base):
     type = Column(
         Enum("deploy_failed", "runner_offline", "task_failed", "push_failed",
              "review_approved", "review_rejected", "invited_to_project",
-             "task_done", "deployed", name="notification_type_enum"),
+             "task_done", "deployed",
+             # R6: 交付提醒(每日巡检;MySQL ENUM 改表 SQL 见
+             # docs/20260926_需求关联用户通知/.scratch/R6/deploy-sql.md)
+             "req_delivery_reminder",
+             name="notification_type_enum"),
         nullable=False,
         index=True,
         comment="通知类型",

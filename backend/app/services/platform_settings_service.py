@@ -66,6 +66,8 @@ SETTING_KEYS: dict[str, tuple[str, Any]] = {
     "llm_default_model": ("str", None),
     # R8.F4(BUG-036): 自定义容器环境变量(多组 KV,启动任务时全量注入)
     "custom_env_vars": ("envmap", None),
+    # R6: 交付提醒巡检 last_run_date(GMT+8 日期,YYYY-MM-DD;仅服务层写,白名单防 API 乱写)
+    "req_delivery_reminder_last_date": ("str", None),
 }
 
 
