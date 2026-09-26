@@ -133,7 +133,12 @@ async def update_requirement(
         requirement.acceptance_criteria = req.acceptance_criteria
     if req.priority is not None:
         requirement.priority = req.priority
+    if req.prototype_links is not None:  # R4:不传 = 不动;[] = 清空;非法整组 400
+        requirement.prototype_links = requirement_service._normalize_prototype_links(req.prototype_links)
     await db.flush()
+    # updated_at 带 onupdate=func.now(),flush 实改字段后该属性被置为过期;
+    # build_detail 同步访问会触发 MissingGreenlet(R4 QA 用例暴露)→ 照 create 口径显式 refresh
+    await db.refresh(requirement)
     return success(data=await requirement_service.build_detail(db, requirement), message="更新成功")
 
 

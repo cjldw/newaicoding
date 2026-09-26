@@ -42,6 +42,12 @@ export interface RequirementTask {
   status: string
 }
 
+// R4 原型链接:label 可空(≤20,后端截断;空则前端展示「链接 N」),url 需 http(s):// 开头;最多 10 条(超限/非法整组 400)
+export interface RequirementPrototypeLink {
+  label: string | null
+  url: string
+}
+
 export interface RequirementDetail {
   req_id: string
   title: string
@@ -54,6 +60,8 @@ export interface RequirementDetail {
   prd_file_path: string
   // R1 关联用户(后端契约:RequirementDetailData.related_user_ids,存量行 NULL=空)
   related_user_ids?: string[]
+  // R4 原型链接(存量行 NULL=空;空列表详情不渲染该行)
+  prototype_links?: RequirementPrototypeLink[]
   created_by: RequirementUser
   reviewed_by: RequirementUser | null
   reviewed_at: string | null
@@ -73,6 +81,8 @@ export interface CreateRequirementRequest {
   req_branch?: string
   // R1 关联用户:项目成员 user_id 列表,非必填,空数组照传(后端静默剔除非成员+去重)
   related_user_ids?: string[]
+  // R4 原型链接:非必填;≤10 条、url http(s):// 开头、label 截断 20(后端非法整组 400)
+  prototype_links?: RequirementPrototypeLink[]
 }
 
 export interface CreateRequirementResponse {
@@ -86,6 +96,8 @@ export interface UpdateRequirementRequest {
   description?: string
   acceptance_criteria?: string
   priority?: RequirementPriority
+  // R4 原型链接:与创建同校验(≤10 条、url http(s):// 开头;编辑维护走 PATCH)
+  prototype_links?: RequirementPrototypeLink[]
 }
 
 export interface ReviewRequest {

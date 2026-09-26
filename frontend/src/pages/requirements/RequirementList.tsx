@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, Eye, ClipboardList, ChevronDown, Check, X } from 'lucide-react'
+import { Plus, Eye, ClipboardList, ChevronDown, Check, X, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
@@ -25,6 +25,18 @@ import {
   useRequirementList, useCreateRequirement, getRequirementErrorMessage,
 } from '@/api/requirements'
 import type { RequirementStatus, RequirementPriority } from '@/api/requirements'
+
+// R4:原型链接约束(PRD:label ≤20 可空 / url http(s):// 开头 / 最多 10 条;行内红字文案照分片)
+const MAX_PROTOTYPE_LINKS = 10
+const PROTOTYPE_URL_PATTERN = /^https?:\/\//i
+// 表单行形态(label 空串;提交时非空才带,空行整行剔除)
+interface PrototypeLinkDraft { label: string; url: string }
+
+function isPrototypeLinkRowError(row: PrototypeLinkDraft): boolean {
+  const url = row.url.trim()
+  if (url !== '') return !PROTOTYPE_URL_PATTERN.test(url)
+  return row.label.trim() !== '' // 有标签无 URL = 半填行,同样拦截
+}
 
 // 状态徽章映射
 const statusMap: Record<RequirementStatus, { label: string; variant: 'outline' | 'secondary' | 'primary' | 'success' | 'error' }> = {
@@ -68,6 +80,7 @@ export function RequirementList() {
     priority: 'medium' as RequirementPriority,
     req_branch: '',
     related_user_ids: [] as string[], // R1 关联用户(项目成员多选)
+    prototype_links: [] as PrototypeLinkDraft[], // R4 原型链接(标签可选 + URL 必填)
   })
   const [formError, setFormError] = useState('')
 
@@ -85,9 +98,34 @@ export function RequirementList() {
     ? `req-${formData.title.toLowerCase().replace(/[^a-z0-9一-龥]+/g, '-').replace(/^-|-$/g, '')}`
     : 'req-'
 
+  // R4:原型链接行操作(追加/删除/编辑)
+  function addPrototypeLink() {
+    setFormData((f) => ({
+      ...f,
+      prototype_links: [...f.prototype_links, { label: '', url: '' }],
+    }))
+  }
+  function removePrototypeLink(idx: number) {
+    setFormData((f) => ({
+      ...f,
+      prototype_links: f.prototype_links.filter((_, i) => i !== idx),
+    }))
+  }
+  function updatePrototypeLink(idx: number, patch: Partial<PrototypeLinkDraft>) {
+    setFormData((f) => ({
+      ...f,
+      prototype_links: f.prototype_links.map((row, i) => (i === idx ? { ...row, ...patch } : row)),
+    }))
+  }
+
   function handleCreate() {
     if (!projectId || !formData.title.trim() || !formData.description.trim()) {
       setFormError('标题和描述为必填项')
+      return
+    }
+    // R4:URL 行内校验(空行剔除;非法/半填行红字提示并拦截提交,文案照分片)
+    if (formData.prototype_links.some(isPrototypeLinkRowError)) {
+      setFormError('URL 需以 http(s):// 开头')
       return
     }
     createRequirement.mutate(
@@ -101,6 +139,12 @@ export function RequirementList() {
           priority: formData.priority,
           req_branch: formData.req_branch.trim() || undefined,
           related_user_ids: formData.related_user_ids, // R1:空数组照传,后端静默剔除非成员
+          prototype_links: formData.prototype_links
+            .filter((row) => row.label.trim() !== '' || row.url.trim() !== '') // 整行全空不提交
+            .map((row) => ({
+              label: row.label.trim() || null,
+              url: row.url.trim(),
+            })),
         },
       },
       {
@@ -114,6 +158,7 @@ export function RequirementList() {
             priority: 'medium',
             req_branch: '',
             related_user_ids: [],
+            prototype_links: [],
           })
           setFormError('')
         },
@@ -305,6 +350,64 @@ export function RequirementList() {
                 value={formData.related_user_ids}
                 onChange={(ids) => setFormData({ ...formData, related_user_ids: ids })}
               />
+            </div>
+            {/* R4:原型链接行组(标签可选 ≤20 + URL 必填 http(s)://;≤10 条,超限禁加+提示) */}
+            <div>
+              <label className="block text-sm font-medium text-text mb-1.5">
+                原型链接 <span className="text-xs font-normal text-text-muted">(可选)</span>
+              </label>
+              <div className="space-y-2">
+                {formData.prototype_links.map((row, idx) => {
+                  const rowError = isPrototypeLinkRowError(row)
+                  return (
+                    <div key={idx} className="flex items-start gap-2">
+                      <Input
+                        value={row.label}
+                        onChange={(e) => updatePrototypeLink(idx, { label: e.target.value })}
+                        placeholder="链接标签(可选)"
+                        maxLength={20}
+                        className="w-40 shrink-0"
+                        aria-label={`链接 ${idx + 1} 标签`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <Input
+                          value={row.url}
+                          onChange={(e) => updatePrototypeLink(idx, { url: e.target.value })}
+                          placeholder="URL"
+                          className={rowError ? 'border-red-border' : undefined}
+                          aria-label={`链接 ${idx + 1} URL`}
+                        />
+                        {rowError && (
+                          <div className="mt-1 text-xs text-red-fg">URL 需以 http(s):// 开头</div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost icon-btn shrink-0"
+                        title="删除"
+                        aria-label={`删除链接 ${idx + 1}`}
+                        onClick={() => removePrototypeLink(idx)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={addPrototypeLink}
+                  disabled={formData.prototype_links.length >= MAX_PROTOTYPE_LINKS}
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" />
+                  添加链接
+                </Button>
+                {formData.prototype_links.length >= MAX_PROTOTYPE_LINKS && (
+                  <span className="text-xs text-text-muted">最多 10 条</span>
+                )}
+              </div>
             </div>
             {formError && (
               <div className="text-sm text-red-fg">{formError}</div>

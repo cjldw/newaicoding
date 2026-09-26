@@ -69,6 +69,7 @@ async def build_detail(db: AsyncSession, req: Requirement) -> dict:
         "status": req.status,
         "priority": req.priority,
         "related_user_ids": req.related_user_ids or [],  # R1:存量 NULL 归一为 []
+        "prototype_links": req.prototype_links or [],  # R4:存量 NULL 归一为 []
         "req_branch": req.req_branch,
         "prd_file_path": req.prd_file_path,
         "created_by": await _creator_brief(db, req.created_by),
@@ -104,6 +105,29 @@ async def _filter_related_members(db: AsyncSession, project_id: str, ids: Option
 
 
 # ---------------------------------------------------------------------------
+# 原型链接校验(R4 创建 / 编辑共用;与关联用户静默剔除不同:非法整组显式 400)
+# ---------------------------------------------------------------------------
+def _normalize_prototype_links(links: Optional[list]) -> list:
+    """
+    原型链接口径(PRD-B R4):≤10 条;url 必须 http(s):// 开头;label 截断 20(空串保留不丢)。
+    超限 / URL 非 http(s) → BizError 400 **整组拒绝**;None/缺省/[] → []。
+    """
+    if not links:
+        return []
+    if len(links) > 10:
+        raise BizError(400, "原型链接最多 10 条", status_code=400)
+    normalized: list = []
+    for link in links:
+        raw = link if isinstance(link, dict) else {}
+        url = str(raw.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            raise BizError(400, "原型链接 URL 需以 http(s):// 开头", status_code=400)
+        normalized.append({"label": str(raw.get("label") or "")[:20], "url": url})
+    logger.info("原型链接已规范化 raw=%s normalized=%s", len(links), len(normalized))
+    return normalized
+
+
+# ---------------------------------------------------------------------------
 # 创建(所有绑定 repo 建需求分支)
 # ---------------------------------------------------------------------------
 async def create_requirement(db: AsyncSession, project: Project, operator: User, req_data: dict) -> dict:
@@ -115,6 +139,9 @@ async def create_requirement(db: AsyncSession, project: Project, operator: User,
     from app.services.platform_settings_service import get_gitlab_bot_config
 
     logger.info("创建需求 project=%s title=%s by=%s", project.project_id, req_data.get("title"), operator.user_id)
+
+    # R4 原型链接:格式校验前置(非法整组 400,避免 GitLab 分支已建的半成品)
+    prototype_links = _normalize_prototype_links(req_data.get("prototype_links"))
 
     # 平台 GitLab 配置(建分支用 bot token;未配置 2001)
     gitlab_url, bot_token, _ = await get_gitlab_bot_config(db)
@@ -156,6 +183,7 @@ async def create_requirement(db: AsyncSession, project: Project, operator: User,
         req_branch=branch,
         priority=req_data.get("priority", "medium"),
         related_user_ids=related_user_ids,
+        prototype_links=prototype_links,  # R4 原型链接(已规范化)
         created_by=operator.user_id,
         status="draft",
     )

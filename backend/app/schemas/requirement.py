@@ -18,6 +18,8 @@ class CreateRequirementRequest(BaseModel):
     req_branch: Optional[str] = Field(default=None, max_length=64)
     # R1 关联用户:项目成员 id 列表,非必填默认 [];非成员 id 由服务层静默剔除
     related_user_ids: Optional[List[str]] = None
+    # R4 原型链接:[{label≤20 可空, url http(s)}] ≤10;条数/URL 校验由服务层显式 400
+    prototype_links: Optional[List[dict]] = None
 
 
 class UpdateRequirementRequest(BaseModel):
@@ -27,6 +29,8 @@ class UpdateRequirementRequest(BaseModel):
     description: Optional[str] = Field(default=None, min_length=1)
     acceptance_criteria: Optional[str] = None
     priority: Optional[Priority] = None
+    # R4 原型链接:不传 = 不动;传 [] = 清空(校验同创建,由服务层做)
+    prototype_links: Optional[List[dict]] = None
 
 
 class ReviewRequest(BaseModel):
@@ -77,6 +81,7 @@ class RequirementDetailData(BaseModel):
     status: str
     priority: str
     related_user_ids: List[str] = Field(default_factory=list)  # R1 关联用户(空/None 归一为 [])
+    prototype_links: List[dict] = Field(default_factory=list)  # R4 原型链接(空/None 归一为 [])
     req_branch: str
     prd_file_path: str
     created_by: RequirementCreator

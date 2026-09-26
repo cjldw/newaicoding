@@ -5,7 +5,7 @@
 
 import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Play, Send, CheckCircle, XCircle, FileText } from 'lucide-react'
+import { ArrowLeft, Play, Send, CheckCircle, XCircle, FileText, ExternalLink } from 'lucide-react'
 import { TaskCreateDialog } from '@/pages/tasks/TaskCreateDialog'
 import { BreadcrumbOverrideProvider } from '@/components/layout/Breadcrumb'
 import { Button } from '@/components/ui/Button'
@@ -267,6 +267,27 @@ export function RequirementDetail() {
               <div className="text-text font-mono text-sm">{requirement.prd_file_path || '—'}</div>
             </div>
           </div>
+          {/* R4:原型链接 chips(新开标签页 rel=noopener;label 空则「链接 N」;空列表不渲染该行) */}
+          {!!requirement.prototype_links?.length && (
+            <div>
+              <label className="block text-sm font-medium text-text-muted mb-1">原型链接</label>
+              <div className="chip-row">
+                {requirement.prototype_links.map((link, idx) => (
+                  <a
+                    key={`${idx}-${link.url}`}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="chip hover:bg-surface-strong"
+                    title={link.url}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 ic" />
+                    {link.label || `链接 ${idx + 1}`}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
           {(requirement.status === 'reviewing' || requirement.reviewed_by) && (
             <div className="border-t border-border pt-4">
               <div className="grid grid-cols-3 gap-4">
