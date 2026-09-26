@@ -241,7 +241,8 @@ export function RequirementDetail() {
               开始打磨
             </Button>
           )}
-          {/* R35.F1:打磨任务已终态(cancelled/failed/timeout)→ 允许重新打磨(active 时不显示) */}
+          {/* R35.F1:打磨任务已终态(cancelled/failed/timeout/done)→ 允许重新打磨(active 时不显示;
+              终态集与后端 start_polish 放宽口径一致,done 可达:finish_task 不碰 requirement,提交评审前停留 polishing) */}
           {requirement.status === 'polishing' && (
             <Button variant="primary" onClick={handleSubmitReview} disabled={submitReview.isPending}>
               <Send className="w-4 h-4 mr-2" />
@@ -250,7 +251,7 @@ export function RequirementDetail() {
           )}
           {requirement.status === 'polishing'
             && !!requirement.polish_task_id
-            && ['cancelled', 'failed', 'timeout'].includes(requirement.polish_task_status ?? '') && (
+            && ['cancelled', 'failed', 'timeout', 'done'].includes(requirement.polish_task_status ?? '') && (
             <Button variant="primary" onClick={handlePolish} disabled={polishRequirement.isPending}>
               <Play className="w-4 h-4 mr-2" />
               重新打磨

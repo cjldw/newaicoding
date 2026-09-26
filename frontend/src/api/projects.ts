@@ -391,7 +391,7 @@ export function useBatchInviteMember() {
   return useMutation({
     mutationFn: ({ projectId, data }: { projectId: string; data: BatchInviteMemberRequest }) =>
       membersApi.batch(projectId, data).then(r => r.data),
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['project-members'] })
       qc.invalidateQueries({ queryKey: ['project-candidate-users'] })
     },

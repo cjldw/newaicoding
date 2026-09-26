@@ -448,7 +448,7 @@ docker run -d \
 
 ## 当前进度
 
-**当前进度: 增量3(R23–R27):5/5 (100%) - R27 判据 5 真机复现通过(2026-09-25),增量3 收官 | 增量4(R28–R30):3/3 (100%) - 全部完成,引导进入 /rd-check | 增量5(R31):1/1 (100%) - 完成,待提交与 /rd-check | rd-fix 第 27 轮收敛:BUG-UI-071/072/073 verified 迁移 ISSUES.md;BUG-034 待用户启 LLM 代理(0.0.0.0:18765)后回归 | rd-fix 第 28 轮收敛:R21.F1(BUG-051 工作台门槛)verified 迁移 ISSUES.md——统计数字对账无误,口径变更诉求归 /rd-plan**
+**当前进度: 增量3(R23–R27):5/5 (100%) - R27 判据 5 真机复现通过(2026-09-25),增量3 收官 | 增量4(R28–R30):3/3 (100%) - 全部完成,引导进入 /rd-check | 增量5(R31):1/1 (100%) - 完成,待提交与 /rd-check | rd-fix 第 27 轮收敛:BUG-UI-071/072/073 verified 迁移 ISSUES.md;BUG-034 待用户启 LLM 代理(0.0.0.0:18765)后回归 | rd-fix 第 28 轮收敛:R21.F1(BUG-051 工作台门槛)verified 迁移 ISSUES.md——统计数字对账无误,口径变更诉求归 /rd-plan** | **R35(rd-dev 进行中)**:流程断点修复包 6 子项,QA Red(盘点存量 test_r35_flow_fixes.py)+ 前端 F1/F3/F4/F6 并行,后端 F1/F2/F3/F5 待 Red 就绪后实现**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
@@ -511,7 +511,7 @@ docker run -d \
 | R29 | 平台导览(左下角入口)(增量4) | M10 | ✅(fixed;tsc/build 零错,判据 1-10 Playwright 实测全过,审计 0 阻塞,待用户验收) | ./DEVPLAN/R29.md |
 | R30 | 黑白主题切换(增量4) | M10 | ✅(fixed;tsc/build 零错,判据 1-11 Playwright 实测全过;顺带修复主按钮白底白字存量缺陷;待用户验收) | ./DEVPLAN/R30.md |
 | R31 | Runner 本地快速创建与本机生命周期管理(增量5) | M5 | ✅(fixed;pytest 28+1s/runner 34/回归 58 零回退;真机 E2E 判据 1/4/5/6 过;待用户验收) | ./DEVPLAN/R31.md |
-| R35 | 流程断点修复包:打磨可重启(F1)/取消需求收尾(F2)/retry 拉起+前端入口(F3)/in_progress 死 UI 清理(F4)/超时清扫挂调度(F5)/test-release running 停止按钮(F6) | M3 | ⬜ | ./DEVPLAN/R35.md |
+| R35 | 流程断点修复包:打磨可重启(F1)/取消需求收尾(F2)/retry 拉起+前端入口(F3)/in_progress 死 UI 清理(F4)/超时清扫挂调度(F5)/test-release running 停止按钮(F6) | M3 | 🔄(rd-dev 开发中:QA Red + 前端 4 子项并行) | ./DEVPLAN/R35.md |
 | R2.F10 | 修复 BUG-049 项目卡片需求数/成员数为硬编码演示数据 | - | ✅(verified;真机 API 三项目逐项与 DB 一致;已迁移 ISSUES.md) | ./DEVPLAN/R2.F10.md |
 | R28.F1 | 修复 BUG-040 个人设置入口断链(用户下拉补「个人设置」,头像编辑/GitLab Token/通知设置可达) | M1 | ✅(fixed;判据 1-5 Playwright 实测全过,tsc/build 零错;verified 待用户浏览器复验) | ./DEVPLAN/R28.F1.md |
 | R26.F1 | 修复 BUG-041 Runner 终端 6003 对非容器化 runner 误报"版本过旧"(细分文案:键缺失=版本过旧/空串=非容器化,码不动 0 前端) | M5 | ✅(verified 迁移 ISSUES.md;pytest 11/11 + 真机接口复验新文案,后端已重启) | ./DEVPLAN/R26.F1.md |

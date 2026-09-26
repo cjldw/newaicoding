@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_IMAGE = "platform/devbox:v1"
 EXPOSED_PORTS = [5173, 8000]
-MAX_USER_RUNNING_CONTAINERS = 5   # 单用户同时运行容器 ≤ 5(含部署中)
 
 
 async def _platform_container_limit(db: AsyncSession) -> int:
@@ -45,8 +44,22 @@ async def _platform_container_limit(db: AsyncSession) -> int:
         return 50
 
 
+async def _user_container_limit(db: AsyncSession) -> int:
+    """单用户容器数上限(平台设置实时读取,默认 5)"""
+    result = await db.execute(
+        select(PlatformSetting.value).where(PlatformSetting.key == "max_containers_per_user")
+    )
+    value = result.scalar_one_or_none()
+    if value is None:
+        return 5
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 5
+
+
 async def check_quotas(db: AsyncSession, owner_user_id: str) -> None:
-    """配额:单用户运行中 ≤5(8001);平台总数 ≤ max_containers_total(8002)"""
+    """配额:单用户运行中 ≤ max_containers_per_user(8001);平台总数 ≤ max_containers_total(8002)"""
     # 单用户:containers.project_id → projects.project_id,projects.owner_id = 用户
     user_cnt = await db.execute(
         select(func.count(Container.id))
@@ -56,8 +69,9 @@ async def check_quotas(db: AsyncSession, owner_user_id: str) -> None:
             Container.status.in_(["creating", "running"]),
         )
     )
-    if (user_cnt.scalar() or 0) >= MAX_USER_RUNNING_CONTAINERS:
-        raise BizError(ErrCode.USER_CONTAINER_LIMIT, "同时运行容器数已达上限(5 个)")
+    user_limit = await _user_container_limit(db)
+    if (user_cnt.scalar() or 0) >= user_limit:
+        raise BizError(ErrCode.USER_CONTAINER_LIMIT, f"同时运行容器数已达上限({user_limit} 个)")
 
     total_cnt = await db.execute(
         select(func.count(Container.id)).where(Container.status.in_(["creating", "running"]))
