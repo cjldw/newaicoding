@@ -1,8 +1,9 @@
 /**
- * SkillsManagement — Skills 管理 Tab(R17)
+ * SkillsManagement — Skills 管理 Tab(R17;R4 市场搜索安装)
  * - 标题"Skills 管理" + "从市场安装"(secondary) + "上传自定义"(primary)按钮(viewer 隐藏)
  * - 已安装 Table:Skill 名/描述/来源徽章(platform=secondary/project=primary)/安装人/安装时间/操作[查看/卸载]
- * - 市场安装对话框 + 上传对话框 + Skill 详情对话框
+ * - 市场安装对话框:双 Tab「市场安装(R1 源 Select+防抖搜索+远程安装) | 平台库(原平铺列表)」
+ * - 上传对话框 + Skill 详情对话框
  */
 
 import { useState } from 'react'
@@ -10,6 +11,8 @@ import { Upload, Store, Eye, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Alert } from '@/components/ui/Alert'
+import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from '@/components/ui/Table'
@@ -19,14 +22,23 @@ import {
 } from '@/components/ui/Dialog'
 import {
   useInstalledSkills, useSkillMarket, useInstallSkill, useUploadSkill,
-  useUninstallSkill, getSkillErrorMessage,
+  useUninstallSkill, useMarketSources, useMarketSearch, useInstallRemote,
+  getSkillErrorMessage,
 } from '@/api/skills'
-import type { Skill } from '@/api/skills'
+import type { Skill, MarketSearchItem } from '@/api/skills'
+import { ApiError } from '@/api/client'
+import { useDebounce } from '@/hooks/useDebounce'
 import { useAuthStore } from '@/stores/authStore'
 import { useProjectMembers } from '@/api/projects'
 
 interface SkillsManagementProps {
   projectId: string
+}
+
+/** 市场搜索/远程安装失败文案(R2/R3:17005=市场暂不可用;其余照 Skill 错误码) */
+function getMarketErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === 17005) return '市场暂不可用'
+  return getSkillErrorMessage(error)
 }
 
 export function SkillsManagement({ projectId }: SkillsManagementProps) {
@@ -35,12 +47,28 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
   const installSkill = useInstallSkill(projectId)
   const uploadSkill = useUploadSkill(projectId)
   const uninstallSkill = useUninstallSkill(projectId)
+  // ---- R4:市场搜索安装(Dialog 双 Tab)----
+  const [marketOpen, setMarketOpen] = useState(false)
+  type MarketTab = 'market' | 'library'
+  const [marketTab, setMarketTab] = useState<MarketTab>('market')
+  const [searchInput, setSearchInput] = useState('')
+  const searchQ = useDebounce(searchInput.trim(), 300)
+  const [marketType, setMarketType] = useState('')
+  const [remoteInstalled, setRemoteInstalled] = useState<Set<string>>(new Set())
+  // R4:市场源(R1 裸数组)+ 防抖搜索 + 远程安装
+  const { data: marketSources } = useMarketSources()
+  const activeMarket = marketType || marketSources?.[0]?.type || ''
+  const searchEnabled = marketOpen && marketTab === 'market' && activeMarket !== '' && searchQ !== ''
+  const marketSearch = useMarketSearch(activeMarket, searchQ, searchEnabled)
+  const installRemote = useInstallRemote(projectId)
+  // 已装比对(R4:命中 installed 列表 name 即禁按;本会话刚装的 ref 兜底,防列表刷新竞态)
+  const installedNames = new Set((installed ?? []).map(s => s.name))
+  const sourceOptions = (marketSources ?? []).map(s => ({ label: s.name, value: s.type }))
   const { data: membersData } = useProjectMembers(projectId)
   const user = useAuthStore(state => state.user)
   const currentMember = membersData?.items.find(m => m.user_id === user?.user_id)
   const isViewer = currentMember?.role === 'viewer'
 
-  const [marketOpen, setMarketOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [detailSkill, setDetailSkill] = useState<Skill | null>(null)
   const [uninstallTarget, setUninstallTarget] = useState<Skill | null>(null)
@@ -54,6 +82,22 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
         setMarketOpen(false)
       },
       onError: (err) => setMessage({ type: 'error', text: getSkillErrorMessage(err) }),
+    })
+  }
+
+  /** R4:市场远程安装成功——Dialog 不关,该行标「已安装」+ 刷新已装列表 */
+  function handleInstallRemote(item: MarketSearchItem) {
+    installRemote.mutate({ market: item.market, ref: item.ref }, {
+      onSuccess: (data) => {
+        setRemoteInstalled(prev => new Set(prev).add(`${item.market}:${item.ref}`))
+        setMessage({
+          type: 'success',
+          text: data.extra_files > 1
+            ? `安装成功,需新启任务容器生效;含 ${data.extra_files} 个支撑文件,仅安装 SKILL.md`
+            : '安装成功,需新启任务容器生效',
+        })
+      },
+      onError: (err) => setMessage({ type: 'error', text: getMarketErrorMessage(err) }),
     })
   }
 
@@ -104,7 +148,18 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
         </div>
         {!isViewer && (
           <div className="acts">
-            <Button variant="outline" size="sm" onClick={() => setMarketOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setMessage(null)
+                setMarketTab('market')
+                setSearchInput('')
+                setMarketType('')
+                setRemoteInstalled(new Set())
+                setMarketOpen(true)
+              }}
+            >
               <Store className="w-4 h-4 mr-1" />
               从市场安装
             </Button>
@@ -189,36 +244,118 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
         </Alert>
       )}
 
-      {/* 市场安装对话框 */}
+      {/* 市场安装对话框(R4:市场搜索安装 + 平台库 双 Tab) */}
       <Dialog open={marketOpen} onOpenChange={setMarketOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>从市场安装</DialogTitle>
-            <DialogDescription>选择平台级 Skill 安装到本项目</DialogDescription>
+            <DialogDescription>从市场搜索或从平台库选择 Skill 安装到本项目</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {(marketSkills ?? []).map(skill => (
-              <div
-                key={skill.skill_id}
-                className="flex items-center justify-between p-3 border border-border rounded-md"
-              >
-                <div className="flex-1">
-                  <div className="font-medium text-text">{skill.name}</div>
-                  <div className="text-sm text-text-muted mt-1">{skill.description}</div>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => handleInstall(skill.skill_id)}
-                  disabled={installSkill.isPending}
-                >
-                  安装
-                </Button>
-              </div>
-            ))}
-            {(marketSkills ?? []).length === 0 && (
-              <p className="text-center text-text-muted py-4">暂无可安装的 Skills</p>
-            )}
+          <div className="tabs">
+            <button
+              className={`tab${marketTab === 'market' ? ' on' : ''}`}
+              onClick={() => setMarketTab('market')}
+            >
+              市场安装
+            </button>
+            <button
+              className={`tab${marketTab === 'library' ? ' on' : ''}`}
+              onClick={() => setMarketTab('library')}
+            >
+              平台库
+            </button>
           </div>
+          {message && (
+            <div className="mt-3">
+              <Alert variant={message.type === 'success' ? 'success' : 'error'}>
+                {message.text}
+              </Alert>
+            </div>
+          )}
+          {marketTab === 'market' ? (
+            <div className="mt-3 space-y-3">
+              {/* 市场源(R1)+ 搜索词(300ms 防抖) */}
+              <div className="flex gap-2">
+                <Select
+                  className="w-[150px] flex-none"
+                  options={sourceOptions}
+                  value={activeMarket}
+                  onChange={(e) => setMarketType(e.target.value)}
+                />
+                <Input
+                  className="flex-1"
+                  placeholder="搜索市场 skill…"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {searchQ === '' ? (
+                  <p className="text-center text-text-muted py-4">请输入搜索词</p>
+                ) : marketSearch.isLoading ? (
+                  <p className="text-center text-text-muted py-4">搜索中...</p>
+                ) : marketSearch.isError ? (
+                  <Alert variant="error">{getMarketErrorMessage(marketSearch.error)}</Alert>
+                ) : (marketSearch.data?.items ?? []).length === 0 ? (
+                  <p className="text-center text-text-muted py-4">未找到匹配 skill</p>
+                ) : (
+                  (marketSearch.data?.items ?? []).map(item => {
+                    const installedItem =
+                      installedNames.has(item.name) ||
+                      remoteInstalled.has(`${item.market}:${item.ref}`)
+                    return (
+                      <div
+                        key={`${item.market}:${item.ref}`}
+                        className="flex items-center justify-between p-3 border border-border rounded-md"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-text">{item.name}</span>
+                            <span className="bdg b-zinc">{item.installs} 次安装</span>
+                          </div>
+                          <div className="text-sm text-text-muted mt-1 truncate">
+                            {item.description}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="ml-3 flex-none"
+                          onClick={() => handleInstallRemote(item)}
+                          disabled={installedItem || installRemote.isPending}
+                        >
+                          {installedItem ? '已安装' : '安装'}
+                        </Button>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2 max-h-[400px] overflow-y-auto">
+              {(marketSkills ?? []).map(skill => (
+                <div
+                  key={skill.skill_id}
+                  className="flex items-center justify-between p-3 border border-border rounded-md"
+                >
+                  <div className="flex-1">
+                    <div className="font-medium text-text">{skill.name}</div>
+                    <div className="text-sm text-text-muted mt-1">{skill.description}</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => handleInstall(skill.skill_id)}
+                    disabled={installSkill.isPending}
+                  >
+                    安装
+                  </Button>
+                </div>
+              ))}
+              {(marketSkills ?? []).length === 0 && (
+                <p className="text-center text-text-muted py-4">暂无可安装的 Skills</p>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

@@ -68,6 +68,40 @@ export const marketSourcesApi = {
   get: () => api.get<SkillMarketSource[]>('/skills/market/sources'),
 }
 
+// ---- Skills 市场搜索/远程安装(R2/R3)----
+// 搜索:GET /skills/market/search?market=&q=(后端代理双市场,归一化+5min 缓存;
+//   market 传源 type 值 modelscope/skillssh——R2 契约:请求/响应同值自洽)
+// 安装:POST /projects/{pid}/skills/install-remote {market,ref} → 只装 SKILL.md,extra_files 为支撑文件数
+export interface MarketSearchItem {
+  name: string
+  description: string
+  installs: number
+  ref: string
+  market: SkillMarketSourceType
+}
+
+export interface MarketSearchData {
+  market: string
+  items: MarketSearchItem[]
+}
+
+export interface InstallRemoteResult {
+  skill_id: string
+  name: string
+  source: 'market'
+  source_url: string
+  extra_files: number
+}
+
+export const skillMarketApi = {
+  search: (market: string, q: string) =>
+    api.get<MarketSearchData>(
+      `/skills/market/search?market=${encodeURIComponent(market)}&q=${encodeURIComponent(q)}`,
+    ),
+  installRemote: (projectId: string, market: string, ref: string) =>
+    api.post<InstallRemoteResult>(`/projects/${projectId}/skills/install-remote`, { market, ref }),
+}
+
 // ---- Error codes ----
 export const SkillErrorCodes = {
   JSON_FORMAT_ERROR: 17001,
@@ -159,6 +193,15 @@ export function useMarketSources() {
   })
 }
 
+// ---- React Query Hooks: 市场搜索(R2;enabled 由调用方把门——q 防抖后非空才发)----
+export function useMarketSearch(market: string, q: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['skill-market-search', market, q],
+    queryFn: () => skillMarketApi.search(market, q).then(r => r.data),
+    enabled,
+  })
+}
+
 // ---- React Query Hooks: Skills ----
 export function useSkillMarket() {
   return useQuery({
@@ -178,6 +221,16 @@ export function useInstallSkill(projectId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (skillId: string) => skillsApi.install(projectId, skillId).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['installed-skills', projectId] }) },
+  })
+}
+
+// 市场一键安装(R3;成功 invalidate 已装列表——搜索行按 name 命中即标「已安装」)
+export function useInstallRemote(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { market: string; ref: string }) =>
+      skillMarketApi.installRemote(projectId, v.market, v.ref).then(r => r.data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['installed-skills', projectId] }) },
   })
 }
