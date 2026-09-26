@@ -113,3 +113,9 @@ report/
 
 # codegraph 索引产物(codegraph-mcp)
 .codegraph/
+
+# ===== 运行时数据(上传物,勿入库) =====
+backend/data/
+
+# ===== Claude Code 本地会话配置 =====
+.claude/settings.local.json
