@@ -113,23 +113,20 @@ export function RequirementList() {
       <div className="page-head">
         {/* R2.F8(BUG-UI-068):h1 补 icon 惯例 */}
         <h1 className="flex items-center gap-2"><ClipboardList size={18} /> 需求</h1>
-        <Button variant="primary" onClick={() => setShowCreateDialog(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          新建需求
-        </Button>
+        {/* design.md 新增按钮规范:「新建」类主按钮统一放页头右上 acts 区(对齐 KnowledgeBase/DimensionPage) */}
+        <div className="acts">
+          <Button variant="primary" onClick={() => setShowCreateDialog(true)}>
+            <Plus className="w-4 h-4 mr-1" />
+            新建需求
+          </Button>
+        </div>
       </div>
 
       {/* 表格 */}
       {isLoading ? (
         <div className="text-center py-12 text-text-muted">加载中...</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-text-muted mb-4">暂无需求</p>
-          <Button variant="primary" onClick={() => setShowCreateDialog(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            新建需求
-          </Button>
-        </div>
+        <div className="text-center py-12 text-text-muted">暂无需求 · 点击右上角「新建需求」创建</div>
       ) : (
         <>
           <div className="card">

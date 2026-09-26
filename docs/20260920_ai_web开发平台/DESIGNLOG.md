@@ -9,6 +9,8 @@
 
 | 页面/区块 | 状态 | 设计规范文件 | 备注 |
 |---|---|---|---|
+
+| 项目详情默认 Tab=需求 + 需求页新建按钮右侧 | ✅ | 无新稿,样板轨:page-head acts + design.md Plus 规范 | 用户指定:项目卡片进详情默认需求 Tab;新建需求按钮右对齐 || 任务工作台终端全屏(对齐 AI 对话) | ✅(静态) | 无新稿,样板轨:对话/编辑器全屏模式 | 右栏终端 Tab 加全屏切换,xterm 需 refit。全屏=CSS 提升 fixed 覆盖层 z-[60](与对话/编辑器同模式,不重挂载、缓冲保留),Tab 栏右上 Maximize2/Minimize2 切换 + Esc 退出;refit 双保险=ResizeObserver(既有)+ fitSignal 切换信号(双 rAF → safeFit:尺寸守卫 + fitAddon.fit() + ws resize 同步后端 cols/rows,进/出全屏同路径);终端空/占位态同享全屏(同步提升 fixed + 右上角切换钮),全屏中关最后一个 Tab 不再内联回落致状态悬空;Runner shell Dialog 未传 onToggleFullscreen 不再渲染死按钮;详见 .scratch/terminal-fullscreen.md;tsc 零错误,浏览器实渲染核对待登录态 |
 | admin-shell(面包屑导航 + topbar 按钮/icon,影响全部管理页) | ✅ | .scratch/design-spec/admin-shell.md | Playwright 核对通过;面包屑与 vp 一致;topbar icon 15px + .btn 系列 ✅ |
 | admin-用户管理(/admin/users,table 样式对齐) | ✅ | .scratch/design-spec/admin-users.md | Playwright 核对通过;.tbl/.bdg/.card/.card-foot/.scrollx/.btn 全部到位;手机号脱敏 ✅ |
 | admin-审计日志(/admin/audit-logs,同表样式检查) | ✅ | .scratch/design-spec/admin-users.md(共用表规范) | 核对通过;BUG-UI-002 已核实为误报(空表不渲染分页,代码 `.card-foot` 在 AuditLogsPage.tsx:257),与 vp 审计页无分页脚注一致 |

@@ -47,7 +47,7 @@ export function ProjectDetail() {
   const [confirmDialog, setConfirmDialog] = useState<'delete' | 'archive' | null>(null)
   const [settingsTab, setSettingsTab] = useState<'mcp' | 'skills' | 'model'>('mcp')
 
-  const activeTab = searchParams.get('tab') ?? 'repos'
+  const activeTab = searchParams.get('tab') ?? 'requirements'
   const st = project ? (statusMap[project.status] ?? statusMap.active) : statusMap.active
 
   function handleConfirm() {
