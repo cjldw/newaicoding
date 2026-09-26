@@ -48,6 +48,7 @@ class Runner(Base):
     max_containers = Column(Integer, nullable=False, default=10, server_default="10", comment="最多容器数")
     public_ip = Column(String(64), nullable=True, comment="deploy Runner 必填(部署 URL 指向)")
     is_local = Column(TINYINT(1), nullable=False, default=0, server_default="0", comment="本机快速创建标记(R31)")
+    tags = Column(JSON, nullable=True, comment="任务类型标签(R32);NULL/空=兜底接所有 worker 任务")
     created_by = Column(CHAR(36), nullable=False, comment="创建 token 的超管 user_id")
     created_at = Column(DateTime, default=func.now(), server_default=func.now(), nullable=False)
     updated_at = Column(

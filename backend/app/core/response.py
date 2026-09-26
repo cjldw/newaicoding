@@ -135,7 +135,8 @@ class ErrCode:
     RUNNER_LOCAL_STOP_FAILED = 16004    # 删除代停容器失败
     RUNNER_NAME_EXISTS = 16005          # 名称冲突(本端点显式校验)
     RUNNER_NOT_LOCAL = 16006            # 非本机 runner 调 start/stop,或 disabled 启动
-    RUNNER_NO_PROCESS_HANDLE = 16007    # 停止时既无 WS 连接也无句柄
+    RUNNER_NO_PROCESS_HANDLE = 16007
+    RUNNER_TAG_INVALID = 16008          # 任务类型标签非法(创建/编辑;deploy 带非空 tags 同码,R32)
 
     # R26 Runner 终端(6xxx 段)
     RUNNER_NOT_ONLINE = 6001          # Runner 不在线

@@ -1,5 +1,5 @@
 /**
- * Runner Management API — react-query hooks (R16 + R31 本机快速创建)
+ * Runner Management API — react-query hooks (R16 + R31 本机快速创建 + R32 标签管理与全字段编辑)
  * 错误码:
  *  - 16001: Runner 上有运行中的容器,不可删除(远程 runner)
  *  - 16002: 本机环境校验失败(message 细分,前端直显后端原文)
@@ -8,6 +8,7 @@
  *  - 16005: 名称冲突
  *  - 16006: 非本机 runner 调 start/stop,或 disabled 启动
  *  - 16007: 停止时既无 WS 连接也无句柄
+ *  - 16008: 任务类型标签非法(R32)
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -41,13 +42,24 @@ export interface Runner {
   public_ip: string | null
   created_at: string
   is_local: boolean // R31:本机快速创建标记
+  tags: string[] // R32:任务类型标签(requirement/dev/test);空数组=兜底
 }
+
+// R32:任务类型标签选项(固定枚举)
+export const TAG_OPTIONS = [
+  { label: '需求', value: 'requirement' },
+  { label: '开发', value: 'dev' },
+  { label: '测试', value: 'test' },
+] as const
+
+export type TagValue = typeof TAG_OPTIONS[number]['value']
 
 export interface CreateRunnerRequest {
   name: string
   role: 'worker' | 'deploy'
   max_containers: number
   public_ip?: string
+  tags?: string[] // R32:任务类型标签
 }
 
 export interface CreateRunnerResponse {
@@ -64,6 +76,7 @@ export interface ResetTokenResponse {
 export interface CreateLocalRunnerRequest {
   name?: string // 留空自动生成 local-xxxxxxxx
   max_containers?: number // 默认 10
+  tags?: string[] // R32:任务类型标签
 }
 
 export interface CreateLocalRunnerResponse {
@@ -99,6 +112,14 @@ export function getRunnerErrorMessage(error: unknown): string {
   return '操作失败'
 }
 
+// R32:编辑 Runner 请求(全部可选,未传=不改动)
+export interface UpdateRunnerRequest {
+  name?: string
+  max_containers?: number
+  tags?: string[]
+  public_ip?: string
+}
+
 // ---- API calls ----
 export const runnersApi = {
   list: () => api.get<{ items: Runner[] }>('/admin/runners'),
@@ -122,6 +143,9 @@ export const runnersApi = {
     api.post<{ message: string }>(`/admin/runners/${runnerId}/disable`),
   delete: (runnerId: string) =>
     api.delete<{ message: string }>(`/admin/runners/${runnerId}`),
+  // R32:编辑 Runner(PATCH 部分更新)
+  update: (runnerId: string, data: UpdateRunnerRequest) =>
+    api.patch<Runner>(`/admin/runners/${runnerId}`, data),
 }
 
 // ---- React Query Hooks ----
@@ -196,6 +220,16 @@ export function useDeleteRunner() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (runnerId: string) => runnersApi.delete(runnerId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-runners'] }) },
+  })
+}
+
+// R32:编辑 Runner(PATCH 部分更新;invalidate 列表)
+export function useUpdateRunner() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ runnerId, data }: { runnerId: string; data: UpdateRunnerRequest }) =>
+      runnersApi.update(runnerId, data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-runners'] }) },
   })
 }

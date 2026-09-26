@@ -897,3 +897,14 @@ python3 main.py                            # 建议配 systemd unit:Restart=alwa
 - **已执行**:开发库 aicoding 已 upgrade(head=c7d3e9b5a2f4);测试库 aicoding_test 已手工补列(conftest create_all 不加列,环境陷阱#2)
 - **配置**:无新增;R31 本机 runner 的 PLATFORM_URL 固定注入 `ws://127.0.0.1:8000/ws/runner`(E1 已知限制:平台非 8000 端口/多网卡场景 V2 平台设置化)
 - **依赖**:无新增(runner 侧 docker/websockets 既有;preflight 运行时探测)
+
+## R32 追加(2026-09-24,增量6)— runners 表加 tags JSON 列
+
+- **迁移**:`d8e4f2a6b9c3_r32_runner_tags.py`(down_revision=c7d3e9b5a2f4);`alembic upgrade head` 幂等
+- **SQL(全新环境手写等价)**:
+  ```sql
+  ALTER TABLE runners ADD COLUMN tags JSON NULL COMMENT '任务类型标签(R32);NULL/空=兜底接所有 worker 任务';
+  ```
+- **存量行处理**:NULL=兜底接所有 worker 任务,代码兼容读 `runner.tags or []`,无需回填
+- **已执行**:2026-09-24 rd-dev 阶段——dev 库 aicoding 已 `alembic upgrade head`(c7d3e9b5a2f4 → d8e4f2a6b9c3);测试库 aicoding_test 已手工补列(conftest create_all 不加列,环境陷阱#2)
+- **配置**:无新增;**依赖**:无新增

@@ -39,6 +39,7 @@ def _to_item(runner: Runner) -> dict:
         "max_containers": runner.max_containers,
         "public_ip": runner.public_ip,
         "is_local": bool(runner.is_local),  # R31
+        "tags": list(runner.tags or []),  # R32:恒数组,NULL 存量折 []
         "created_at": runner.created_at,
     }
 
@@ -71,6 +72,7 @@ async def create_runner(
         db, current_user.user_id,
         name=req.name, role=req.role,
         max_containers=req.max_containers, public_ip=req.public_ip,
+        tags=req.tags,
     )
     # R25 审计:runner.create(token 明文不落审计)
     await audit_write(
@@ -79,7 +81,8 @@ async def create_runner(
         detail={"name": runner.name, "role": runner.role},
     )
     return success(
-        data={"runner_id": runner.runner_id, "name": runner.name, "token": token},
+        data={"runner_id": runner.runner_id, "name": runner.name,
+              "tags": list(runner.tags or []), "token": token},
         message="创建成功,请保存 token(仅显示一次)",
     )
 
@@ -90,6 +93,8 @@ async def create_runner(
 class CreateLocalRequest(BaseModel):
     name: Optional[str] = Field(default=None, max_length=64)
     max_containers: int = Field(default=10, ge=1, le=100)
+    # R32:任务类型标签(恒 worker 角色;空/缺省=通用兜底)
+    tags: Optional[list[str]] = None
 
 
 @router.post("/local")
@@ -117,12 +122,15 @@ async def create_local_runner(
     await local_runner_service.check_name_free(db, name)
 
     token_plain = _generate_token()
+    # R32:tags 校验(local 恒 worker;非法值 16008 在落库前拒绝)
+    local_tags = runner_service.validate_tags(req.tags, "worker")
     runner = Runner(
         runner_id=runner_id,
         name=name,
         role="worker",
         token_hash=hash_password(token_plain),
         max_containers=req.max_containers,
+        tags=local_tags or None,
         is_local=1,
         status="offline",
         created_by=current_user.user_id,
@@ -147,8 +155,61 @@ async def create_local_runner(
     msg = "创建成功" if status == "online" else "Runner 已启动但未完成注册,可在列表查看状态或重试启动"
     return success(data={
         "runner_id": runner_id, "name": name, "status": status,
+        "tags": list(local_tags),  # R32
         "token_hidden": True, "launch_command": launch,
     }, message=msg)
+
+
+# -------------------------------------------------------------------
+# R32:PATCH /api/admin/runners/{runner_id} - 全字段编辑
+# -------------------------------------------------------------------
+class UpdateRunnerRequest(BaseModel):
+    """R32 编辑请求体(全可选,未传=不改动;role/token/is_local 不可编辑)"""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    max_containers: Optional[int] = Field(default=None, ge=1, le=100)
+    tags: Optional[list[str]] = None
+    public_ip: Optional[str] = Field(default=None, max_length=64)
+
+
+@router.patch("/{runner_id}")
+async def update_runner(
+    runner_id: str,
+    req: UpdateRunnerRequest,
+    current_user: User = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    R32:Runner 全字段编辑。
+    - 校验失败(16005 名称/16008 标签/2007 deploy 公网 IP)直接抛,前端弹窗不关
+    - disabled 行允许编辑(禁用只挡调度,元数据无碍)
+    - 单行 UPDATE 原子;调度实时查库,新 tags 下次调度即生效
+    """
+    # 仅透传请求体显式出现的字段(exclude_unset:未传=不改动)
+    payload = req.model_dump(exclude_unset=True)
+    runner, before = await runner_service.update_runner(db, runner_id, **payload)
+
+    # 改动字段名(与 before 快照比对;tags 显式清空也算改动)
+    changed: list[str] = []
+    for k, v in payload.items():
+        if k == "tags":
+            if list(v or []) != before.get("tags", []):
+                changed.append(k)
+        elif v is not None and v != before.get(k):
+            changed.append(k)
+
+    # R25 审计(模式 C):runner.update,detail 只记改动字段名与 tags 前后(无敏感值)
+    # no-op(PATCH 与现状全同)不落审计,避免 changed=[] 空事件污染审计轨(code-review #4)
+    if changed:
+        await audit_write(
+            db, current_user, "runner.update",
+            target_type="runner", target_id=runner.runner_id,
+            detail={
+                "changed": changed,
+                "before_tags": before.get("tags", []),
+                "after_tags": list(runner.tags or []),
+            },
+        )
+    return success(data=_to_item(runner), message="Runner 已更新")
 
 
 @router.post("/{runner_id}/start")

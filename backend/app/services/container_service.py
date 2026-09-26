@@ -76,6 +76,7 @@ async def schedule_and_start(
     env: dict,
     repos: list[dict],
     required_role: str = "general",
+    task_tag: Optional[str] = None,
     image: str = DEFAULT_IMAGE,
     cpu_limit: str = "2c",
     mem_limit: str = "4g",
@@ -94,7 +95,8 @@ async def schedule_and_start(
     await check_quotas(db, owner_user_id)
 
     # ---- 调度(R16:DB 注册表;最少负载 + role 匹配) ----
-    runner = await runner_service.pick_runner_db(db, required_role)
+    # R32:task_tag 透传做 tags 匹配(空/NULL=兜底;deploy 路径恒 None 行为不变)
+    runner = await runner_service.pick_runner_db(db, required_role, task_tag=task_tag)
     if runner is None:
         raise BizError(
             ErrCode.NO_RUNNER_AVAILABLE,
