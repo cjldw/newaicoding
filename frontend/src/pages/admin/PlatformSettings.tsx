@@ -1025,5 +1025,6 @@ export function PlatformSettings() {
         </div>
       </div>
     </div>
+    </div>
   )
 }

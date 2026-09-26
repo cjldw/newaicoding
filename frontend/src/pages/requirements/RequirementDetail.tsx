@@ -95,10 +95,10 @@ export function RequirementDetail() {
   ], [requirement?.title])
 
   if (isLoading) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">加载中...</div>
+    return <div className="page wide"><div className="page-loading">加载中...</div></div>
   }
   if (!requirement) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">需求不存在</div>
+    return <div className="page wide"><div className="page-loading">需求不存在</div></div>
   }
 
   const st = statusMap[requirement.status]
@@ -112,7 +112,7 @@ export function RequirementDetail() {
 
   // R2:打开编辑态(草稿 = 详情当前名单;已移出项目的成员不在候选中,后端保存时静默剔除)
   function openRelatedUsersDialog() {
-    setRelatedUsersDraft(requirement.related_user_ids ?? [])
+    setRelatedUsersDraft(requirement?.related_user_ids ?? [])
     setRelatedUsersError('')
     setRelatedUsersDialog(true)
   }
@@ -129,7 +129,7 @@ export function RequirementDetail() {
         reqId,
         data: {
           related_user_ids: relatedUsersDraft,
-          delivery_date: requirement.delivery_date ?? null,
+          delivery_date: requirement?.delivery_date ?? null,
         },
       },
       {
