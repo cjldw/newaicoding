@@ -56,6 +56,7 @@ SETTING_KEYS: dict[str, tuple[str, Any]] = {
     "preview_base_domain": ("domain", None),
     "deploy_base_domain": ("domain", None),
     "max_containers_total": ("int", (1, 10000)),
+    "max_containers_per_user": ("int", (1, 100)),
     "kb_max_pages_per_kb": ("int", (1, 100000)),
     "kb_max_file_mb": ("int", (1, 1024)),
     # R23: 平台默认 LLM 配置(四键齐备才生效;R1 模型升级为列表+默认项)

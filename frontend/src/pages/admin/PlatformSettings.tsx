@@ -81,6 +81,7 @@ type DomainValues = z.infer<typeof domainSchema>
 // 3. 全局参数
 const globalSchema = z.object({
   max_containers_total: z.coerce.number().min(1, '至少 1'),
+  max_containers_per_user: z.coerce.number().min(1, '至少 1'),
   kb_max_pages_per_kb: z.coerce.number().min(1, '至少 1'),
   kb_max_file_mb: z.coerce.number().min(1, '至少 1'),
 })
@@ -228,6 +229,7 @@ export function PlatformSettings() {
     })
     globalForm.reset({
       max_containers_total: d.max_containers_total ?? 100,
+      max_containers_per_user: d.max_containers_per_user ?? 5,
       kb_max_pages_per_kb: d.kb_max_pages_per_kb ?? 50,
       kb_max_file_mb: d.kb_max_file_mb ?? 10,
     })
@@ -844,6 +846,14 @@ export function PlatformSettings() {
           error: globalErrors.max_containers_total?.message,
           children: (
             <Input type="number" {...globalForm.register('max_containers_total')} />
+          ),
+        })}
+
+        {renderField({
+          label: '单用户容器上限',
+          error: globalErrors.max_containers_per_user?.message,
+          children: (
+            <Input type="number" {...globalForm.register('max_containers_per_user')} />
           ),
         })}
 
