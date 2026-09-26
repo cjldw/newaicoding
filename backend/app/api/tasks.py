@@ -89,7 +89,9 @@ async def list_tasks(
 class CreateTaskRequest(BaseModel):
     type: str = Field(min_length=1, max_length=16)
     title: str = Field(min_length=1, max_length=128)
-    description: str = Field(min_length=1)
+    # R1.F3:description 放宽为可选(快速创建 test/release 无描述输入框;
+    # 未传时服务端按类型落默认文案,避免恒发空串必 422)
+    description: str = Field(default=None, max_length=2000)
     base_branch: str = Field(default=None, max_length=64)
     work_branch: str = Field(default=None, max_length=64)
     # R7 发布任务扩展字段(创建后并入 extended_attributes)
@@ -118,24 +120,27 @@ async def create_task(
 
     # test 类型走专用创建(dev-done 前置 + test 仓库清单 + 报告路径;R6)
     # release 类型走专用创建(test passed 前置 + 端口/域名唯一 + 部署数限额;R7)
+    # R1.F3:description 兜底(快速创建 test/release 无描述输入框;按类型落默认文案)
+    type_label = {"dev": "开发", "test": "测试", "release": "发布"}.get(req.type, "任务")
+    description = (req.description or "").strip() or f"{type_label}需求:{req.title}"
     hint = None
     if req.type == "release":
         task, hint = await task_service.create_release_task(
             db, requirement, project, current_user,
-            title=req.title, description=req.description,
+            title=req.title, description=description,
             deploy_port=req.deploy_port, deploy_host=req.deploy_host,
             deploy_script=req.deploy_script,
         )
     elif req.type == "test":
         task, hint = await task_service.create_test_task(
             db, requirement, project, current_user,
-            title=req.title, description=req.description,
+            title=req.title, description=description,
             based_on_dev_tasks=[],
         )
     else:
         task = await task_service.create_task(
             db, requirement, project, current_user,
-            type=req.type, title=req.title, description=req.description,
+            type=req.type, title=req.title, description=description,
             base_branch=req.base_branch, work_branch=req.work_branch,
         )
     # 创建即尝试拉起(无可用 Runner → 保持 pending 排队,8003 由前端轮询提示)

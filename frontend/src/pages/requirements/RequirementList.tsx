@@ -20,8 +20,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter,
 } from '@/components/ui/Dialog'
+import { useDebounce } from '@/hooks/useDebounce'
 import {
-  useRequirementList, useCreateRequirement, getRequirementErrorMessage,
+  useRequirementList, useCreateRequirement, useBranchPreview, getRequirementErrorMessage,
 } from '@/api/requirements'
 import type { RequirementStatus, RequirementPriority } from '@/api/requirements'
 
@@ -102,22 +103,11 @@ export function RequirementList() {
   const pageSize = 10
   const totalPages = Math.ceil(total / pageSize)
 
-  // 实时生成分支预览
-  // R34.F1:分支默认策略对齐后端 feat/{需求名首拼≤10}{日期}(后端权威生成;
-  // 前端仅做预览——ASCII 取首字母,汉字逐字转□占位提示,实际首拼以后端为准;
-  // 预览日期取本地墙钟,与后端 Asia/Shanghai 同日(跨日边界偏差可接受,仅预览)
-  const branchPreview = (() => {
-    const t = formData.title.trim()
-    const slug = t
-      ? Array.from(t.replace(/\s+/g, ''))
-          .map((ch) => (/[a-z0-9]/i.test(ch) ? ch.toLowerCase() : /[一-龥]/.test(ch) ? '□' : ''))
-          .join('')
-          .slice(0, 10) || 'req'
-      : '…'
-    const now = new Date()
-    const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-    return `feat/${slug}${day}`
-  })()
+  // R1.F2:分支预览改调后端接口(default_req_branch 拼音策略权威生成);
+  // 本地 map 成 □ 的旧预览已移除(用户误读「乱码」);标题停顿 300ms 才请求,失败静默显示占位
+  const debouncedTitle = useDebounce(formData.title.trim(), 300)
+  const { data: branchData } = useBranchPreview(debouncedTitle)
+  const branchPreview = branchData?.branch || ''
 
   // R4:原型链接行操作(追加/删除/编辑)
   function addPrototypeLink() {
@@ -324,8 +314,8 @@ export function RequirementList() {
               />
               {formData.title && (
                 <div className="mt-1 text-xs text-text-muted">
-                  分支预览: <code className="text-primary">{branchPreview}</code>
-                  (□ = 汉字首拼,以创建时系统生成为准;可手动改填覆盖)
+                  分支预览: <code className="text-primary">{branchPreview || '生成中...'}</code>
+                  (以创建时系统生成为准;可手动改填覆盖)
                 </div>
               )}
             </div>
@@ -375,7 +365,7 @@ export function RequirementList() {
               <Input
                 value={formData.req_branch}
                 onChange={(e) => setFormData({ ...formData, req_branch: e.target.value })}
-                placeholder={branchPreview}
+                placeholder={branchPreview || 'feat/…'}
               />
             </div>
             {/* R5:交付时间(可选;原生 input[type=date] 复用 .input 体系,到天) */}

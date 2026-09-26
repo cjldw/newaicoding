@@ -74,6 +74,8 @@ export interface RequirementDetail {
   reviewed_at: string | null
   reject_reason: string | null
   polish_task_id: string | null
+  /** R35.F1:打磨任务状态透传(「重新打磨」按钮可见性,免二次请求) */
+  polish_task_status: string | null
   tasks: RequirementTask[]
   created_at: string
   updated_at: string
@@ -144,6 +146,9 @@ export const requirementsApi = {
     api.post<{ message: string }>(`/requirements/${reqId}/review`, data),
   cancel: (reqId: string, data: CancelRequest) =>
     api.post<{ message: string }>(`/requirements/${reqId}/cancel`, data),
+  // R1.F2:分支名预览(后端拼音策略权威生成;title 必填 1-128,与创建时 default_req_branch 同口径)
+  branchPreview: (title: string) =>
+    api.get<{ branch: string }>(`/requirements/branch-preview?title=${encodeURIComponent(title)}`),
 }
 
 // ---- Error code helpers ----
@@ -175,6 +180,17 @@ export function useRequirementDetail(reqId: string) {
     queryKey: ['requirement', reqId],
     queryFn: () => requirementsApi.detail(reqId).then(r => r.data),
     enabled: !!reqId,
+  })
+}
+
+// R1.F2:分支名预览(title 由调用方 debounce;空标题不请求;失败静默 → 上层显示「生成中...」/空)
+export function useBranchPreview(title: string) {
+  return useQuery({
+    queryKey: ['branch-preview', title],
+    queryFn: () => requirementsApi.branchPreview(title).then(r => r.data),
+    enabled: title.trim().length > 0,
+    staleTime: 60_000,
+    retry: false,
   })
 }
 

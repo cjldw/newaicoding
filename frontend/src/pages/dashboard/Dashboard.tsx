@@ -21,6 +21,8 @@ const ST_CN: Record<string, string> = {
 
 interface Dim {
   key: 'requirements' | 'dev' | 'test' | 'release'
+  /** R7.F1(BUG-KB-006):summary 后端真实键(requirements/dev_tasks/test_tasks/release_tasks) */
+  skey: 'requirements' | 'dev_tasks' | 'test_tasks' | 'release_tasks'
   name: string
   Icon: typeof FileText
   href: string
@@ -72,10 +74,10 @@ function DeliveryBadge({ row, today, tomorrow }: { row: RecentRow; today: string
 }
 
 const DIMS: Dim[] = [
-  { key: 'requirements', name: '需求', Icon: FileText, href: '/manage/requirements', rowHref: (id) => `/requirements/${id}` },
-  { key: 'dev', name: '开发任务', Icon: Code2, href: '/manage/tasks', rowHref: (id) => `/tasks/${id}` },
-  { key: 'test', name: '测试任务', Icon: FlaskConical, href: '/manage/tests', rowHref: (id) => `/tasks/${id}` },
-  { key: 'release', name: '发布任务', Icon: Rocket, href: '/manage/releases', rowHref: (id) => `/tasks/${id}` },
+  { key: 'requirements', skey: 'requirements', name: '需求', Icon: FileText, href: '/manage/requirements', rowHref: (id) => `/requirements/${id}` },
+  { key: 'dev', skey: 'dev_tasks', name: '开发任务', Icon: Code2, href: '/manage/tasks', rowHref: (id) => `/tasks/${id}` },
+  { key: 'test', skey: 'test_tasks', name: '测试任务', Icon: FlaskConical, href: '/manage/tests', rowHref: (id) => `/tasks/${id}` },
+  { key: 'release', skey: 'release_tasks', name: '发布任务', Icon: Rocket, href: '/manage/releases', rowHref: (id) => `/tasks/${id}` },
 ]
 
 function fmtTime(iso: string | null | undefined): string {
@@ -91,7 +93,7 @@ export function Dashboard() {
   const hasProject = (summary?.visible_projects ?? 0) > 0
 
   const cards = DIMS.map((d) => {
-    const block: DashboardBlock = (summary as any)?.[d.key] ?? { total: 0, by_status: {}, recent: [] }
+    const block: DashboardBlock = (summary as any)?.[d.skey] ?? { total: 0, by_status: {}, recent: [] }
     const by = Object.entries(block?.by_status ?? {})
       .filter(([, n]) => n > 0)
       .map(([s, n]) => `${ST_CN[s] ?? s} ×${n}`)
@@ -107,7 +109,7 @@ export function Dashboard() {
   })
 
   const lists = DIMS.map((d) => {
-    const block: DashboardBlock = (summary as any)?.[d.key] ?? { total: 0, by_status: {}, recent: [] }
+    const block: DashboardBlock = (summary as any)?.[d.skey] ?? { total: 0, by_status: {}, recent: [] }
     const rows = block.recent as RecentRow[]
     // R7:行动优先前端 resort(数据仍后端 recent 5 条)——已逾期 > 明天截止 > 运行中/待办 > 最近更新;同级更新时间倒序
     const today = gmt8Date()

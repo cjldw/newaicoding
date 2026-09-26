@@ -87,6 +87,19 @@ async def create_requirement(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/requirements/branch-preview - 需求分支名预览(R1.F2)
+# 注意:必须先于 /requirements/{req_id} 注册,否则被路径参数路由吞掉
+# ---------------------------------------------------------------------------
+@router.get("/requirements/branch-preview")
+async def branch_preview(
+    title: str = Query(..., min_length=1, max_length=128),
+    current_user: User = Depends(get_current_user),
+):
+    """预览需求默认分支名(feat/{首拼≤10}{Asia/Shanghai 日期};与创建时后端权威生成同口径)"""
+    return success(data={"branch": requirement_service.default_req_branch(title)})
+
+
+# ---------------------------------------------------------------------------
 # GET /api/requirements/{req_id} - 需求详情
 # ---------------------------------------------------------------------------
 @router.get("/requirements/{req_id}")

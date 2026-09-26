@@ -105,6 +105,9 @@ async def lifespan(app: FastAPI):
     # 同日防重入(last_run_date)在 delivery_reminder_service.maybe_run_daily_sweep 内判定
     delivery_reminder_task = asyncio.create_task(_delivery_reminder_daily_sweep())
 
+    # R35.F5:任务超时兜底清扫(死代码激活):每 60s 一轮,running 超 60 分钟 → timeout
+    task_timeout_task = asyncio.create_task(_task_timeout_sweep())
+
     # R19 审计:原 set_audit_session_factory 注入已废弃(R25 改 spawn_audit_write
     # 自带 session_factory,users_admin 中该函数已删,此处调用一并移除)
 
@@ -113,8 +116,30 @@ async def lifespan(app: FastAPI):
     # 关闭：释放资源
     sweep_task.cancel()
     delivery_reminder_task.cancel()
+    task_timeout_task.cancel()
     await close_db()
     logger.info("旗橙后端已关闭")
+
+
+async def _task_timeout_sweep():
+    """R35.F5:每 60s 扫描 running 超时任务(超 60 分钟 → timeout;复用 R16 巡检模式)"""
+    import asyncio as _asyncio
+
+    from app.database import async_session_factory
+    from app.services import task_service
+
+    while True:
+        try:
+            await _asyncio.sleep(60)
+            async with async_session_factory() as db:
+                count = await task_service.sweep_timeouts(db)
+                await db.commit()
+                if count:
+                    logger.info("任务超时巡检:%d 个转 timeout", count)
+        except _asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("任务超时巡检异常(下一轮继续)")
 
 
 async def _runner_offline_sweep():
