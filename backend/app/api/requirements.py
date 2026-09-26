@@ -134,6 +134,10 @@ async def update_requirement(
         requirement.acceptance_criteria = req.acceptance_criteria
     if req.priority is not None:
         requirement.priority = req.priority
+    if req.related_user_ids is not None:  # R2:不传 = 不动;传(含 [])= 全量覆盖,[] = 清空;非成员 id 静默剔除(与 R1 create 同 _filter_related_members)
+        requirement.related_user_ids = await requirement_service._filter_related_members(
+            db, project.project_id, req.related_user_ids
+        )
     if req.prototype_links is not None:  # R4:不传 = 不动;[] = 清空;非法整组 400
         requirement.prototype_links = requirement_service._normalize_prototype_links(req.prototype_links)
     requirement.delivery_date = req.delivery_date  # R5:None/缺省 → NULL(清空 = 置 NULL);非法字符串 schema 层 422

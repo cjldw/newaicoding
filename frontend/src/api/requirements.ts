@@ -52,6 +52,9 @@ export interface RequirementPrototypeLink {
 
 export interface RequirementDetail {
   req_id: string
+  // R2:归属项目 id(详情页据此拉项目成员:chips 昵称/头像解析 + 编辑权限判定 + 编辑候选)。
+  // 可选:后端未透出时 undefined,前端降级(chips 无成员信息、隐藏编辑入口),不炸
+  project_id?: string
   title: string
   background: string
   description: string
@@ -102,7 +105,9 @@ export interface UpdateRequirementRequest {
   description?: string
   acceptance_criteria?: string
   priority?: RequirementPriority
-  // R5 交付时间:与创建同形(date|None,可清空)
+  // R2 关联用户:传了(含 [])即全量覆盖(后端剔除非成员+去重;[] = 清空合法);不传(None)= 不动现有名单
+  related_user_ids?: string[]
+  // R5 交付时间:与创建同形(date|None,可清空;PATCH 唯一「不传即置空」字段,提交须回填当前值)
   delivery_date?: string | null
   // R4 原型链接:与创建同校验(≤10 条、url http(s):// 开头;编辑维护走 PATCH)
   prototype_links?: RequirementPrototypeLink[]

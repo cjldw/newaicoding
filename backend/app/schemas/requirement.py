@@ -31,6 +31,8 @@ class UpdateRequirementRequest(BaseModel):
     description: Optional[str] = Field(default=None, min_length=1)
     acceptance_criteria: Optional[str] = None
     priority: Optional[Priority] = None
+    # R2 关联用户:不传 = 不动;传(含 [])= 全量覆盖,[] = 清空(合法);非成员 id 服务层静默剔除
+    related_user_ids: Optional[List[str]] = None
     # R4 原型链接:不传 = 不动;传 [] = 清空(校验同创建,由服务层做)
     prototype_links: Optional[List[dict]] = None
     # R5 交付时间:None/缺省 → NULL(清空 = 置 NULL);非法字符串由 date 类型 422
@@ -78,6 +80,7 @@ class RequirementTaskBrief(BaseModel):
 
 class RequirementDetailData(BaseModel):
     req_id: str
+    project_id: str  # R2:归属项目 id(详情页拉项目成员做关联用户 chips/编辑权限/编辑候选)
     title: str
     background: Optional[str] = None
     description: str

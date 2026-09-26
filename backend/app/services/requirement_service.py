@@ -62,6 +62,7 @@ async def build_detail(db: AsyncSession, req: Requirement) -> dict:
         reviewer = await _creator_brief(db, req.reviewed_by)
     return {
         "req_id": req.req_id,
+        "project_id": req.project_id,  # R2:详情页据此拉项目成员(关联用户 chips/编辑权限/编辑候选)
         "title": req.title,
         "background": req.background,
         "description": req.description,

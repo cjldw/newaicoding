@@ -5,12 +5,16 @@
 
 import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Play, Send, CheckCircle, XCircle, FileText, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Play, Send, CheckCircle, XCircle, FileText, ExternalLink, Pencil } from 'lucide-react'
 import { TaskCreateDialog } from '@/pages/tasks/TaskCreateDialog'
 import { BreadcrumbOverrideProvider } from '@/components/layout/Breadcrumb'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Textarea } from '@/components/ui/Textarea'
+import { Avatar } from '@/components/ui/Avatar'
+import { useProjectMembers } from '@/api/projects'
+import { useAuthStore } from '@/stores/authStore'
+import { RelatedUserSelect } from '@/pages/requirements/RelatedUserSelect'
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from '@/components/ui/Table'
@@ -20,7 +24,8 @@ import {
 } from '@/components/ui/Dialog'
 import {
   useRequirementDetail, usePolishRequirement, useSubmitReview,
-  useReviewRequirement, useCancelRequirement, getRequirementErrorMessage,
+  useReviewRequirement, useCancelRequirement, useUpdateRequirement,
+  getRequirementErrorMessage,
 } from '@/api/requirements'
 import type { RequirementStatus, RequirementPriority, RequirementTask } from '@/api/requirements'
 // Markdown 简易渲染:共享实现(原本地版已并入 utils/markdown.ts,口径以更安全的 TaskDetail 版为准,
@@ -62,6 +67,14 @@ export function RequirementDetail() {
   const submitReview = useSubmitReview()
   const reviewRequirement = useReviewRequirement()
   const cancelRequirement = useCancelRequirement()
+  // R2:关联用户编辑保存(现有零调用方 hook,R4 契约留痕后此处接通)
+  const updateRequirement = useUpdateRequirement()
+  const { user } = useAuthStore()
+  // R2:项目成员(详情响应带 project_id)——关联用户 chips 昵称/头像解析 + 编辑权限判定 + 编辑候选
+  // (members/memberMap 须在早退 return 之前算好:useMemo 等 hook 不可条件调用,同 breadcrumbCrumbs 先例)
+  const { data: membersData } = useProjectMembers(requirement?.project_id ?? '')
+  const members = membersData?.items ?? []
+  const memberMap = useMemo(() => new Map(members.map((m) => [m.user_id, m])), [members])
 
   const [rejectDialog, setRejectDialog] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
@@ -69,6 +82,10 @@ export function RequirementDetail() {
   const [cancelDialog, setCancelDialog] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [error, setError] = useState('')
+  // R2:关联用户编辑态(草稿名单 + 对话框开关 + 对话框内错误)
+  const [relatedUsersDialog, setRelatedUsersDialog] = useState(false)
+  const [relatedUsersDraft, setRelatedUsersDraft] = useState<string[]>([])
+  const [relatedUsersError, setRelatedUsersError] = useState('')
 
   // BUG-UI-063: 面包屑链 = 项目管理 / 需求 / {标题}
   const breadcrumbCrumbs = useMemo(() => [
@@ -86,6 +103,44 @@ export function RequirementDetail() {
 
   const st = statusMap[requirement.status]
   const pr = priorityMap[requirement.priority]
+
+  // R2:关联用户展示/编辑所需派生值(hook 已全部在早退 return 前调用,此处仅纯计算)
+  const relatedUsers = requirement.related_user_ids ?? []
+  // 编辑权限沿用需求编辑口径 = 项目 owner/editor(与 PATCH 后端 require_project_role editor 同口径;viewer 只读无入口)
+  const myRole = user ? members.find((m) => m.user_id === user.user_id)?.role : undefined
+  const canEdit = myRole === 'owner' || myRole === 'editor'
+
+  // R2:打开编辑态(草稿 = 详情当前名单;已移出项目的成员不在候选中,后端保存时静默剔除)
+  function openRelatedUsersDialog() {
+    setRelatedUsersDraft(requirement.related_user_ids ?? [])
+    setRelatedUsersError('')
+    setRelatedUsersDialog(true)
+  }
+
+  function handleSaveRelatedUsers() {
+    // PATCH 字段面(Update schema 实测口径):
+    // - related_user_ids 传即全量覆盖([] = 清空合法;非成员 id 后端静默剔除)→ 恒传
+    // - delivery_date 是 PATCH 唯一「缺省即置 NULL」字段(R5 留痕)→ 必须回填当前值防误清
+    // - title/background/description/acceptance_criteria/prototype_links 缺省 = 不动;
+    //   且回填 title/description 会触发「评审中不可编辑」400(api :124 守卫)→ 一律不传
+    if (!reqId) return
+    updateRequirement.mutate(
+      {
+        reqId,
+        data: {
+          related_user_ids: relatedUsersDraft,
+          delivery_date: requirement.delivery_date ?? null,
+        },
+      },
+      {
+        onSuccess: () => {
+          setRelatedUsersDialog(false)
+          setError('')
+        },
+        onError: (err) => setRelatedUsersError(getRequirementErrorMessage(err)),
+      },
+    )
+  }
 
   function handlePolish() {
     if (!reqId) return
@@ -274,6 +329,39 @@ export function RequirementDetail() {
               <div className="text-text">{requirement.delivery_date}</div>
             </div>
           )}
+          {/* R2:关联用户(恒渲染行:空名单「未关联」;有值 头像+昵称 chips(复用 .chip-row/.chip,同 R4 链接行体系);
+              已移出项目的历史关联 id 无成员信息,chip 回退「已移出成员」;owner/editor 行内编辑入口,viewer 无) */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-text-muted">关联用户</label>
+              {canEdit && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost icon-btn"
+                  title="编辑关联用户"
+                  aria-label="编辑关联用户"
+                  onClick={openRelatedUsersDialog}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            {relatedUsers.length === 0 ? (
+              <div className="text-sm text-text-muted">未关联</div>
+            ) : (
+              <div className="chip-row">
+                {relatedUsers.map((uid) => {
+                  const m = memberMap.get(uid)
+                  return (
+                    <span key={uid} className="chip" title={m?.username}>
+                      <Avatar src={m?.avatar_url ?? null} alt={m?.nickname || m?.username || uid} size={16} />
+                      {m?.nickname || m?.username || '已移出成员'}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+          </div>
           {/* R4:原型链接 chips(新开标签页 rel=noopener;label 空则「链接 N」;空列表不渲染该行) */}
           {!!requirement.prototype_links?.length && (
             <div>
@@ -428,6 +516,35 @@ export function RequirementDetail() {
             </Button>
             <Button variant="danger" onClick={handleCancel} disabled={!cancelReason.trim()}>
               确认取消
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* R2:编辑关联用户对话框(复用 R1 RelatedUserSelect 多选;保存走 PATCH,
+          useUpdateRequirement onSuccess 失效 ['requirement', reqId] → 详情自动刷新) */}
+      <Dialog open={relatedUsersDialog} onOpenChange={setRelatedUsersDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑关联用户</DialogTitle>
+            <DialogDescription>
+              选择与该需求相关的项目成员;空名单保存 = 清空关联
+            </DialogDescription>
+          </DialogHeader>
+          <RelatedUserSelect
+            members={members}
+            value={relatedUsersDraft}
+            onChange={setRelatedUsersDraft}
+          />
+          {relatedUsersError && (
+            <div className="text-sm text-red-fg">{relatedUsersError}</div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRelatedUsersDialog(false)}>
+              取消
+            </Button>
+            <Button variant="primary" onClick={handleSaveRelatedUsers} disabled={updateRequirement.isPending}>
+              {updateRequirement.isPending ? '保存中...' : '保存'}
             </Button>
           </DialogFooter>
         </DialogContent>
