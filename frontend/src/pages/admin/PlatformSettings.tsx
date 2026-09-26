@@ -7,7 +7,8 @@
  *  1. GitLab 集成 — gitlab_url / gitlab_bot_token / gitlab_bot_group_id / gitlab_webhook_secret + 测试连接
  *  2. 域名配置 — preview_base_domain / deploy_base_domain
  *  3. 全局参数 — max_containers_total / kb_max_pages_per_kb / kb_max_file_mb
- *  4. 模型默认配置(R23)— llm_base_url / llm_api_key / llm_model(三键齐备校验 + 2008 连通测试)
+ *  4. 模型默认配置(R23/R1)— llm_base_url / llm_api_key / llm_models(≤10 个模型名 tag,先测后入列)
+ *     / llm_default_model(四键齐备校验 + 2008 连通测试)
  *  5. 自定义变量(R8.F4)— custom_env_vars(KV 表,任务容器启动时全量注入)
  *
  * 敏感键(gitlab_bot_token / gitlab_webhook_secret / llm_api_key)按分片④「打码回显值只读展示」:
@@ -31,10 +32,14 @@ import {
   Brain,
   Braces,
   Plus,
+  Star,
   Trash2,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Badge } from '@/components/ui/Badge'
+import { useToast } from '@/hooks/useToast'
 import { api, ApiError } from '@/api/client'
 import type { PlatformSettings as PlatformSettingsData } from '@/api/admin'
 
@@ -75,13 +80,17 @@ const globalSchema = z.object({
 })
 type GlobalValues = z.infer<typeof globalSchema>
 
-// 4. 模型默认配置(R23)
+// 4. 模型默认配置(R23/R1:models/default_model 为表单本地编辑态,随「保存」整批 PUT)
 const llmSchema = z.object({
   llm_base_url: z.string(),
   llm_api_key: z.string(),
-  llm_model: z.string(),
+  models: z.array(z.string()),
+  default_model: z.string(),
 })
 type LlmValues = z.infer<typeof llmSchema>
+
+// R1:模型名列表上限(与后端 llm_models ≤10 同口径)
+const LLM_MODELS_MAX = 10
 
 // 5. 自定义变量(R8.F4:客户端预检规则与后端 _validate_custom_env 同口径)
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -133,6 +142,11 @@ export function PlatformSettings() {
   const [editingGitlabToken, setEditingGitlabToken] = useState(false)
   const [editingWebhookSecret, setEditingWebhookSecret] = useState(false)
   const [editingLlmKey, setEditingLlmKey] = useState(false)
+
+  // R1:模型名 tag 输入组(模型名输入为表单外本地态,入列后进 llmForm.models;瞬时提示走 toast)
+  const [, showToast, ToastEl] = useToast()
+  const [modelInput, setModelInput] = useState('')
+  const [addingModel, setAddingModel] = useState(false)
 
   // 防重守卫(判据 6):disabled 属性经 React 重渲染才生效,同 tick 连点拦不住;
   // in-flight ref 锁保证同一动作(分组保存/测试连接)任一时刻仅放行一次
@@ -195,7 +209,11 @@ export function PlatformSettings() {
     llmForm.reset({
       llm_base_url: d.llm_base_url ?? '',
       llm_api_key: '',
-      llm_model: d.llm_model ?? '',
+      // R1:模型名列表从 GET 兼容数据初始化(服务端已做 llm_model 旧键 → llm_models 映射;
+      // 前端再兜底一层:仅旧键回显时包装 [旧值]),default 取显式值或列表第一项
+      models:
+        d.llm_models && d.llm_models.length > 0 ? d.llm_models : d.llm_model ? [d.llm_model] : [],
+      default_model: d.llm_default_model ?? d.llm_models?.[0] ?? d.llm_model ?? '',
     })
     // R8.F4:custom_env_vars 原样回显(非敏感),转 KV 行
     setVarRows(
@@ -305,7 +323,7 @@ export function PlatformSettings() {
     }
   })
 
-  /** 4. 模型默认配置保存(R23:三键齐备前端校验(缺项标红)+ 2008 连通测试) */
+  /** 4. 模型默认配置保存(R1:四键齐备前端校验(缺项标红/空列表拦截)+ 服务端 2008 连通测试) */
   const onLlmSubmit = llmForm.handleSubmit(async (values) => {
     if (!tryLock('llm')) return
     setLlmSaving(true)
@@ -313,39 +331,41 @@ export function PlatformSettings() {
     try {
       const base = values.llm_base_url.trim()
       const key = values.llm_api_key.trim()
-      const model = values.llm_model.trim()
-      // 全空:无可保存内容,不发请求(R23 不支持清除配置,语义=未配置)
-      if (!base && !key && !model) {
-        setLlmMsg({ type: 'error', text: '请填写完整三项后再保存' })
+      const models = values.models
+      // R1:模型名列表非空(空列表语义=未配置,直接拦截)
+      if (models.length === 0) {
+        showToast('err', '请至少添加一个模型名')
         setLlmSaving(false)
         return
       }
-      // R23 契约:三键齐备整批保存(缺一整批拒绝);缺项逐字段标红
-      // 注:llm_api_key 永不回显完整(R23),已有配置时更新任意键都需重输完整 key
-      const missing: { field: 'llm_base_url' | 'llm_api_key' | 'llm_model'; msg: string }[] = []
+      // R1 契约:四键齐备整批保存(缺一整批拒绝 2007);缺项逐字段标红
+      // 注:llm_api_key 永不回显完整(R23),已有配置时更新任意键都需重输完整 key(打码值不参与提交)
+      const missing: { field: 'llm_base_url' | 'llm_api_key'; msg: string }[] = []
       if (!base) missing.push({ field: 'llm_base_url', msg: '必填' })
       if (!key) missing.push({ field: 'llm_api_key', msg: '需输入完整 API Key(打码值不参与提交)' })
-      if (!model) missing.push({ field: 'llm_model', msg: '必填' })
       if (missing.length > 0) {
         for (const m of missing) {
           llmForm.setError(m.field, { type: 'manual', message: m.msg })
         }
-        setLlmMsg({ type: 'error', text: '平台默认模型需完整配置三项' })
+        setLlmMsg({ type: 'error', text: '平台默认模型需完整配置四项' })
         setLlmSaving(false)
         return
       }
+      // default_model 必须 ∈ llm_models(本地操作已保证;防御性兜底取第一项)
+      const defaultModel = models.includes(values.default_model) ? values.default_model : models[0]
       await api.put('/admin/platform-settings', {
         llm_base_url: base,
         llm_api_key: key,
-        llm_model: model,
+        llm_models: models,
+        llm_default_model: defaultModel,
       })
       setLlmMsg({ type: 'success', text: '保存成功' })
       setEditingLlmKey(false)
       setTimeout(() => setLlmMsg(null), 3000)
-      // 静默刷新:更新打码回显值与新值的打码形态一致
+      // 静默刷新:更新打码回显值与模型列表回显一致
       loadData(false)
     } catch (err) {
-      // R23:2008 错误码 → "连接失败,请检查 Base URL 和 API Key"(由服务端 message 透传)
+      // 2007/2008/13008/13009 错误 message 由服务端透传
       const text = err instanceof ApiError ? err.message : '保存失败'
       setLlmMsg({ type: 'error', text })
     } finally {
@@ -353,6 +373,65 @@ export function PlatformSettings() {
       setLlmSaving(false)
     }
   })
+
+  /** R1:添加模型名 tag —— 先调 test-connection(按钮转"测试中..."),成功才入列;失败 toast 保留输入 */
+  async function handleAddModel() {
+    const name = modelInput.trim()
+    if (!name) return
+    const models = llmForm.getValues('models') ?? []
+    // 前端拦截:超限(13008 口径)/重复(13009 口径)
+    if (models.length >= LLM_MODELS_MAX) {
+      showToast('err', `模型名数量已达上限(${LLM_MODELS_MAX} 个)`)
+      return
+    }
+    if (models.includes(name)) {
+      showToast('err', '该模型已存在')
+      return
+    }
+    if (!tryLock('llm-add')) return
+    setAddingModel(true)
+    try {
+      const res = await api.post<{ success: boolean }>('/admin/platform-settings/test-connection', {
+        base_url: llmForm.getValues('llm_base_url').trim(),
+        api_key: llmForm.getValues('llm_api_key').trim(),
+        model: name,
+      })
+      // HTTP 200 但 success=false:沿用 2008 口径文案,输入保留
+      if (res.data?.success === false) {
+        showToast('err', '连接失败,请检查 Base URL 和 API Key')
+        return
+      }
+      const next = [...models, name]
+      llmForm.setValue('models', next)
+      // 第一个添加项自动设为默认
+      if (next.length === 1) llmForm.setValue('default_model', name)
+      setModelInput('')
+    } catch (err) {
+      // 2008 message 透传给 toast;模型名不入列
+      showToast('err', err instanceof ApiError ? err.message : '连接失败,请检查 Base URL 和 API Key')
+    } finally {
+      unlock('llm-add')
+      setAddingModel(false)
+    }
+  }
+
+  /** R1:删除模型名 tag —— 仅剩 1 项不可删(由 X disabled 保证);删默认项自动顺延第一项并提示 */
+  function removeModel(name: string) {
+    const models = llmForm.getValues('models') ?? []
+    if (models.length <= 1) return
+    const next = models.filter((m) => m !== name)
+    llmForm.setValue('models', next)
+    if (llmForm.getValues('default_model') === name) {
+      const nextDefault = next[0]
+      llmForm.setValue('default_model', nextDefault)
+      showToast('ok', `已将 ${nextDefault} 设为默认`)
+    }
+  }
+
+  /** R1:tag Star 设为默认(纯本地编辑态,「默认」徽章迁移;随保存整批提交) */
+  function handleSetDefault(name: string) {
+    llmForm.setValue('default_model', name)
+  }
 
   /** R8.F4(BUG-036):自定义变量保存 —— 客户端预检(与后端 2007 同口径)后单键 PUT */
   async function handleVarsSave() {
@@ -701,11 +780,14 @@ export function PlatformSettings() {
 
   const renderLlm = () => {
     const llmErrors = llmForm.formState.errors
+    // R1:watch 驱动 tag 列表/默认徽章随本地编辑态重渲染
+    const models = llmForm.watch('models') ?? []
+    const defaultModel = llmForm.watch('default_model')
     return (
       <>
         <h2 className="text-lg font-semibold text-text">模型默认配置</h2>
         <p className="text-sm text-text-muted mt-1">
-          项目未配置模型时,任务将使用此默认模型
+          平台级默认 LLM 接入;一个 Base URL 与 API Key 下可配置多个模型供任务对话切换
         </p>
 
         {/* 保存结果消息条:表单上方(R23:失败 banner 值保留) */}
@@ -736,11 +818,77 @@ export function PlatformSettings() {
             error: llmErrors.llm_api_key?.message,
           })}
 
+          {/* R1:模型名 tag 输入组(输入框 + 「添加」按钮;点添加/Enter 先测后入列) */}
           {renderField({
-            label: '模型',
-            error: llmErrors.llm_model?.message,
+            label: '模型名',
+            error: llmErrors.models?.message,
             children: (
-              <Input placeholder="例如: gpt-4o" {...llmForm.register('llm_model')} />
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <Input
+                    className="flex-1"
+                    placeholder="例如: gpt-4o 后回车添加"
+                    value={modelInput}
+                    maxLength={64}
+                    onChange={(e) => setModelInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleAddModel()
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={!modelInput.trim() || addingModel}
+                    onClick={handleAddModel}
+                  >
+                    {addingModel ? (
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    ) : (
+                      <Plus className="w-4 h-4 mr-1" />
+                    )}
+                    {addingModel ? '测试中...' : '添加'}
+                  </Button>
+                </div>
+
+                {/* tag 列表(空时隐藏):.chip + 模型名 + 默认徽章 + hover Star(设默认)/X(删除) */}
+                {models.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {models.map((m) => {
+                      const isDefault = m === defaultModel
+                      return (
+                        <span key={m} className="chip group">
+                          <span>{m}</span>
+                          {isDefault && <Badge variant="primary">默认</Badge>}
+                          <button
+                            type="button"
+                            className="text-text-muted hover:text-text opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-45 disabled:cursor-not-allowed"
+                            title="设为默认"
+                            aria-label={`将 ${m} 设为默认`}
+                            disabled={isDefault}
+                            onClick={() => handleSetDefault(m)}
+                          >
+                            <Star className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            className="hover:text-red-fg opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-45 disabled:cursor-not-allowed"
+                            title="删除"
+                            aria-label={`删除 ${m}`}
+                            disabled={models.length === 1}
+                            onClick={() => removeModel(m)}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             ),
           })}
 
@@ -872,9 +1020,11 @@ export function PlatformSettings() {
         <div className="flex-1 min-w-0">
           <div className="bg-surface border border-border rounded-lg shadow-sm max-w-[672px] p-6">
             {groupContent[activeGroup]()}
-          </div>
+          {/* R1:模型名交互瞬时提示(测试失败/重复/超限/默认顺延) */}
+          {ToastEl}
         </div>
       </div>
+    </div>
     </div>
   )
 }

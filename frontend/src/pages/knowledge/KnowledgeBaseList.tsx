@@ -18,7 +18,7 @@ import { RadioGroup } from '@/components/ui/RadioGroup'
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from '@/components/ui/Dialog'
-import { Loader2, Trash2, BookOpen } from 'lucide-react'
+import { Loader2, Trash2, BookOpen, Plus } from 'lucide-react'
 import {
   useKnowledgeBases,
   useCreateKnowledgeBase,
@@ -111,7 +111,7 @@ export default function KnowledgeBaseList() {
           <div className="sub">项目关联的知识库:文档索引与同步管理</div>
         </div>
         <div className="acts">
-          <Button variant="primary" onClick={openCreate}>新建知识库</Button>
+          <Button variant="primary" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />新建知识库</Button>
         </div>
       </div>
 

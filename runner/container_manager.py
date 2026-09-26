@@ -347,6 +347,132 @@ class ContainerManager:
             raise RuntimeError(f"PRD push 失败({code}): {out.decode(errors='ignore')[:300]}")
         logger.info("PRD 已 commit+push repo=%s branch=%s", repo_path, branch)
 
+    def claude_prompt_stream(
+        self,
+        container_id: str,
+        prompt: str,
+        workdir: str = "/workspace/main",
+        session_id: str | None = None,
+        resume: bool = False,
+        on_line: Callable[[str], None] | None = None,
+    ) -> dict:
+        """
+        R32.F3:流式 AI 对话 —— 容器内 claude -p --output-format stream-json --verbose
+        逐行读取 stdout,每行(一个 stream-json 事件)经 on_line 回调实时上泵;
+        进程结束后从 type=result 事件提取 result/tokens(与 claude_prompt 同口径)。
+
+        实现:docker low-level exec(socket=True,非 tty)按行读;BUG-050 同款
+        recv/read 探测(SocketIO vs NpipeSocket)。on_line 为 None 时退化为一次性收集。
+        """
+        import json as _json
+        import shlex as _shlex
+
+        session_flag = ""
+        if session_id is not None:
+            if resume:
+                session_flag = f" --resume {_shlex.quote(session_id)}"
+            else:
+                session_flag = f" --session-id {_shlex.quote(session_id)}"
+
+        cmd = (
+            f"cd {workdir} 2>/dev/null; "
+            f"claude -p {_shlex.quote(prompt)} --output-format stream-json --verbose{session_flag} 2>/dev/null"
+        )
+        api = self.client.api
+        exec_id = api.exec_create(container_id, ["bash", "-lc", cmd], tty=False, stdin=False)
+        sock = api.exec_start(exec_id, tty=False, socket=True, demux=False)
+
+        buf = b""
+        result_text = ""
+        tokens_in = 0
+        tokens_out = 0
+        lines: list[str] = []
+        try:
+            while True:
+                chunk = sock.recv(4096) if hasattr(sock, "recv") else sock.read(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    raw, buf = buf.split(b"\n", 1)
+                    line = raw.decode(errors="ignore").strip()
+                    if not line:
+                        continue
+                    lines.append(line)
+                    try:
+                        evt = _json.loads(line)
+                    except _json.JSONDecodeError:
+                        evt = None
+                    if evt and evt.get("type") == "result":
+                        result_text = evt.get("result", "") or result_text
+                        usage = evt.get("usage") or {}
+                        tokens_in = evt.get("total_tokens_in") or usage.get("input_tokens", 0) or tokens_in
+                        tokens_out = evt.get("total_tokens_out") or usage.get("output_tokens", 0) or tokens_out
+                        continue  # result 事件不上泵(终态由 result 回报承载)
+                    if on_line is not None:
+                        on_line(line)
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+        if not result_text and lines:
+            # 流式输出缺失/被 CLI 版本降级:兜底取最后一行纯文本(与 claude_prompt 非 JSON 兜底同思路)
+            try:
+                last = _json.loads(lines[-1])
+                result_text = last.get("result", "") if isinstance(last, dict) else ""
+            except _json.JSONDecodeError:
+                result_text = lines[-1]
+        return {"result": result_text, "tokens_in": int(tokens_in or 0), "tokens_out": int(tokens_out or 0)}
+
+    def claude_inject(
+        self,
+        container_id: str,
+        skills: list[dict] | None = None,
+        mcp_config: dict | None = None,
+    ) -> dict:
+        """
+        R32.F1:把平台 Skills/MCP 写入容器 claude CLI 配置:
+        - skills:[{name, content}] → /root/.claude/skills/{name}.md(逐个 write_file,自动建目录)
+        - mcp_config:{mcpServers:{...}} → 与容器既有 /root/.claude.json 合并(只覆盖 mcpServers 段)
+        返回 {"skills": n, "mcp": m};幂等(重跑覆盖同名文件/mcpServers 段)。
+        """
+        import json as _json
+
+        skills = skills or []
+        written = 0
+        for s in skills:
+            name = (s.get("name") or "").strip()
+            content = s.get("content") or ""
+            if not name or not content:
+                continue
+            # 防路径穿越:skill 名只允许文件名安全字符
+            safe = "".join(c for c in name if c.isalnum() or c in "-_")
+            if not safe:
+                continue
+            self.write_file(container_id, f"/root/.claude/skills/{safe}.md", content)
+            written += 1
+
+        mcp_count = 0
+        if mcp_config and mcp_config.get("mcpServers"):
+            # 读既有配置(不存在/非法 JSON 按空对象),合并 mcpServers 段后回写
+            code, out = self.exec_capture(container_id, "cat /root/.claude.json 2>/dev/null || true")
+            existing: dict = {}
+            if code == 0:
+                try:
+                    existing = _json.loads(out.decode(errors="ignore") or "{}")
+                    if not isinstance(existing, dict):
+                        existing = {}
+                except _json.JSONDecodeError:
+                    existing = {}
+            existing["mcpServers"] = mcp_config["mcpServers"]
+            self.write_file(container_id, "/root/.claude.json", _json.dumps(existing, ensure_ascii=False, indent=2))
+            mcp_count = len(mcp_config["mcpServers"])
+
+        logger.info("claude 资产注入 container=%s skills=%d mcp=%d", container_id, written, mcp_count)
+        return {"skills": written, "mcp": mcp_count}
+
     def claude_prompt(
         self,
         container_id: str,

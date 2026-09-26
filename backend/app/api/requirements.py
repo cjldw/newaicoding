@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.response import BizError, success
+from app.core.response import BizError, ErrCode, success
 from app.database import get_db
 from app.models.requirement import Requirement
 from app.models.user import User
@@ -60,6 +60,7 @@ async def list_requirements(
             "priority": r.priority,
             "created_by": await requirement_service._creator_brief(db, r.created_by),
             "created_at": r.created_at,
+            "delivery_date": r.delivery_date,  # R5 P1 审计修复:列表漏透传 → 前端交付时间列/逾期徽章死渲染
         })
     return success(data={"items": items, "total": total, "page": page, "page_size": page_size})
 
@@ -133,7 +134,17 @@ async def update_requirement(
         requirement.acceptance_criteria = req.acceptance_criteria
     if req.priority is not None:
         requirement.priority = req.priority
+    if req.related_user_ids is not None:  # R2:不传 = 不动;传(含 [])= 全量覆盖,[] = 清空;非成员 id 静默剔除(与 R1 create 同 _filter_related_members)
+        requirement.related_user_ids = await requirement_service._filter_related_members(
+            db, project.project_id, req.related_user_ids
+        )
+    if req.prototype_links is not None:  # R4:不传 = 不动;[] = 清空;非法整组 400
+        requirement.prototype_links = requirement_service._normalize_prototype_links(req.prototype_links)
+    requirement.delivery_date = req.delivery_date  # R5:None/缺省 → NULL(清空 = 置 NULL);非法字符串 schema 层 422
     await db.flush()
+    # updated_at 带 onupdate=func.now(),flush 实改字段后该属性被置为过期;
+    # build_detail 同步访问会触发 MissingGreenlet(R4 QA 用例暴露)→ 照 create 口径显式 refresh
+    await db.refresh(requirement)
     return success(data=await requirement_service.build_detail(db, requirement), message="更新成功")
 
 

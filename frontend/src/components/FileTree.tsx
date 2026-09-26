@@ -298,20 +298,16 @@ export default function FileTree({
 
   return (
     <div className="w-[250px] flex-shrink-0 border-r border-border flex flex-col bg-background">
-      {/* Tabs */}
-      <div className="flex border-b border-border">
+      {/* Tabs(R33.F4:.ft-tabs/.ft-tab 与中/右栏 .tabs 等高 34px,底线同 y 对齐) */}
+      <div className="ft-tabs">
         <button
-          className={`flex-1 px-3 py-2 text-sm ${
-            tab === 'all' ? 'border-b-2 border-primary text-primary' : 'text-text-muted'
-          }`}
+          className={`ft-tab${tab === 'all' ? ' on' : ''}`}
           onClick={() => setTab('all')}
         >
           全部文件
         </button>
         <button
-          className={`flex-1 px-3 py-2 text-sm flex items-center justify-center gap-1 ${
-            tab === 'changes' ? 'border-b-2 border-primary text-primary' : 'text-text-muted'
-          }`}
+          className={`ft-tab${tab === 'changes' ? ' on' : ''}`}
           onClick={() => setTab('changes')}
         >
           变更文件

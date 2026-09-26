@@ -28,3 +28,20 @@ export function getInitial(name?: string | null): string {
   if (!name) return '?'
   return name.charAt(0)
 }
+
+/**
+ * 头像加载失败记忆(BUG-UI-072 建议方案②/R28.F2,模块级 Set)
+ * - 同一失效 avatar URL 会话内只请求一次:渲染时命中集合直接走首字母回退,不再发请求
+ * - onError 时记入集合;换头像产生新 URL 自然不命中;会话级记忆,刷新后重试一次属可接受行为
+ */
+const failedAvatarUrls = new Set<string>()
+
+/** 该 avatar URL 是否已记为加载失败(命中则渲染时跳过 <img>,不发请求) */
+export function isAvatarUrlFailed(url?: string | null): boolean {
+  return !!url && failedAvatarUrls.has(url)
+}
+
+/** 记录一次 avatar URL 加载失败(onError 回调里调用) */
+export function markAvatarUrlFailed(url?: string | null): void {
+  if (url) failedAvatarUrls.add(url)
+}

@@ -20,6 +20,7 @@ import { ModelConfigManagement } from './ModelConfigManagement'
 import { McpConfigManagement } from './McpConfigManagement'
 import { SkillsManagement } from './SkillsManagement'
 import { RequirementList } from '../requirements/RequirementList'
+import { ProjectTaskList } from './ProjectTaskList'
 
 const statusMap: Record<string, { label: string; variant: 'success' | 'default' | 'error' }> = {
   active: { label: '活跃', variant: 'success' },
@@ -29,7 +30,7 @@ const statusMap: Record<string, { label: string; variant: 'success' | 'default' 
 
 const tabs = [
   { key: 'requirements', label: '需求', disabled: false },
-  { key: 'tasks', label: '任务', disabled: true },
+  { key: 'tasks', label: '任务', disabled: false },
   { key: 'repos', label: '仓库', disabled: false },
   { key: 'members', label: '成员', disabled: false },
   { key: 'settings', label: '设置', disabled: false },
@@ -47,7 +48,7 @@ export function ProjectDetail() {
   const [confirmDialog, setConfirmDialog] = useState<'delete' | 'archive' | null>(null)
   const [settingsTab, setSettingsTab] = useState<'mcp' | 'skills' | 'model'>('mcp')
 
-  const activeTab = searchParams.get('tab') ?? 'repos'
+  const activeTab = searchParams.get('tab') ?? 'requirements'
   const st = project ? (statusMap[project.status] ?? statusMap.active) : statusMap.active
 
   function handleConfirm() {
@@ -137,6 +138,7 @@ export function ProjectDetail() {
 
       {/* Tab 内容 */}
       {activeTab === 'requirements' && <RequirementList />}
+      {activeTab === 'tasks' && <ProjectTaskList projectId={project.project_id} />}
       {activeTab === 'repos' && <RepoManagement projectId={project.project_id} />}
       {activeTab === 'members' && <MemberManagement projectId={project.project_id} />}
       {activeTab === 'settings' && (

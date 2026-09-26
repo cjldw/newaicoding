@@ -153,6 +153,8 @@ async def get_archive_data(db: AsyncSession, req: Requirement) -> dict:
                 "status": e.status,
                 "created_by": e.created_by,
                 "created_at": e.created_at,
+                # R4 联调对齐:前端据 project_id 决定详情路由(项目级/平台级)
+                "project_id": e.project_id,
             }
             for e in entries
         ],

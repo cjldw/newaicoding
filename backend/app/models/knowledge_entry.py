@@ -48,6 +48,11 @@ class KnowledgeEntry(Base):
         server_default="ai",
         comment="创建者类型",
     )
+    created_by_user_id = Column(
+        CHAR(36),
+        nullable=True,
+        comment="创建者用户 id(R3:创建者本人可编删判定;历史行 NULL 回落角色判定)",
+    )
     status = Column(
         Enum("draft", "published", name="knowledge_status_enum"),
         nullable=False,

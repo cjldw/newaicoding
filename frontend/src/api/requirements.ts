@@ -20,6 +20,8 @@ export interface RequirementListItem {
   priority: RequirementPriority
   created_by: RequirementUser
   created_at: string
+  // R5 交付时间(DATE 纯日期串 YYYY-MM-DD;存量行 NULL,前端列表逾期徽章判定用)
+  delivery_date?: string | null
 }
 
 export type RequirementStatus =
@@ -42,8 +44,17 @@ export interface RequirementTask {
   status: string
 }
 
+// R4 原型链接:label 可空(≤20,后端截断;空则前端展示「链接 N」),url 需 http(s):// 开头;最多 10 条(超限/非法整组 400)
+export interface RequirementPrototypeLink {
+  label: string | null
+  url: string
+}
+
 export interface RequirementDetail {
   req_id: string
+  // R2:归属项目 id(详情页据此拉项目成员:chips 昵称/头像解析 + 编辑权限判定 + 编辑候选)。
+  // 可选:后端未透出时 undefined,前端降级(chips 无成员信息、隐藏编辑入口),不炸
+  project_id?: string
   title: string
   background: string
   description: string
@@ -52,6 +63,12 @@ export interface RequirementDetail {
   priority: RequirementPriority
   req_branch: string
   prd_file_path: string
+  // R1 关联用户(后端契约:RequirementDetailData.related_user_ids,存量行 NULL=空)
+  related_user_ids?: string[]
+  // R4 原型链接(存量行 NULL=空;空列表详情不渲染该行)
+  prototype_links?: RequirementPrototypeLink[]
+  // R5 交付时间(DATE 纯日期串;存量行 NULL=空,详情有值才渲染该行)
+  delivery_date?: string | null
   created_by: RequirementUser
   reviewed_by: RequirementUser | null
   reviewed_at: string | null
@@ -69,6 +86,12 @@ export interface CreateRequirementRequest {
   acceptance_criteria?: string
   priority?: RequirementPriority
   req_branch?: string
+  // R5 交付时间:非必填(date picker 到天,YYYY-MM-DD;不填=不设置)
+  delivery_date?: string | null
+  // R1 关联用户:项目成员 user_id 列表,非必填,空数组照传(后端静默剔除非成员+去重)
+  related_user_ids?: string[]
+  // R4 原型链接:非必填;≤10 条、url http(s):// 开头、label 截断 20(后端非法整组 400)
+  prototype_links?: RequirementPrototypeLink[]
 }
 
 export interface CreateRequirementResponse {
@@ -82,6 +105,12 @@ export interface UpdateRequirementRequest {
   description?: string
   acceptance_criteria?: string
   priority?: RequirementPriority
+  // R2 关联用户:传了(含 [])即全量覆盖(后端剔除非成员+去重;[] = 清空合法);不传(None)= 不动现有名单
+  related_user_ids?: string[]
+  // R5 交付时间:与创建同形(date|None,可清空;PATCH 唯一「不传即置空」字段,提交须回填当前值)
+  delivery_date?: string | null
+  // R4 原型链接:与创建同校验(≤10 条、url http(s):// 开头;编辑维护走 PATCH)
+  prototype_links?: RequirementPrototypeLink[]
 }
 
 export interface ReviewRequest {

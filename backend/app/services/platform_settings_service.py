@@ -26,13 +26,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 SENSITIVE_KEYS = {"gitlab_bot_token", "gitlab_webhook_secret", "llm_api_key"}
 
-# R23: llm_* 三键必须齐备(整批保存,不支持只更新一键)
-LLM_KEYS = {"llm_base_url", "llm_api_key", "llm_model"}
+# R23: llm_* 整批保存(不支持只更新一键);R1 模型单值升级为列表+默认项,扩为四键。
+# 旧键 llm_model 移出白名单(不再受理写入),存量数据走读取层兼容(见 get_setting)
+LLM_KEYS = {"llm_base_url", "llm_api_key", "llm_models", "llm_default_model"}
 
 # R8.F4(BUG-036):自定义环境变量键名规则(合法 shell 变量名)
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # 自定义变量数量上限(防设置页灌爆容器 env)
 CUSTOM_ENV_MAX_KEYS = 50
+# R1: 模型名列表数量上限(llm_models)
+LLM_MODELS_MAX = 10
 # 系统注入键(R8.F4:自定义变量不得占用,防覆盖 LLM/GitLab/任务上下文)
 RESERVED_ENV_KEYS = {
     "GITLAB_TOKEN", "GITLAB_INSTANCE_URL",
@@ -55,12 +58,16 @@ SETTING_KEYS: dict[str, tuple[str, Any]] = {
     "max_containers_total": ("int", (1, 10000)),
     "kb_max_pages_per_kb": ("int", (1, 100000)),
     "kb_max_file_mb": ("int", (1, 1024)),
-    # R23: 平台默认 LLM 配置(三键齐备才生效)
+    # R23: 平台默认 LLM 配置(四键齐备才生效;R1 模型升级为列表+默认项)
     "llm_base_url": ("url", None),
     "llm_api_key": ("secret", None),
-    "llm_model": ("str", None),
+    # R1: 模型名列表(JSON 字符串数组,每项 1-64 字符、去重、≤10)
+    "llm_models": ("strlist", None),
+    "llm_default_model": ("str", None),
     # R8.F4(BUG-036): 自定义容器环境变量(多组 KV,启动任务时全量注入)
     "custom_env_vars": ("envmap", None),
+    # R6: 交付提醒巡检 last_run_date(GMT+8 日期,YYYY-MM-DD;仅服务层写,白名单防 API 乱写)
+    "req_delivery_reminder_last_date": ("str", None),
 }
 
 
@@ -111,6 +118,10 @@ def validate_setting_value(key: str, value: Any) -> Any:
     # R8.F4: 自定义环境变量表(dict[str,str];空 dict=清空)
     if vtype == "envmap":
         return _validate_custom_env(value)
+
+    # R1: 字符串数组(每项 str 1-64、去重、≤10;专用于 llm_models)
+    if vtype == "strlist":
+        return _validate_strlist(key, value)
 
     # R23: str 类型(非空、strip、≤64 字符)
     if vtype == "str":
@@ -166,6 +177,35 @@ def _validate_custom_env(value: Any) -> dict:
     return result
 
 
+def _validate_strlist(key: str, value: Any) -> list:
+    """
+    R1:strlist 校验——JSON 字符串数组,每项非空 1-64 字符(与 str 同规)。
+    上限 LLM_MODELS_MAX 个(超限 13008);列表内去重(重复 13009,不静默合并);
+    空列表拒绝 2007(未配置语义=键缺失,而非空数组)。
+    """
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 必须为字符串数组")
+    if not value:
+        raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 至少需要 1 项")
+    if len(value) > LLM_MODELS_MAX:
+        raise BizError(
+            ErrCode.LLM_MODELS_LIMIT,
+            f"配置项 {key} 数量超上限(最多 {LLM_MODELS_MAX} 个)",
+        )
+    items: list = []
+    for v in value:
+        item = v.strip()
+        if not item or len(item) > 64:
+            raise BizError(
+                ErrCode.PLATFORM_SETTING_INVALID,
+                f"配置项 {key} 每项需为 1-64 字符的非空字符串",
+            )
+        items.append(item)
+    if len(set(items)) != len(items):
+        raise BizError(ErrCode.LLM_MODEL_DUPLICATE, f"配置项 {key} 存在重复项")
+    return items
+
+
 def mask_sensitive(value: str) -> str:
     """
     敏感值打码回显:保留前 5 位 + 固定掩码 + 后 4 位,如 glpat-••••••••9x2f。
@@ -207,13 +247,39 @@ def _encode_stored(key: str, value: Any) -> Any:
 # ---------------------------------------------------------------------------
 # 读取
 # ---------------------------------------------------------------------------
-async def get_setting(db: AsyncSession, key: str) -> Any:
-    """读取单个配置(解密后明文);未配置返回 None"""
+async def _get_decoded(db: AsyncSession, key: str) -> Any:
+    """按 key 查表并解密为明文;未配置返回 None(不含读取层兼容)"""
     result = await db.execute(select(PlatformSetting).where(PlatformSetting.key == key))
     row = result.scalar_one_or_none()
     if row is None:
         return None
     return _decode_stored(key, row.value)
+
+
+async def _llm_read_compat(db: AsyncSession, key: str, value: Any) -> Any:
+    """
+    R1 存量单值读取层兼容(无回填脚本,老数据行为不变):
+    - llm_models 缺失(或空)且旧键 llm_model 有值 → 包装 [旧值]
+    - llm_default_model 缺失 → 取(兼容后的)模型列表第一项(存量默认=旧值)
+    同时服务于 _resolve_platform_config 与 GET(经 get_setting / get_all_masked)。
+    """
+    if value:
+        return value
+    if key == "llm_models":
+        legacy = await _get_decoded(db, "llm_model")
+        return [legacy] if legacy else None
+    # llm_default_model:缺失时取兼容后的列表第一项
+    models = await get_setting(db, "llm_models")
+    return models[0] if isinstance(models, list) and models else None
+
+
+async def get_setting(db: AsyncSession, key: str) -> Any:
+    """读取单个配置(解密后明文);未配置返回 None。
+    R1: llm_models / llm_default_model 走存量兼容(见 _llm_read_compat)"""
+    value = await _get_decoded(db, key)
+    if key in ("llm_models", "llm_default_model"):
+        return await _llm_read_compat(db, key, value)
+    return value
 
 
 async def get_all_masked(db: AsyncSession) -> dict:
@@ -229,6 +295,14 @@ async def get_all_masked(db: AsyncSession) -> dict:
         if plain is None:
             continue
         out[row.key] = mask_sensitive(plain) if row.key in SENSITIVE_KEYS else plain
+    # R1 存量兼容映射:llm_models 缺失且旧键 llm_model 有值 → 补 [旧值](旧键原样
+    # 保留);llm_default_model 缺失 → 列表第一项(与 get_setting 兼容口径一致)
+    if not out.get("llm_models") and out.get("llm_model"):
+        out["llm_models"] = [out["llm_model"]]
+    if not out.get("llm_default_model"):
+        models = out.get("llm_models")
+        if isinstance(models, list) and models:
+            out["llm_default_model"] = models[0]
     return out
 
 
@@ -255,10 +329,10 @@ async def update_settings(db: AsyncSession, updated_by: str, payload: dict) -> l
     PUT 接口用:白名单 + 类型校验后 UPSERT;敏感项加密落盘。
     返回成功更新的 key 列表。审计由 API 层接入(R25:模式 C,operator 在 API 层)。
     """
-    # R23: llm_* 三键必须齐备(整体保存,不支持只更新一键;缺一整批拒绝)
+    # R1: llm_* 四键必须齐备(整体保存,不支持只更新一键;缺一整批拒绝)
     provided_llm = LLM_KEYS & payload.keys()
     if provided_llm and provided_llm != LLM_KEYS:
-        raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "平台默认模型需完整配置三项")
+        raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "平台默认模型需完整配置四项")
 
     # 先整体校验,任一非法则整批拒绝(避免部分写入)
     validated: dict[str, Any] = {}

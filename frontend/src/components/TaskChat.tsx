@@ -1,21 +1,23 @@
 /**
  * TaskChat — 任务对话框
  * - 消息列表(user 右侧/assistant 左侧气泡,@filename 渲染为链接)
- * - 输入框(@ 触发已上传文件自动补全下拉)
+ * - 输入框(@ 触发已上传文件补全;R32.F2:/ 触发项目已装 Skills 补全)
+ * - R32.F3:流式输出(发送中 AI 气泡逐字增量,经任务事件 WS chat_delta)
  * - 附件按钮(Paperclip,提示"上传文件")+ 拖拽上传
  * - 附件列表(文件名点击下载,X 删除)
  * - 发送按钮"发送"
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, Loader2, Maximize2, Minimize2, Paperclip, Send, X } from 'lucide-react'
+import { Download, Loader2, Maximize2, Minimize2, Paperclip, Send, Sparkles, X } from 'lucide-react'
 import { Button } from './ui/Button'
 import {
   useTaskMessages, useSendTaskMessage, useUploadTaskFile,
   useUploadedFiles, useDeleteTaskFile, downloadTaskFile,
-  getTaskErrorMessage,
+  getTaskErrorMessage, useTaskChatStream,
 } from '@/api/tasks'
 import type { TaskMessage, UploadedFile } from '@/api/tasks'
+import { skillsApi, type Skill } from '@/api/skills'
 import { ApiError } from '@/api/client'
 
 interface TaskChatProps {
@@ -23,6 +25,8 @@ interface TaskChatProps {
   /** 全屏(BUG-UI-064:CSS 提升为 fixed 覆盖层,组件不重挂载,消息与输入态保留) */
   fullscreen?: boolean
   onToggleFullscreen?: () => void
+  /** R32.F2:项目 ID(有值时启用 / skill 补全,数据源为项目已装 Skills) */
+  projectId?: string
 }
 
 // 渲染消息内容 — 把 @filename 渲染为可点击链接
@@ -68,7 +72,7 @@ function renderContent(content: string, files: UploadedFile[]) {
   })
 }
 
-export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: TaskChatProps) {
+export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, projectId }: TaskChatProps) {
   const { data: msgData } = useTaskMessages(taskId)
   const { data: uploadsData, refetch: refetchUploads } = useUploadedFiles(taskId)
   const sendMut = useSendTaskMessage(taskId)
@@ -78,6 +82,12 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
   const [input, setInput] = useState('')
   const [showAC, setShowAC] = useState(false)
   const [acIndex, setAcIndex] = useState(0)
+  // R32.F2:/ skill 补全(与 @ 文件补全互斥)
+  const [showSC, setShowSC] = useState(false)
+  const [scIndex, setScIndex] = useState(0)
+  const [skills, setSkills] = useState<Skill[]>([])
+  // R32.F3:流式增量(发送中的 AI 气泡文本;chat_done 或消息落库后清空)
+  const [streamText, setStreamText] = useState('')
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -85,12 +95,26 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
   const messages: TaskMessage[] = msgData?.items ?? []
   const files: UploadedFile[] = uploadsData?.items ?? []
 
-  // 自动滚动到底部
+  // R32.F2:项目已装 Skills(仅 projectId 就绪时拉一次)
+  useEffect(() => {
+    if (!projectId) return
+    skillsApi.installed(projectId)
+      .then((d) => setSkills(d.data?.items ?? []))
+      .catch(() => setSkills([]))
+  }, [projectId])
+
+  // R32.F3:订阅 chat_delta / chat_done(事件 WS;发送中逐字上屏)
+  useTaskChatStream(taskId, {
+    onDelta: (text) => setStreamText((prev) => prev + text),
+    onDone: () => setStreamText(''),
+  })
+
+  // 自动滚动到底部(新消息或流式增量都触发)
   useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight
     }
-  }, [messages.length])
+  }, [messages.length, streamText])
 
   // toast 自动消失
   useEffect(() => {
@@ -120,15 +144,15 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
     for (let i = 0; i < fileList.length; i++) handleUpload(fileList[i])
   }, [handleUpload])
 
-  // @ 自动补全
+  // @ 文件补全 + / skill 补全(R32.F2;两者互斥,以末尾触发符为准)
   const handleInputChange = (v: string) => {
     setInput(v)
-    const atMatch = v.match(/@(\S*)$/)
-    if (atMatch) {
-      setShowAC(true)
-      setAcIndex(0)
+    if (v.match(/@(\S*)$/)) {
+      setShowAC(true); setAcIndex(0); setShowSC(false)
+    } else if (projectId && v.match(/(?:^|\s)\/(\S*)$/)) {
+      setShowSC(true); setScIndex(0); setShowAC(false)
     } else {
-      setShowAC(false)
+      setShowAC(false); setShowSC(false)
     }
   }
 
@@ -138,10 +162,23 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
     setShowAC(false)
   }
 
+  // R32.F2:选中 skill → 输入框插入 @skill名(claude CLI 原生 skill 引用格式)
+  const selectSC = (skillName: string) => {
+    const replaced = input.replace(/\/(\S*)$/, `@${skillName} `)
+    setInput(replaced)
+    setShowSC(false)
+  }
+
   const filteredFiles = files.filter((f) => {
     const atMatch = input.match(/@(\S*)$/)
     if (!atMatch) return false
     return f.filename.toLowerCase().includes(atMatch[1].toLowerCase())
+  })
+
+  const filteredSkills = skills.filter((s) => {
+    const slashMatch = input.match(/(?:^|\s)\/(\S*)$/)
+    if (!slashMatch) return false
+    return s.name.toLowerCase().includes(slashMatch[1].toLowerCase())
   })
 
   const handleSend = () => {
@@ -239,10 +276,8 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
               className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
-                  isUser
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-foreground'
+                className={`chat-bubble max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
+                  isUser ? 'chat-bubble-user' : 'chat-bubble-ai'
                 }`}
               >
                 {isUser ? msg.content : renderContent(msg.content, files)}
@@ -250,6 +285,15 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
             </div>
           )
         })}
+        {/* R32.F3:流式增量气泡(AI 正在输出;chat_done/消息落库后消失) */}
+        {streamText && (
+          <div className="flex justify-start">
+            <div className="chat-bubble chat-bubble-ai max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words">
+              {streamText}
+              <span className="inline-block w-1.5 h-3.5 ml-0.5 align-text-bottom bg-foreground/60 animate-pulse" />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 附件列表 */}
@@ -312,6 +356,33 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
             )}
           </div>
         )}
+        {/* R32.F2:/ skill 补全下拉(项目已装 Skills;选中插入 @skill名) */}
+        {showSC && (
+          <div className="absolute bottom-full left-2 right-2 mb-1 max-h-40 overflow-y-auto bg-popover border border-border rounded-md shadow-md z-10">
+            {filteredSkills.length > 0 ? (
+              filteredSkills.map((s, i) => (
+                <button
+                  key={s.skill_id}
+                  type="button"
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-muted flex items-center gap-2 ${
+                    i === scIndex ? 'bg-muted' : ''
+                  }`}
+                  onClick={() => selectSC(s.name)}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-text-secondary shrink-0" />
+                  <span className="font-medium">/{s.name}</span>
+                  {s.description && (
+                    <span className="text-text-secondary text-xs truncate">{s.description}</span>
+                  )}
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-2 text-sm text-text-secondary text-center">
+                {skills.length === 0 ? '项目未安装 Skill(项目设置 · Skills 中安装)' : '无匹配 Skill'}
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <input
             ref={fileInputRef}
@@ -342,8 +413,9 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen }: Tas
                 e.preventDefault()
                 handleSend()
               }
+              if (e.key === 'Escape') { setShowAC(false); setShowSC(false) }
             }}
-            placeholder="输入消息,@ 引用已上传文件..."
+            placeholder={projectId ? '输入消息,@ 引用文件,/ 调用 Skill...' : '输入消息,@ 引用已上传文件...'}
             className="flex-1 px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary"
           />
           <Button type="button" size="sm" onClick={handleSend} disabled={!input.trim() || sendMut.isPending}>

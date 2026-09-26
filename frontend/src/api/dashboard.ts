@@ -16,6 +16,8 @@ export interface RecentRequirement {
   status: string
   project: DashboardProjectRef
   updated_at: string
+  /** R7:交付时间透传(DATE 串),前端逾期/明天截止徽章用 */
+  delivery_date?: string | null
 }
 
 export interface RecentTask {
@@ -25,6 +27,8 @@ export interface RecentTask {
   type?: string
   project: DashboardProjectRef
   updated_at: string
+  /** R7:传导需求的交付时间透传(DATE 串),前端逾期/明天截止徽章用 */
+  delivery_date?: string | null
 }
 
 export interface DashboardBlock {
@@ -34,6 +38,8 @@ export interface DashboardBlock {
 }
 
 export interface DashboardSummary {
+  /** R21.F1(BUG-051):可见 active 项目数(成员/owner 口径;超管=全部 active) */
+  visible_projects: number
   requirements: DashboardBlock
   dev_tasks: DashboardBlock
   test_tasks: DashboardBlock

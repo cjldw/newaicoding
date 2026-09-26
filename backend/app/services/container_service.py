@@ -205,6 +205,19 @@ async def handle_container_started(
     container.runner_host_port_8000 = ports.get("8000")
     await db.flush()
 
+    # R32.F1(BUG-082 前置):容器就绪后注入项目 Skills/MCP ——
+    # 打磨/开发/测试/发布全类型生效(claude CLI 进程级读取 ~/.claude/skills 与 ~/.claude.json)
+    from app.services import task_service as _task_service
+
+    task_row = (
+        await db.execute(select(Task).where(Task.task_id == task_id).limit(1))
+    ).scalar_one_or_none()
+    if task_row is not None:
+        try:
+            await _task_service.inject_task_claude_assets(db, task_row, container)
+        except Exception as e:  # 注入失败不阻塞容器就绪(降级为无技能/无 MCP)
+            logger.warning("claude 资产注入失败 task=%s: %s", task_id, e)
+
     # BUG-030:任务行回填 container_id/runner_id(任务详情展示、停止/取消链路依赖;
     # 原实现只更新 containers 表,tasks 行两字段恒空)
     await db.execute(

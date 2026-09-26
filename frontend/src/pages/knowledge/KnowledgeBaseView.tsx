@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import CodeEditor from '@/components/Editor'
+import { renderMarkdown } from '@/utils/markdown'
 import { Loader2, ChevronRight, ChevronDown, RefreshCw } from 'lucide-react'
 import {
   useKnowledgeBaseDetail,
@@ -111,22 +112,7 @@ function formatTime(iso: string | null): string {
   return d.toLocaleString('zh-CN')
 }
 
-// ---- Markdown render (simple) ----
-function renderMarkdown(content: string): string {
-  let html = content
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
-  html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold mt-5 mb-2">$1</h2>')
-  html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-6 mb-3">$1</h1>')
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="bg-surface-strong p-3 rounded my-2 overflow-x-auto"><code>$2</code></pre>')
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-surface-strong px-1 rounded">$1</code>')
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
-  html = html.replace(/^\- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
-  html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
-  html = html.replace(/\n\n/g, '</p><p class="my-2">')
-  return `<p class="my-2">${html}</p>`
-}
+// ---- Markdown render:统一走共享渲染器(ul/ol/表格/引用块/链接全能力),排版由 globals.css `.md` 承接 ----
 
 
 // ---- Component ----
@@ -348,7 +334,7 @@ export default function KnowledgeBaseView() {
                       )}
                     </div>
                     <div
-                      className="prose prose-sm max-w-none text-text"
+                      className="md prose prose-sm max-w-none text-text"
                       dangerouslySetInnerHTML={{ __html: renderMarkdown(currentDoc.content ?? '') }}
                     />
                     {currentDoc.source_file_path && (

@@ -4,6 +4,8 @@
  * 降级规则:某维度 API 失败或无数据 → 该维度步骤不显示,不阻塞其他维度
  * (链式依赖级联:项目失败则需求/任务/归档均不可得,仅剩 always 步骤,与分片错误处理行一致)
  * 缓存:react-query 管理,弹窗重开不重复请求
+ * 请求门(BUG-UI-071 建议方案②/R14.F1):链式查询 enabled = 导览弹窗打开 && 前置数据就绪,
+ * 未开导览时零请求(打开时数据链与步骤不受影响)
  */
 import { useQuery } from '@tanstack/react-query'
 import { projectsApi, type ProjectListItem } from '@/api/projects'
@@ -18,34 +20,40 @@ export interface TourStep {
   link: string
 }
 
-export function useTourSteps() {
+export interface UseTourStepsOptions {
+  /** 导览弹窗是否打开(MainLayout tourOpen);false 时全链不发请求 */
+  enabled?: boolean
+}
+
+export function useTourSteps({ enabled = true }: UseTourStepsOptions = {}) {
   const user = useAuthStore((s) => s.user)
   const isSuperadmin = user?.role === 'superadmin'
 
-  // 维度1:项目(取第一条)
+  // 维度1:项目(取第一条;仅导览打开时发请求)
   const projectsQuery = useQuery({
     queryKey: ['tour-projects'],
     queryFn: () => projectsApi.list({ page: 1, page_size: 1 }).then((r) => r.data),
+    enabled,
     staleTime: 60_000,
     retry: false,
   })
   const project: ProjectListItem | undefined = projectsQuery.data?.items[0]
 
-  // 维度2:需求(第一个项目下取第一条;无项目则不请求)
+  // 维度2:需求(第一个项目下取第一条;导览未开/无项目则不请求)
   const reqsQuery = useQuery({
     queryKey: ['tour-reqs', project?.project_id],
     queryFn: () => requirementsApi.list(project!.project_id, { page: 1, page_size: 1 }).then((r) => r.data),
-    enabled: !!project,
+    enabled: enabled && !!project,
     staleTime: 60_000,
     retry: false,
   })
   const requirement: RequirementListItem | undefined = reqsQuery.data?.items[0]
 
-  // 维度3-5:任务(第一条需求下一次请求,按 type 筛 dev/test/release 各取一条)
+  // 维度3-5:任务(第一条需求下一次请求,按 type 筛 dev/test/release 各取一条;导览未开/无需求则不请求)
   const tasksQuery = useQuery({
     queryKey: ['tour-tasks', requirement?.req_id],
     queryFn: () => fetchTasks(requirement!.req_id),
-    enabled: !!requirement,
+    enabled: enabled && !!requirement,
     staleTime: 60_000,
     retry: false,
   })
@@ -54,11 +62,11 @@ export function useTourSteps() {
   const testTask = tasks.find((t) => t.type === 'test')
   const releaseTask = tasks.find((t) => t.type === 'release')
 
-  // 维度6:归档(第一条需求;请求成功即视为存在已归档需求,404/失败则步骤隐藏)
+  // 维度6:归档(第一条需求;请求成功即视为存在已归档需求,404/失败则步骤隐藏;导览未开则不请求)
   const archiveQuery = useQuery({
     queryKey: ['tour-archive', requirement?.req_id],
     queryFn: () => fetchArchive(requirement!.req_id),
-    enabled: !!requirement,
+    enabled: enabled && !!requirement,
     staleTime: 60_000,
     retry: false,
   })

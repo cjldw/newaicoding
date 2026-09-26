@@ -101,6 +101,10 @@ async def lifespan(app: FastAPI):
     # Runner 心跳超时巡检(R16):每 60s 一轮,>60s 无心跳 → offline
     sweep_task = asyncio.create_task(_runner_offline_sweep())
 
+    # 交付提醒每日巡检(R6):每 60s 检查一次,GMT+8 跨天首轮触发;
+    # 同日防重入(last_run_date)在 delivery_reminder_service.maybe_run_daily_sweep 内判定
+    delivery_reminder_task = asyncio.create_task(_delivery_reminder_daily_sweep())
+
     # R19 审计:原 set_audit_session_factory 注入已废弃(R25 改 spawn_audit_write
     # 自带 session_factory,users_admin 中该函数已删,此处调用一并移除)
 
@@ -108,6 +112,7 @@ async def lifespan(app: FastAPI):
 
     # 关闭：释放资源
     sweep_task.cancel()
+    delivery_reminder_task.cancel()
     await close_db()
     logger.info("旗橙后端已关闭")
 
@@ -131,6 +136,23 @@ async def _runner_offline_sweep():
             return
         except Exception:
             logger.exception("Runner 心跳巡检异常(下一轮继续)")
+
+
+async def _delivery_reminder_daily_sweep():
+    """交付提醒每日巡检(R6):每 60s 一轮,GMT+8 日期变更(last_run_date != 今天)才跑;
+    防重入与 settings 读写兜底都在 maybe_run_daily_sweep 内,本轮失败下一轮继续"""
+    import asyncio as _asyncio
+
+    from app.services import delivery_reminder_service
+
+    while True:
+        try:
+            await _asyncio.sleep(60)
+            await delivery_reminder_service.maybe_run_daily_sweep()
+        except _asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("交付提醒巡检异常(下一轮继续)")
 
 
 # -------------------------------------------------------------------

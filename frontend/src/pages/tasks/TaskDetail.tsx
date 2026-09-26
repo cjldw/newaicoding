@@ -3,7 +3,8 @@
  *
  * 版式 = vp pageTask 骨架逐元素照抄(docs/…/vp/index.html L1458-1483):
  *   .page.wide(全出血纵向 flex)
- *   └ .wb-head(返回 ghost icon-btn + .ttl 类型徽章/{短id} · {标题}/状态徽章 + .chip-row + .acts + 流程 stepper 卡(.stps 7 步,.on 当前/.done 已过))
+ *   └ .wb-head(返回 ghost icon-btn + .ttl 类型徽章/{短id} · {标题}/状态徽章 + .acts;次行 .chip-row)
+ *     ※ BUG-UI-080(用户口径):原 head 下方的流程 stepper 带(FLOW_STEPS 7 步)已整段移除,头带直接衔接 .wb
  *   └ .wb(grid;有树 236px | minmax(0,1fr) | 384px,无树 .n2 → minmax(0,1fr) | 384px;1px 分隔线,无 gap 无 padding)
  *      ├ col-tree  文件树(仅 dev 且非 pending;非 dev 任务不渲染 → wb 加 .n2 两栏,中栏占 1fr 不再压窄)
  *      ├ col-center.wb-mid  中栏 centerPane:按 type/status 五分支(requirement/dev/dev pending/test/release)
@@ -105,24 +106,6 @@ function TypeBadge({ type }: { type: string }) {
 
 /** 短 id 展示(vp 任务号形如 T-301;React 为 UUID → 取前 8 位,与列表页口径一致) */
 const shortId = (id: string | null | undefined) => (id ? id.slice(0, 8) : '—')
-
-/**
- * 平台流程 7 步(创建→打磨→评审→已评审→开发→测试→发布)当前步计算,纯展示不跳转:
- * requirement 按状态推进前四步(polishing→打磨 / reviewing→评审 / approved→已评审,running 视为打磨中);
- * dev/test/release 类型任务即代表流程已走到对应阶段(开发/测试/发布),之前的步全部 done。
- */
-const FLOW_STEPS = ['创建', '打磨', '评审', '已评审', '开发', '测试', '发布']
-function mapStep(type: string, status: string): number {
-  if (type === 'dev') return 4
-  if (type === 'test') return 5
-  if (type === 'release') return 6
-  switch (status) { // requirement(及其余兜底)走前四步
-    case 'draft': case 'pending': return 0
-    case 'reviewing': return 2
-    case 'approved': return 3
-    default: return 1 // polishing / running / 其他未知态 → 打磨中
-  }
-}
 
 /** 从 unified diff 文本统计 +/- 行数(vp d-chip 的 +N −M 角标) */
 function diffStat(diff: string): { add: number; del: number } {
@@ -258,7 +241,7 @@ export default function TaskDetail() {
 
   if (!task) {
     return (
-      <div className="page wide">
+      <div className="page wide page-fill">
         <div className="page-loading"><Loader2 size={16} className="animate-spin" />加载中...</div>
       </div>
     )
@@ -267,8 +250,9 @@ export default function TaskDetail() {
   const isRun = task.status === 'running'
   // vp L1465:文件树仅 dev 且非挂起显示
   const showTree = task.type === 'dev' && task.status !== 'pending'
-  // 流程 stepper 当前步(0-6,纯展示)
-  const curStep = mapStep(task.type, task.status)
+  // BUG-UI-081(用户口径):requirement(打磨)任务面向产品,对话为主工作区 → 左右对调
+  // (对话/终端/活动 移中栏占 1fr,PRD/工作区 移右栏 384px);dev/test/release 面向开发者保持现状
+  const swapPanes = task.type === 'requirement'
   const tabCls = (key: CenterTab | RightTab, cur: string) => `tab${cur === key ? ' on' : ''}`
 
   /* ---------------- wb-head acts(vp L1462-1464 条件) ---------------- */
@@ -423,10 +407,10 @@ export default function TaskDetail() {
     </div>
   )
 
-  // ---- dev pending 排队空态(vp L1296-1298 原文) ----
+  // ---- dev pending 排队空态(vp L1296-1298 原文;BUG-UI-074:twrap-fill 归零卡片语言,与兄弟分支一致) ----
   const pendingCenter = (
-    <div className="card card-fill">
-      <div className="card-body empty">
+    <div className="twrap card twrap-fill">
+      <div className="card-body empty empty-fill">
         <Clock size={20} />
         <div className="empty-tip">任务排队中 · 等待可用 Runner / 项目并发配额(单项目并发 running ≤ 3)</div>
       </div>
@@ -568,52 +552,81 @@ export default function TaskDetail() {
     return reqCenter
   })()
 
+  // 对话/终端/活动 面板(vp rightPane 恒三 Tab;BUG-UI-081 起按 swapPanes 决定落中栏还是右栏)
+  const rightPane = (
+    <div className="twrap card twrap-fill">
+      {tabsBar(<>
+        <button className={tabCls('chat', rightTab)} onClick={() => setRightTab('chat')}>
+          <MessageSquare size={14} />对话
+        </button>
+        <button className={tabCls('term', rightTab)} onClick={() => setRightTab('term')}>
+          <Terminal size={14} />终端
+          {/* vp L1438:running 时终端 Tab 带 pulse dot(照抄) */}
+          {isRun && <span className="dot pulse dot-ok" />}
+        </button>
+        <button className={tabCls('act', rightTab)} onClick={() => setRightTab('act')}>
+          <Activity size={14} />活动
+        </button>
+      </>)}
+      {/* pane:hidden 保活(终端缓冲/聊天态不丢,R4.F1/F2);显示态 flex 铺满 */}
+      <div hidden={rightTab !== 'chat'} className="rpane">
+        <TaskChat
+          taskId={taskId}
+          projectId={task.project_id ?? undefined}
+          fullscreen={fullscreen === 'chat'}
+          onToggleFullscreen={() => toggleFullscreen('chat')}
+        />
+      </div>
+      {/* BUG-UI-074:三 pane 统一 12px 空气垫(由 .rpane 承接);终端深色视口与 chat/activity 内卡对齐 */}
+      <div hidden={rightTab !== 'term'} className="rpane">
+        <TerminalPanel
+          createSession={() => createTerminalSession(taskId)}
+          fullscreen={fullscreen === 'term'}
+          onToggleFullscreen={() => toggleFullscreen('term')}
+        />
+      </div>
+      <div hidden={rightTab !== 'act'} className="rpane scroll-y">
+        <ActivityStream taskId={taskId} />
+      </div>
+    </div>
+  )
+
   return (
     <BreadcrumbOverrideProvider crumbs={crumbs}>
       {/* vp L1477:.page.wide 全出血纵向 flex;flex 铺满/零底距由 .page-fill 承接 */}
       <div className="page wide page-fill">
-        {/* vp L1466-1476:wb-head 五段 */}
+        {/* vp L1466-1476:wb-head(BUG-UI-074 拆两行:主行标题/徽章/acts 右置,次行 chip-row;换行悬挂消除) */}
         <div className="wb-head">
-          <button className="btn btn-ghost icon-btn" title="返回需求" onClick={() => nav(-1)}>
-            <ArrowLeft size={15} />
-          </button>
-          <span className="ttl">
-            <TypeBadge type={task.type} />
-            <span className="truncate">{shortId(task.task_id)} · {task.title}</span>
-            <StatusBadge status={task.status} pulse={isRun} />
-            {/* React 补充:失败信息内联提示(vp 无此元素,保留功能性) */}
-            {task.error_message && (
-              <span className="small err-txt">{task.error_message}</span>
-            )}
-          </span>
-          <span className="chip-row">
+          <div className="wb-head-main">
+            <button className="btn btn-ghost icon-btn" title="返回需求" onClick={() => nav(-1)}>
+              <ArrowLeft size={15} />
+            </button>
+            <span className="ttl">
+              <TypeBadge type={task.type} />
+              <span className="truncate">{shortId(task.task_id)} · {task.title}</span>
+              <StatusBadge status={task.status} pulse={isRun} />
+              {/* React 补充:失败信息内联提示(vp 无此元素,保留功能性) */}
+              {task.error_message && (
+                <span className="small err-txt">{task.error_message}</span>
+              )}
+            </span>
+            {/* acts 恒右置(停止/创建发布/打开+下线;BUG-UI-081 复核点) */}
+            <span className="acts">{acts}</span>
+          </div>
+          <div className="wb-head-sub chip-row">
             <span className="chip"><GitBranch size={12} />{task.work_branch}</span>
             <span className="chip"><Box size={12} />{task.container_id ? task.container_id.slice(0, 7) : '—'}</span>
             <span className="chip"><Server size={12} />{task.runner_id ? task.runner_id.slice(0, 8) : '—'}</span>
             {task.last_commit_sha && (
               <span className="chip"><GitCommit size={12} />{task.last_commit_sha.slice(0, 7)}</span>
             )}
-          </span>
-          <span className="acts">{acts}</span>
-        </div>
-
-        {/* 流程 stepper(head 与 wb 之间;.stps-band/.stps-card 内边距,.stps/.stp/.on/.done 为 globals.css 现成类) */}
-        <div className="stps-band">
-          <div className="card stps-card">
-            <div className="stps">
-              {FLOW_STEPS.map((label, i) => (
-                <div key={label} className={`stp${i === curStep ? ' on' : ''}${i < curStep ? ' done' : ''}`}>
-                  <span className="d">{i < curStep && <Check size={11} />}</span>
-                  <span>{label}</span>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
 
         {/* vp L1478-1481:.wb 栏 grid(无 gap 无 padding;1px 分隔线由 col-* border 提供)
             有树:三栏,拖拽宽度注入模板;无树(非 dev / dev pending):加 n2 类 → minmax(0,1fr)|384px 两栏,
-            col-center 无显式列指定,auto-flow 自然落第一列,不再压进 236px 窄列 */}
+            col-center 无显式列指定,auto-flow 自然落第一列,不再压进 236px 窄列;
+            BUG-UI-081:requirement 任务 swapPanes → 对话面板落中栏 1fr(产品主工作区),PRD/工作区落右栏 384px */}
         <div
           className={`wb${showTree ? '' : ' n2'}`}
           style={showTree ? { gridTemplateColumns: `${leftW}px minmax(0,1fr) ${rightW}px` } : undefined}
@@ -643,45 +656,14 @@ export default function TaskDetail() {
             </section>
           )}
 
+          {/* BUG-UI-081:requirement 任务左右对调 —— 对话面板在中栏(主工作区),PRD/工作区在右栏;
+              其余类型保持 中=工作区 / 右=对话终端活动 */}
           {/* 中栏:col-center.wb-mid(vp section 语义) */}
-          <section className="col-center wb-mid">{center}</section>
+          <section className="col-center wb-mid">{swapPanes ? rightPane : center}</section>
 
-          {/* 右栏:col-right(vp L1433-1456 rightPane;恒三 Tab) */}
+          {/* 右栏:col-right(vp L1433-1456 rightPane) */}
           <section className="col-right">
-            <div className="twrap card twrap-fill">
-              {tabsBar(<>
-                <button className={tabCls('chat', rightTab)} onClick={() => setRightTab('chat')}>
-                  <MessageSquare size={14} />对话
-                </button>
-                <button className={tabCls('term', rightTab)} onClick={() => setRightTab('term')}>
-                  <Terminal size={14} />终端
-                  {/* vp L1438:running 时终端 Tab 带 pulse dot(照抄) */}
-                  {isRun && <span className="dot pulse dot-ok" />}
-                </button>
-                <button className={tabCls('act', rightTab)} onClick={() => setRightTab('act')}>
-                  <Activity size={14} />活动
-                </button>
-              </>)}
-              {/* 右栏 pane:hidden 保活(终端缓冲/聊天态不丢,R4.F1/F2);显示态 flex 铺满 */}
-              <div hidden={rightTab !== 'chat'} className="rpane">
-                <TaskChat
-                  taskId={taskId}
-                  fullscreen={fullscreen === 'chat'}
-                  onToggleFullscreen={() => toggleFullscreen('chat')}
-                />
-              </div>
-              {/* vp L1441:终端 pane 外层 padding:12 */}
-              <div hidden={rightTab !== 'term'} className="rpane pad-12">
-                <TerminalPanel
-                  createSession={() => createTerminalSession(taskId)}
-                  fullscreen={fullscreen === 'term'}
-                  onToggleFullscreen={() => toggleFullscreen('term')}
-                />
-              </div>
-              <div hidden={rightTab !== 'act'} className="rpane scroll-y">
-                <ActivityStream taskId={taskId} />
-              </div>
-            </div>
+            {swapPanes ? center : rightPane}
             {/* 右 sash(R4.F2 拖拽;仅在有树的 3 栏布局下生效 —— 无树时右栏占 1fr,拖拽无意义) */}
             {showTree && (
               <div className="sash sash-r" onMouseDown={onRightSashDown} />

@@ -23,10 +23,12 @@ export interface PlatformSettings {
   max_containers_total: number | null
   kb_max_pages_per_kb: number | null
   kb_max_file_mb: number | null
-  // 模型默认配置(R23)
+  // 模型默认配置(R23 → R1 多模型)
   llm_base_url: string | null
   llm_api_key: string | null  // 打码格式
-  llm_model: string | null
+  llm_model: string | null  // 旧单值键(R1 兼容期保留:GET 原样回显;新代码读 llm_models)
+  llm_models: string[] | null  // R1 模型名列表(≤10;llm_models 缺失时服务端兼容映射 [旧 llm_model])
+  llm_default_model: string | null  // R1 默认模型(必须 ∈ llm_models)
   // 自定义容器环境变量(R8.F4;原样回显不打码)
   custom_env_vars: Record<string, string> | null
 }

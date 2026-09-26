@@ -129,6 +129,38 @@ async def test_dashboard_created_by_filtering(client, auth_headers, db_session, 
     assert resp.json()["data"]["requirements"]["total"] == 0
 
 
+@pytest.mark.asyncio
+async def test_dashboard_summary_visible_projects_member(client, auth_headers, db_session, registered_user):
+    """BUG-051/R21.F1:非 owner 成员 summary 含 visible_projects=可见 active 项目数(≥1)"""
+    project = await _setup(db_session, registered_user)
+    from app.models.project_member import ProjectMember
+    from tests.test_projects_api import _register_and_login
+
+    # 非 owner 成员:第二个用户被拉进项目当 editor(owner 是 registered_user)
+    member_headers, member_uid = await _register_and_login(client)
+    db_session.add(ProjectMember(
+        project_id=project.project_id, user_id=member_uid, role="editor",
+        invited_by=registered_user["user_id"],
+    ))
+    await db_session.flush()
+
+    # 成员可见 1 个 active 项目(owner 的项目,自己是 editor)
+    resp = await client.get("/api/dashboard/summary", headers=member_headers)
+    data = resp.json()["data"]
+    assert data["visible_projects"] == 1
+
+    # owner 同项目:visible_projects 同为 1(门槛与数据同源)
+    resp_owner = await client.get("/api/dashboard/summary", headers=auth_headers)
+    assert resp_owner.json()["data"]["visible_projects"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dashboard_summary_visible_projects_empty(client, auth_headers, registered_user):
+    """BUG-051/R21.F1:无项目用户 visible_projects=0(空态门槛依据)"""
+    resp = await client.get("/api/dashboard/summary", headers=auth_headers)
+    assert resp.json()["data"]["visible_projects"] == 0
+
+
 # ---------------------------------------------------------------------------
 # R22 四维列表
 # ---------------------------------------------------------------------------

@@ -69,6 +69,10 @@ class ErrCode:
     CONFIG_DEFAULT_EXISTS = 13003  # 同项目已有 default 配置
     CONFIG_DEFAULT_UNDELETABLE = 13004  # 不可删除 default 配置
 
+    # R1 平台多模型配置(13xxx 段顺延)
+    LLM_MODELS_LIMIT = 13008       # 平台模型名数超上限(>10)
+    LLM_MODEL_DUPLICATE = 13009    # 平台模型名重复(llm_models 列表内去重校验失败)
+
     # R17 MCP / Skills
     MCP_JSON_INVALID = 17001       # MCP 配置 JSON 格式错误(message 携带行号)
     SKILL_ALREADY_INSTALLED = 17002  # 已安装过该 Skill
@@ -102,6 +106,16 @@ class ErrCode:
 
     # R20 知识库空间
     KB_IMPORT_READONLY = 20002     # repo_import 只读(写操作一律 403,含超管)
+
+    # R1 知识条目手动添加(A 型代码引用校验;2xxxx 段顺延)
+    KB_PATHS_LIMIT = 20010         # A 型代码引用 paths 数量超限(去空行后须 1-10 个)
+    KB_REPO_MISMATCH = 20011       # A 型代码引用 repo_id 不属于本项目
+
+    # R2 知识条目详情(2xxxx 段顺延)
+    KB_CODE_UNREACHABLE = 20012    # 代码来源不可达(path 404/仓库已解绑/分支已删除,详情页降级占位)
+
+    # R3 知识条目编辑删除(2xxxx 段顺延)
+    KB_AI_ONLY_TAGS = 20013        # AI 条目仅支持编辑标签(携带其他可编辑字段 → 400)
 
     # R15 网关
     DEPLOY_HOST_CONFLICT = 15001   # deploy_host 全平台唯一,冲突拒绝
