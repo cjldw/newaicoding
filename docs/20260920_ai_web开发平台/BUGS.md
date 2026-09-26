@@ -1,8 +1,8 @@
 # BUGS.md — 活跃问题清单
 
-> 项目:ai_web开发平台 | 更新:2026-09-24(rd-fix 第 26 轮:BUG-049 需求修正——本机快速创建改 Docker 容器形态(镜像自动构建+基础镜像自适应+exec cwd 适配)verified;BUG-050 终端读循环 SocketIO 兼容 verified;第 25 轮 BUG-048 迁移;⚠ BUG-043 编号两会话各自使用,584 行有让渡标注)
+> 项目:ai_web开发平台 | 更新:2026-09-26(rd-fix 第 28 轮:BUG-051 工作台门槛口径错位修复 verified 迁移——数字对账无误,口径变更诉求归 /rd-plan;第 27 轮:BUG-UI-071/072/073 迁移;⚠ BUG-043 编号两会话各自使用,584 行有让渡标注)
 > 状态流转:open → fixed → verified(verified 后迁移至 ISSUES.md)
-> 已 verified 迁移:第 3 轮 BUG-UI-001/003/004/005/006;第 4 轮 BUG-010;第 5 轮 BUG-009/011/012/013;第 16 轮 BUG-038;第 17 轮 BUG-039;第 18 轮 BUG-040/041(见 ISSUES.md)
+> 已 verified 迁移:第 3 轮 BUG-UI-001/003/004/005/006;第 4 轮 BUG-010;第 5 轮 BUG-009/011/012/013;第 16 轮 BUG-038;第 17 轮 BUG-039;第 18 轮 BUG-040/041;第 27 轮 BUG-UI-071/072/073;第 28 轮 BUG-051(第 19-26 轮迁移见各行标注;均见 ISSUES.md)
 
 | BUG-042 | fixed → 已 verified 迁移 ISSUES.md(2026-09-24 第 21 轮真机删除实证) | R16 | 功能缺陷(拦截口径过宽) | 用户实测报障 2026-09-24(rd-fix 第 19 轮) | 删除 Runner 返回 16001"Runner 上有运行中的容器,不可删除",但容器关联任务已非进行中(cancelled/done):delete_runner 只看 containers.status,不联查任务状态,孤儿容器行(任务取消链路缺容器状态回写)永久卡死删除;用户口径:任务不是进行中可以删除;修复分片 R16.F3(拦截收窄为容器关联 Task.status='running',部署容器 task_id NULL 放行;pytest 11/11,后端已重启) |
 | BUG-043 | fixed → 已 verified 迁移 ISSUES.md(R31.F1;真机 shell-sessions code=0) | — | — | — | — |
@@ -886,25 +886,15 @@
 
 ## UI 相关问题
 
-(2026-09-24 浏览器核对批次新增;五批 UI 改动走查截图见 `report/ui-overhaul-20260924/`)
+(2026-09-24 浏览器核对批次新增;五批 UI 改动走查截图见 `report/ui-overhaul-20260924/`;批次 3 个 open bug 已于 2026-09-25 第 27 轮修复 verified 迁移 ISSUES.md:BUG-UI-071→R14.F1 / BUG-UI-072→R28.F2 / BUG-UI-073→R19.F6)
 
-### BUG-UI-071 | GET /api/requirements/{req_id}/archive 全量 500(stray import) | open
-- **严重程度**:高(P1,归档页功能不可用 + 全站 console 噪音)
-- **关联页面**:后端 `backend/app/api/knowledge.py`(影响 /requirements/:reqId/archive 归档页);连带触发源 `frontend/src/hooks/useTourSteps.ts`(R29 导览,全站每页挂载)
-- **问题描述**:该端点对任意用户/任意需求恒返回 500。真机复现:超管与普通用户均 500;进程内 ASGITransport 复现拿到确 traceback——`app/api/knowledge.py:31` `from app.services.project_service import get_requirement_or_404 as _get_req` 抛 `ImportError: cannot import name 'get_requirement_or_404'`(该函数实际定义在 `requirement_service`,下一行已正确导入且使用之,此行为遗留无效 import,每请求执行必炸)。前端 R29 导览 hook `useTourSteps`(projects→第一条需求→fetchArchive 链)全局挂载,导致每个页面加载都打出一次该 500(走查 10 页 = 10 次 console error)
-- **建议方案**:① 删除 `knowledge.py:31` 该行 import(一行修复);② 评估 useTourSteps 的 archive/tasks 查询改为导览弹窗打开时才 enabled(`enabled: tourOpen && !!requirement`),避免未开导览也全站发链式请求
-- **状态**:open
+## BUG-UI-083
 
-### BUG-UI-072 | 超管头像文件 404(users.avatar_url 指向已丢失文件) | open
-- **严重程度**:低(P3,视觉有回退不破相,仅 console 噪音)
-- **关联页面**:全站(topbar 头像);数据层 users 表
-- **问题描述**:每页 `GET /api/files/avatars/1f5868f7-84b3-4127-b8ec-4c3c7b4f14b9.png` 404——18767169856(超管)的 avatar 引用指向磁盘上不存在的文件(疑 R19 数据事故后文件未随 DB 恢复)。前端 onError 回退首字母粉色圆形头像,视觉无异常;代价是每次页面加载 1-2 条 404 console error,污染错误监控
-- **建议方案**:① 数据侧清理该用户的 avatar_url/avatar_file_path 引用(或补传文件);② 前端头像组件对 404 静默降级后不再重复请求(可记忆失败)
-- **状态**:open
-
-### BUG-UI-073 | 审计日志「详情」列「JSON 摘要」断词换行 | open
-- **严重程度**:最低(P4,纯视觉)
-- **关联页面**:/admin/audit-logs
-- **问题描述**:详情列宽不足,「JSON 摘要」链接文字换行为「JSON 摘/要」两行,观感破碎(见截图 10-admin-audit-logs.png 详情列)
-- **建议方案**:该列加 `white-space:nowrap`(或 colgroup 给足 min-width);文字亦可简化为「JSON」
-- **状态**:open
+- **状态**:fixed(2026-09-26 修复并真机复验;发现于同日浏览器核对批次)
+- **页面/组件**:任务工作台右栏「终端」Tab **空态占位**(TerminalPanel.tsx L96 空态分支根 div)
+- **现象**:占位态点「全屏」(Maximize2)无覆盖层效果——面板仍内联在原栏内(778×671),仅按钮图标切为 Minimize2;Esc/退出/连点状态机本身正常、无 JS 报错
+- **根因**:空态根 div 常驻 `relative` 与全屏分支追加的 `fixed inset-0 z-[60]` 并存同一 className;Tailwind v3 样式表中 `.relative` 规则在 `.fixed` 之后(实测 dev 产物 offset 61611 > 61541),同特异性后者胜 → position 恒 relative,`fixed/inset-0` 全部失效
+- **证据(真机 A/B,同页同操作,viewport 1440×900)**:对话 Tab 全屏(TaskChat,无常驻 relative)覆盖层 1440×900、position:fixed ✓;终端占位态全屏 778×671、position:relative ✗——任务 16f81e75 与浙里足球 f6ac20f4 两任务均复现;祖先链无 transform/filter(排除 containing-block 劫持)。截图 `report/terminal-fullscreen/02-fullscreen-empty.png`
+- **波及面**:仅终端**空态**;有 Tab 面板根 div(L127)、TaskChat(L236)无常驻 relative,编辑器(TaskDetail L363)互斥三元式,均不受影响
+- **修复(2026-09-26)**:TerminalPanel.tsx 空态根 div 改 position 二选一条件输出(互斥三元,对齐编辑器写法):`fullscreen ? ' fixed inset-0 z-[60] p-2' : ' relative'`,不再两类并存;非全屏保留 `relative` 供全屏按钮 absolute 定位。有 Tab 分支(L127)与 Terminal.tsx 未动
+- **验证记录**:修复前——占位态全屏/退出/连点 3 次/Esc 全流程无 JS 错误,状态机正确;修复后——`npx tsc -b --noEmit` 零错误;Playwright 真机复验 14/14 PASS(脚本 `.scratch/terminal-fs-fix-verify.mjs`):非全屏空态 position=relative 内联 778×671 → 全屏 position=fixed z=60、覆盖层 1440×900=视口、origin(0,0) 脱离原栏 → Esc 还原 relative 778×671;连点 3 次+Esc、第二任务 f6ac20f4(cancelled)交叉复验同过,零 JS 报错。截图 `report/terminal-fullscreen-fix/01-fullscreen-overlay-viewport.png`、`02-esc-restored-inline.png`;结论 `.scratch/bug-ui-083-fix.md`。有容器任务的 canvas refit 因 dev 无 running 容器仍待测(不阻塞本修复)

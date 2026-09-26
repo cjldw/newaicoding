@@ -23,6 +23,14 @@ interface TerminalProps {
   reconnect?: boolean
   /** 断线且 reconnect=false 时写入 xterm 的提示文案 */
   closeMessage?: string
+  /**
+   * 终端全屏(2026-09-26):宿主面板全屏切换计数(每次切换 +1)。
+   * 变化时延迟双 rAF 走 safeFit(fit + 后端 resize 同步),与 ResizeObserver
+   * 形成双保险——容器尺寸变化本会触发 RO,此信号兜底切换当帧布局未稳/尺寸
+   * 恰好未变导致 RO 不回调的边角;退出全屏同样触发。挂载首跑跳过(挂载期
+   * fit 由 open 双 rAF 路径负责)。
+   */
+  fitSignal?: number
 }
 
 /** 将 http(s) URL 转为 ws(s) */
@@ -39,11 +47,13 @@ function buildWsUrl(raw: string): string {
   return token ? `${abs}${abs.includes('?') ? '&' : '?'}token=${token}` : abs
 }
 
-export function Terminal({ wsUrl, onOpen, attachTerm, reconnect = true, closeMessage }: TerminalProps) {
+export function Terminal({ wsUrl, onOpen, attachTerm, reconnect = true, closeMessage, fitSignal }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // ref 中转避免 attachTerm 变化触发 effect 重跑(ws 重连)
   const attachRef = useRef(attachTerm)
   attachRef.current = attachTerm
+  // 全屏 refit 入口:主 effect 建好 safeFit 后回填,fitSignal effect 经此触发
+  const safeFitRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     const el = containerRef.current
@@ -87,6 +97,8 @@ export function Terminal({ wsUrl, onOpen, attachTerm, reconnect = true, closeMes
         }))
       }
     }
+    // 回填 ref,供 fitSignal(全屏切换)effect 触发(dispose 后 safeFit 仍受 disposed 守卫)
+    safeFitRef.current = safeFit
 
     // ResizeObserver → fit + 发送 resize
     // BUG-046:observe 后首帧立即回调 + Dialog 动画期间频繁回调,统一走 safeFit 守卫
@@ -160,6 +172,23 @@ export function Terminal({ wsUrl, onOpen, attachTerm, reconnect = true, closeMes
       term.dispose()
     }
   }, [wsUrl, onOpen, reconnect, closeMessage])
+
+  // 全屏切换 → 确定性 refit(见 fitSignal 注释):双 rAF 等 fixed 覆盖层布局稳定后 safeFit
+  // (safeFit 内部:尺寸守卫 + fitAddon.fit() + ws resize 同步后端,退出全屏同路径)
+  const prevFitSignal = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    const changed = prevFitSignal.current !== undefined && prevFitSignal.current !== fitSignal
+    prevFitSignal.current = fitSignal
+    if (!changed) return
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => safeFitRef.current?.())
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
+  }, [fitSignal])
 
   return (
     <div

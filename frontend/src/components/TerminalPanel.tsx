@@ -20,13 +20,7 @@ interface TerminalPanelProps {
   onClose?: (sessionId: string) => void
   /** 全屏(BUG-UI-064:CSS 提升为 fixed 覆盖层,面板不重挂载,xterm 缓冲保留) */
   fullscreen?: boolean
-  onToggleFullscreen?: () => void
-}
-
-interface TerminalPanelProps {
-  createSession: () => Promise<{ session_id: string; ws_url: string }>
-  onClose?: (sessionId: string) => void
-  fullscreen?: boolean
+  /** 全屏切换;不传(如 Runner shell Dialog)则不渲染全屏按钮 */
   onToggleFullscreen?: () => void
   /** R26:透传 Terminal(断线行为;默认不传=任务终端既有行为) */
   terminalReconnect?: boolean
@@ -38,6 +32,13 @@ export function TerminalPanel({ createSession, onClose, fullscreen = false, onTo
   const [activeId, setActiveId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const termRef = useRef<import('xterm').Terminal | null>(null)
+  // 终端全屏(对齐对话,2026-09-26):切换计数透传 Terminal → 确定性 refit。
+  // ResizeObserver 是常规路径(尺寸变化必触发);fitSignal 兜底「切换当帧布局未稳/同尺寸
+  // 不回调」的边角,退出全屏同样触发。首帧 +1 由 Terminal 的 skip-initial 守卫忽略。
+  const [fitTick, setFitTick] = useState(0)
+  useEffect(() => {
+    setFitTick((t) => t + 1)
+  }, [fullscreen])
 
   // toast 自动消失
   useEffect(() => {
@@ -87,12 +88,25 @@ export function TerminalPanel({ createSession, onClose, fullscreen = false, onTo
     URL.revokeObjectURL(a.href)
   }, [activeId])
 
-  // 空态
+  // 空态(占位态也容忍全屏切换:fullscreen 时同样提升为 fixed 覆盖层,
+  // 否则全屏中关掉最后一个 Tab 会内联回落、TaskDetail 的 fullscreen 态悬空)
   if (tabs.length === 0) {
     return (
-      <div className="flex flex-col w-full h-full items-center justify-center gap-3 bg-[#1e1e1e] text-zinc-400">
+      <div
+        className={`flex flex-col w-full h-full items-center justify-center gap-3 bg-[#1e1e1e] text-zinc-400${fullscreen ? ' fixed inset-0 z-[60] p-2' : ' relative'}`}
+      >
         {toast && (
           <div className="toast-wrap"><div className="toast">{toast}</div></div>
+        )}
+        {onToggleFullscreen && (
+          <button
+            type="button"
+            title={fullscreen ? '退出全屏' : '全屏'}
+            className="absolute top-2 right-2 px-1.5 py-0.5 text-zinc-400 hover:text-zinc-100"
+            onClick={onToggleFullscreen}
+          >
+            {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
         )}
         <span>点击新建终端</span>
         <button
@@ -158,14 +172,17 @@ export function TerminalPanel({ createSession, onClose, fullscreen = false, onTo
           >
             新建终端
           </button>
-          <button
-            type="button"
-            title={fullscreen ? '退出全屏' : '全屏'}
-            className="px-1.5 py-0.5 text-zinc-400 hover:text-zinc-100"
-            onClick={onToggleFullscreen}
-          >
-            {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
+          {/* 终端全屏(对齐对话):仅宿主传入 onToggleFullscreen 时渲染(Runner shell Dialog 不支持全屏,避免死按钮) */}
+          {onToggleFullscreen && (
+            <button
+              type="button"
+              title={fullscreen ? '退出全屏' : '全屏'}
+              className="px-1.5 py-0.5 text-zinc-400 hover:text-zinc-100"
+              onClick={onToggleFullscreen}
+            >
+              {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          )}
         </div>
       </div>
       {/* 终端区 - 全宽高度自适应 */}
@@ -176,6 +193,7 @@ export function TerminalPanel({ createSession, onClose, fullscreen = false, onTo
             attachTerm={(t) => { termRef.current = t }}
             reconnect={terminalReconnect}
             closeMessage={terminalCloseMessage}
+            fitSignal={fitTick}
           />
         )}
       </div>
