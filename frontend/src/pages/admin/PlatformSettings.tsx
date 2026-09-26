@@ -10,6 +10,7 @@
  *  4. 模型默认配置(R23/R1)— llm_base_url / llm_api_key / llm_models(≤10 个模型名 tag,先测后入列)
  *     / llm_default_model(四键齐备校验 + 2008 连通测试)
  *  5. 自定义变量(R8.F4)— custom_env_vars(KV 表,任务容器启动时全量注入)
+ *  6. Skills 市场(R1)— skill_market_sources(市场源行编辑,登录用户只读)
  *
  * 敏感键(gitlab_bot_token / gitlab_webhook_secret / llm_api_key)按分片④「打码回显值只读展示」:
  * 服务端打码值以 readOnly 展示,点「更换」进入编辑态输入新值;未编辑时该键不进 payload
@@ -33,18 +34,22 @@ import {
   Braces,
   Plus,
   Star,
+  Store,
   Trash2,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import { Badge } from '@/components/ui/Badge'
 import { useToast } from '@/hooks/useToast'
 import { api, ApiError } from '@/api/client'
 import type { PlatformSettings as PlatformSettingsData } from '@/api/admin'
+import { DEFAULT_MARKET_SOURCES } from '@/api/skills'
+import type { SkillMarketSourceType } from '@/api/skills'
 
 // ---- 分组定义 ----
-type GroupKey = 'gitlab' | 'domain' | 'global' | 'llm' | 'vars'
+type GroupKey = 'gitlab' | 'domain' | 'global' | 'llm' | 'vars' | 'market'
 
 const navItems: { key: GroupKey; label: string; icon: typeof Server }[] = [
   { key: 'gitlab', label: 'GitLab 集成', icon: Server },
@@ -52,6 +57,7 @@ const navItems: { key: GroupKey; label: string; icon: typeof Server }[] = [
   { key: 'global', label: '全局参数', icon: SlidersHorizontal },
   { key: 'llm', label: '模型默认配置', icon: Brain },
   { key: 'vars', label: '自定义变量', icon: Braces },
+  { key: 'market', label: 'Skills 市场', icon: Store },
 ]
 
 // ---- 各分组表单 schema ----
@@ -103,6 +109,20 @@ const RESERVED_ENV_KEYS = new Set([
 ])
 const CUSTOM_ENV_MAX_KEYS = 50
 
+// 6. Skills 市场源(R1:源类型选项与后端 validate 同口径;base 须 https:// 开头)
+const MARKET_SOURCE_TYPE_OPTIONS = [
+  { label: 'ModelScope', value: 'modelscope' },
+  { label: 'skills.sh', value: 'skillssh' },
+]
+
+// 市场源编辑行(受控 state,同 VarRow 模式——行数动态,不走表单库)
+interface MarketSourceRow {
+  id: number
+  name: string
+  type: SkillMarketSourceType
+  base: string
+}
+
 // KV 编辑行(受控 state,非 useForm——行数动态,表单库收益为负)
 interface VarRow {
   id: number
@@ -134,9 +154,14 @@ export function PlatformSettings() {
   const [globalMsg, setGlobalMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const [llmMsg, setLlmMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const [varsMsg, setVarsMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
+  const [marketSaving, setMarketSaving] = useState(false)
+  const [marketMsg, setMarketMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   // R8.F4:自定义变量 KV 编辑行(服务端值加载后转行数组;保存成功后以服务端回显重灌)
   const [varRows, setVarRows] = useState<VarRow[]>([])
   const varRowSeq = useRef(0)
+  // R1:Skills 市场源编辑行(同 varRows 模式;服务端未配置该键时以默认两源种子起编辑)
+  const [marketRows, setMarketRows] = useState<MarketSourceRow[]>([])
+  const marketRowSeq = useRef(0)
 
   // 敏感键编辑态(R24 分片④:打码回显 readOnly,点「更换」才进入编辑,防止打码串回写覆盖真值)
   const [editingGitlabToken, setEditingGitlabToken] = useState(false)
@@ -223,6 +248,18 @@ export function PlatformSettings() {
         value: v,
       })),
     )
+    // R1:skill_market_sources 未配置(null/[])时以默认两源种子起编辑(与后端首次读取种子同文案)
+    setMarketRows(
+      (d.skill_market_sources && d.skill_market_sources.length > 0
+        ? d.skill_market_sources
+        : DEFAULT_MARKET_SOURCES
+      ).map((s) => ({
+        id: ++marketRowSeq.current,
+        name: s.name,
+        type: s.type,
+        base: s.base,
+      })),
+    )
   }
 
   /** 切换分组:reset 所有分组 form 回服务端值(丢弃未保存修改),并复位敏感键编辑态 */
@@ -241,6 +278,7 @@ export function PlatformSettings() {
       setGlobalMsg(null)
       setLlmMsg(null)
       setVarsMsg(null)
+      setMarketMsg(null)
       setTestResult(null)
     },
     [activeGroup, serverData, gitlabForm, domainForm, globalForm, llmForm],
@@ -486,6 +524,62 @@ export function PlatformSettings() {
     } finally {
       unlock('vars')
       setVarsSaving(false)
+    }
+  }
+
+  /** R1:Skills 市场源保存 —— 客户端预检(名称必填/重复、base https:// 开头,与后端校验同口径)后单键 PUT */
+  async function handleMarketSave() {
+    if (!tryLock('market')) return
+    setMarketSaving(true)
+    setMarketMsg(null)
+    try {
+      const errors: string[] = []
+      const seenNames = new Set<string>()
+      for (const row of marketRows) {
+        const name = row.name.trim()
+        const base = row.base.trim()
+        if (!name) {
+          errors.push('存在空的源名称')
+          continue
+        }
+        if (seenNames.has(name)) {
+          errors.push(`源名称 ${name} 重复`)
+          continue
+        }
+        seenNames.add(name)
+        if (!base) {
+          errors.push(`源 ${name} 的基地址必填`)
+          continue
+        }
+        if (!base.startsWith('https://')) {
+          errors.push(`源 ${name} 的基地址须以 https:// 开头`)
+          continue
+        }
+      }
+      if (errors.length > 0) {
+        setMarketMsg({ type: 'error', text: errors[0] })
+        return
+      }
+      if (marketRows.length === 0) {
+        setMarketMsg({ type: 'error', text: '至少添加一个市场源' })
+        return
+      }
+      await api.put('/admin/platform-settings', {
+        skill_market_sources: marketRows.map((r) => ({
+          name: r.name.trim(),
+          type: r.type,
+          base: r.base.trim(),
+        })),
+      })
+      setMarketMsg({ type: 'success', text: '保存成功' })
+      setTimeout(() => setMarketMsg(null), 3000)
+      // 静默刷新:以服务端回显重灌编辑行
+      loadData(false)
+    } catch (err) {
+      setMarketMsg({ type: 'error', text: err instanceof ApiError ? err.message : '保存失败' })
+    } finally {
+      unlock('market')
+      setMarketSaving(false)
     }
   }
 
@@ -964,12 +1058,108 @@ export function PlatformSettings() {
     </>
   )
 
+  /** 6. Skills 市场(R1:市场源动态行编辑,同 vars 组行模式;行内红字提示 base 须 https:// 开头) */
+  const renderMarket = () => (
+    <>
+      <h2 className="text-lg font-semibold text-text">Skills 市场</h2>
+      <p className="text-sm text-text-muted mt-1">
+        Skills 安装市场源清单,登录用户只读;修改保存后市场安装即时生效
+      </p>
+
+      {/* 保存结果消息条:表单上方 */}
+      {renderMsg(marketMsg)}
+
+      <div className="space-y-2 mt-6">
+        {marketRows.map((row) => {
+          // R1:行内校验——base 非空且非 https:// 开头时红字提示(空值由保存预检拦截)
+          const baseInvalid = row.base.trim() !== '' && !row.base.trim().startsWith('https://')
+          return (
+            <div key={row.id}>
+              <div className="flex items-center gap-2">
+                <Input
+                  className="flex-1"
+                  placeholder="源名称,如 ModelScope"
+                  value={row.name}
+                  onChange={(e) =>
+                    setMarketRows((rs) =>
+                      rs.map((r) => (r.id === row.id ? { ...r, name: e.target.value } : r)),
+                    )
+                  }
+                />
+                <Select
+                  className="w-32 flex-shrink-0"
+                  aria-label="源类型"
+                  options={MARKET_SOURCE_TYPE_OPTIONS}
+                  value={row.type}
+                  onChange={(e) =>
+                    setMarketRows((rs) =>
+                      rs.map((r) =>
+                        r.id === row.id
+                          ? { ...r, type: e.target.value as SkillMarketSourceType }
+                          : r,
+                      ),
+                    )
+                  }
+                />
+                <Input
+                  className="flex-[2] font-mono"
+                  placeholder="https://modelscope.cn"
+                  value={row.base}
+                  onChange={(e) =>
+                    setMarketRows((rs) =>
+                      rs.map((r) => (r.id === row.id ? { ...r, base: e.target.value } : r)),
+                    )
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-label="删除市场源"
+                  onClick={() => setMarketRows((rs) => rs.filter((r) => r.id !== row.id))}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+              {baseInvalid && <p className="text-xs text-red-fg mt-1">基地址须以 https:// 开头</p>}
+            </div>
+          )
+        })}
+
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() =>
+            setMarketRows((rs) => [
+              ...rs,
+              { id: ++marketRowSeq.current, name: '', type: 'modelscope', base: '' },
+            ])
+          }
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          添加源
+        </Button>
+
+        <div className="flex justify-end pt-2">
+          <button
+            type="button"
+            className="btn btn-pri"
+            onClick={handleMarketSave}
+            disabled={marketSaving}
+          >
+            {marketSaving ? '保存中...' : '保存'}
+          </button>
+        </div>
+      </div>
+    </>
+  )
+
   const groupContent: Record<GroupKey, () => React.ReactNode> = {
     gitlab: renderGitlab,
     domain: renderDomain,
     global: renderGlobal,
     llm: renderLlm,
     vars: renderVars,
+    market: renderMarket,
   }
 
   // ---- 主渲染 ----
@@ -983,7 +1173,7 @@ export function PlatformSettings() {
             平台设置
           </h1>
           <div className="sub">
-            平台级全局配置:GitLab 实例与 Bot、域名、容器配额与默认模型(仅超管)
+            平台级全局配置:GitLab 实例与 Bot、域名、容器配额、默认模型与 Skills 市场源(仅超管)
           </div>
         </div>
       </div>

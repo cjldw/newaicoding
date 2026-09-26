@@ -47,6 +47,27 @@ export interface Skill {
   installed_at?: string
 }
 
+// ---- Skills 市场源(R1)----
+// 源清单存 platform_settings 键 skill_market_sources(JSON 数组 [{name,type,base}]);
+// GET /skills/market/sources 登录即可读(R4 搜索 Dialog 消费),写沿用 PUT /admin/platform-settings
+export type SkillMarketSourceType = 'modelscope' | 'skillssh'
+
+export interface SkillMarketSource {
+  name: string
+  type: SkillMarketSourceType
+  base: string
+}
+
+/** 后端未配置该键时的默认两源种子(与后端种子同文案,便于超管直接编辑) */
+export const DEFAULT_MARKET_SOURCES: SkillMarketSource[] = [
+  { name: 'ModelScope', type: 'modelscope', base: 'https://modelscope.cn' },
+  { name: 'skills.sh', type: 'skillssh', base: 'https://skills.sh' },
+]
+
+export const marketSourcesApi = {
+  get: () => api.get<SkillMarketSource[]>('/skills/market/sources'),
+}
+
 // ---- Error codes ----
 export const SkillErrorCodes = {
   JSON_FORMAT_ERROR: 17001,
@@ -127,6 +148,14 @@ export function useMcpTemplates(projectId: string) {
   return useQuery({
     queryKey: ['mcp-templates', projectId],
     queryFn: () => mcpApi.templates(projectId).then(r => r.data.items),
+  })
+}
+
+// ---- React Query Hooks: 市场源(R1;R4 搜索 Dialog 的源 Select 用)----
+export function useMarketSources() {
+  return useQuery({
+    queryKey: ['skill-market-sources'],
+    queryFn: () => marketSourcesApi.get().then(r => r.data),
   })
 }
 

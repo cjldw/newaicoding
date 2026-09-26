@@ -68,7 +68,12 @@ SETTING_KEYS: dict[str, tuple[str, Any]] = {
     "custom_env_vars": ("envmap", None),
     # R6: 交付提醒巡检 last_run_date(GMT+8 日期,YYYY-MM-DD;仅服务层写,白名单防 API 乱写)
     "req_delivery_reminder_last_date": ("str", None),
+    # R1(skills 市场): 市场源清单(JSON 数组 [{name,type,base}];未配置时读取层兜底默认两源种子)
+    "skill_market_sources": ("json", None),
 }
+
+# R1(skills 市场): 市场源 type 枚举(PRD 定稿拼写:modelscope|skillssh)
+SKILL_MARKET_SOURCE_TYPES = ("modelscope", "skillssh")
 
 
 def validate_setting_value(key: str, value: Any) -> Any:
@@ -118,6 +123,10 @@ def validate_setting_value(key: str, value: Any) -> Any:
     # R8.F4: 自定义环境变量表(dict[str,str];空 dict=清空)
     if vtype == "envmap":
         return _validate_custom_env(value)
+
+    # R1(skills 市场): 市场源 JSON 数组(每项 name/type/base)
+    if vtype == "json":
+        return _validate_skill_market_sources(key, value)
 
     # R1: 字符串数组(每项 str 1-64、去重、≤10;专用于 llm_models)
     if vtype == "strlist":
@@ -206,6 +215,66 @@ def _validate_strlist(key: str, value: Any) -> list:
     return items
 
 
+def _validate_skill_market_sources(key: str, value: Any) -> list:
+    """
+    R1(skills 市场):skill_market_sources 校验——JSON 数组,每项 {name, type, base}。
+    - type ∈ SKILL_MARKET_SOURCE_TYPES(modelscope|skillssh,PRD 定稿拼写)
+    - base 必须 https:// 开头(http 裸串/非 URL 一律拒绝)
+    - 校验拒绝按 R2 批量邀请/R3 知识条目新约定抛 HTTP 400(旧键仍为 200+2007,不受影响)
+    - 空数组拒绝(「未配置」语义=键缺失,与 strlist 同口径;防止误清空市场源)
+    输出归一化为仅 name/type/base 三字段(strip + base 去尾斜杠)。
+    """
+    def _bad(msg: str) -> BizError:
+        return BizError(ErrCode.PLATFORM_SETTING_INVALID, msg, status_code=400)
+
+    if not isinstance(value, list):
+        raise _bad(f"配置项 {key} 必须为 JSON 数组")
+    if not value:
+        raise _bad(f"配置项 {key} 至少需要 1 个市场源")
+
+    out: list = []
+    for i, item in enumerate(value, 1):
+        if not isinstance(item, dict):
+            raise _bad(f"配置项 {key} 第{i}项须为对象(name/type/base)")
+
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise _bad(f"配置项 {key} 第{i}项 name 不能为空")
+        name = name.strip()
+        if len(name) > 64:
+            raise _bad(f"配置项 {key} 第{i}项 name 超长(≤64 字符)")
+
+        stype = item.get("type")
+        if not isinstance(stype, str) or stype not in SKILL_MARKET_SOURCE_TYPES:
+            raise _bad(
+                f"配置项 {key} 第{i}项 type 非法(须为 {'|'.join(SKILL_MARKET_SOURCE_TYPES)})"
+            )
+
+        base = item.get("base")
+        if not isinstance(base, str):
+            raise _bad(f"配置项 {key} 第{i}项 base 需为 https:// 开头的地址")
+        base = base.strip()
+        if not base.startswith("https://") or not base[8:]:
+            raise _bad(f"配置项 {key} 第{i}项 base 需为 https:// 开头的地址")
+        base = base.rstrip("/") or base
+        if len(base) > 255:
+            raise _bad(f"配置项 {key} 第{i}项 base 超长(≤255 字符)")
+
+        out.append({"name": name, "type": stype, "base": base})
+    return out
+
+
+def default_skill_market_sources() -> list:
+    """
+    R1(skills 市场):内置双源种子(每次调用返回新对象,防调用方误改模块常量)。
+    仅作读取层兜底,不落库;超管配置后以持久化值为准。
+    """
+    return [
+        {"name": "ModelScope", "type": "modelscope", "base": "https://modelscope.cn"},
+        {"name": "skills.sh", "type": "skillssh", "base": "https://skills.sh"},
+    ]
+
+
 def mask_sensitive(value: str) -> str:
     """
     敏感值打码回显:保留前 5 位 + 固定掩码 + 后 4 位,如 glpat-••••••••9x2f。
@@ -275,10 +344,13 @@ async def _llm_read_compat(db: AsyncSession, key: str, value: Any) -> Any:
 
 async def get_setting(db: AsyncSession, key: str) -> Any:
     """读取单个配置(解密后明文);未配置返回 None。
-    R1: llm_models / llm_default_model 走存量兼容(见 _llm_read_compat)"""
+    R1: llm_models / llm_default_model 走存量兼容(见 _llm_read_compat)
+    R1(skills 市场): skill_market_sources 未配置时兜底返回默认两源种子(不落库)"""
     value = await _get_decoded(db, key)
     if key in ("llm_models", "llm_default_model"):
         return await _llm_read_compat(db, key, value)
+    if key == "skill_market_sources" and value is None:
+        return default_skill_market_sources()
     return value
 
 

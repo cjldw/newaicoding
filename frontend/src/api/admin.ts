@@ -7,6 +7,7 @@
  */
 
 import { api } from './client'
+import type { SkillMarketSource } from './skills'
 
 // ========== 平台设置 ==========
 
@@ -31,6 +32,8 @@ export interface PlatformSettings {
   llm_default_model: string | null  // R1 默认模型(必须 ∈ llm_models)
   // 自定义容器环境变量(R8.F4;原样回显不打码)
   custom_env_vars: Record<string, string> | null
+  // Skills 市场源(R1;未配置时后端返回默认两源种子)
+  skill_market_sources: SkillMarketSource[] | null
 }
 
 // ========== 用户管理 ==========

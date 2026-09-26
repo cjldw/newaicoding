@@ -7,9 +7,20 @@ from app.core.auth import get_current_user
 from app.core.response import success
 from app.database import get_db
 from app.models.user import User
-from app.services import skill_service
+from app.services import platform_settings_service, skill_service
 
 router = APIRouter(prefix="/api/skills", tags=["Skills"])
+
+
+@router.get("/market/sources")
+async def list_market_sources(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """R1(skills 市场):市场源列表(JWT 登录即可;未配置时返回默认两源种子)。
+    data 直接为源数组 [{name,type,base}]"""
+    sources = await platform_settings_service.get_setting(db, "skill_market_sources")
+    return success(data=sources)
 
 
 @router.get("")
