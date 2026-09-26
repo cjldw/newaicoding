@@ -61,6 +61,7 @@
 | 2026-09-26 | 新增 R7 工作台「与我相关」口径升级(created_by → 关联用户∪created_by,任务加需求传导;骨架保留不按角色分叉) | 用户指令 + 方案确认 |
 | 2026-09-26 | 人工核对通过(R1-R7 全确认;R4 链接整组 400 口径确认;ErrCode 顺带修复列入 R1) | 用户确认 |
 | 2026-09-26 | 技术决策:alembic 迁移在 R1 一次建齐三字段列(related_user_ids/prototype_links/delivery_date),R4/R5 直接使用——按 DEVPLAN「三字段同迁」建议,避免三次 ALTER | rd-dev 决策留痕 |
+| 2026-09-26 | R6 全部完成(实现主体 406acec 与测试重建 bc1c802;测试文件曾被外部删除,按 QA 契约重建 9/9 绿;开发库已升级 f8b2d4a6c1e3,ENUM 9→10 值核对追加)。R1-R7 全 ✅ | rd-dev 收官 |
 | 2026-09-26 | 提交策略:工作区混有 20260920 流程待提交改动(R34.F1 分支策略/R21.F1 工作台门槛/UI polish),requirement_service.py 同文件双需求混排——按 hunk 级暂存只提交 R3 范围(import/_notify_related_users_on_approve/挂钩),其余原样保留归该流程提交;test_requirements_api.py 的 R34 断言改动当前 1 failed(R34.F1 未接线),不并入本提交 | rd-dev 决策留痕 |
 | 2026-09-26 | R3 审计非阻塞备注移交:①DB 级 flush 异常可用 savepoint 加固(概率极低);②sent 日志记尝试数非成功数;③驳回后再通知无专属用例(结构保证)——不修,留 rd-check 参考 | rd-dev 决策留痕 |
 | 2026-09-26 | R7 完成并提交:工作台「与我相关」口径上线(created_by → 关联用户∪创建者,NULL 安全;任务维需求传导单查询去重;交付徽章+行动优先排序,骨架零改动);P2 页头旧口径文案已同步;同文件 R21.F1(BUG-051)并发流 WIP 按 hunk 剥离留工作区 | rd-dev 提交留痕 |
