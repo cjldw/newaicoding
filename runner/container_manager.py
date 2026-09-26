@@ -376,41 +376,72 @@ class ContainerManager:
 
         cmd = (
             f"cd {workdir} 2>/dev/null; "
-            f"claude -p {_shlex.quote(prompt)} --output-format stream-json --verbose{session_flag} 2>/dev/null"
+            # BUG-058:--include-partial-messages 输出 stream_event/text_delta 增量(逐字流式)
+            f"claude -p {_shlex.quote(prompt)} --output-format stream-json --verbose "
+            f"--include-partial-messages{session_flag} 2>/dev/null"
         )
         api = self.client.api
         exec_id = api.exec_create(container_id, ["bash", "-lc", cmd], tty=False, stdin=False)
         sock = api.exec_start(exec_id, tty=False, socket=True, demux=False)
 
-        buf = b""
+        buf = b""       # 原始 socket 字节缓冲(含 docker 帧)
+        line_buf = b""  # 已剥帧的行缓冲
         result_text = ""
         tokens_in = 0
         tokens_out = 0
         lines: list[str] = []
+
+        def _drain_line_buf() -> None:
+            """把行缓冲按 \\n 切行处理(上泵/提 result);非 local 的 result_* 经闭包写回"""
+            nonlocal line_buf, result_text, tokens_in, tokens_out
+            while b"\n" in line_buf:
+                raw, line_buf = line_buf.split(b"\n", 1)
+                line = raw.decode(errors="ignore").strip()
+                if not line:
+                    continue
+                lines.append(line)
+                try:
+                    evt = _json.loads(line)
+                except _json.JSONDecodeError:
+                    evt = None
+                if evt and evt.get("type") == "result":
+                    result_text = evt.get("result", "") or result_text
+                    usage = evt.get("usage") or {}
+                    tokens_in = evt.get("total_tokens_in") or usage.get("input_tokens", 0) or tokens_in
+                    tokens_out = evt.get("total_tokens_out") or usage.get("output_tokens", 0) or tokens_out
+                    continue  # result 事件不上泵(终态由 result 回报承载)
+                if on_line is not None:
+                    on_line(line)
+
         try:
             while True:
                 chunk = sock.recv(4096) if hasattr(sock, "recv") else sock.read(4096)
                 if not chunk:
                     break
                 buf += chunk
-                while b"\n" in buf:
-                    raw, buf = buf.split(b"\n", 1)
-                    line = raw.decode(errors="ignore").strip()
-                    if not line:
-                        continue
-                    lines.append(line)
-                    try:
-                        evt = _json.loads(line)
-                    except _json.JSONDecodeError:
-                        evt = None
-                    if evt and evt.get("type") == "result":
-                        result_text = evt.get("result", "") or result_text
-                        usage = evt.get("usage") or {}
-                        tokens_in = evt.get("total_tokens_in") or usage.get("input_tokens", 0) or tokens_in
-                        tokens_out = evt.get("total_tokens_out") or usage.get("output_tokens", 0) or tokens_out
-                        continue  # result 事件不上泵(终态由 result 回报承载)
-                    if on_line is not None:
-                        on_line(line)
+                # BUG-056:docker exec 非 tty(tty=False)stdout 是多路复用帧流 ——
+                # 8 字节帧头 = stream 类型 1B + 填充 3B(恒 \x00\x00\x00)+ 载荷长度 4B 大端。
+                # demux=False 裸读必须先剥帧,否则帧头混入行流(实证:\x01\x00..前缀污染对话内容)
+                while True:
+                    if len(buf) < 8:
+                        break  # 不足一个帧头,等下一个 chunk(EOF 残字节由循环外冲入行缓冲)
+                    if buf[0] in (0, 1, 2) and buf[1:4] == b"\x00\x00\x00":
+                        frame_len = int.from_bytes(buf[4:8], "big")
+                        if len(buf) < 8 + frame_len:
+                            break  # 帧体未收齐
+                        if buf[0] == 1:  # 只取 stdout;stderr(2)/stdin(0) 不入对话行流
+                            line_buf += buf[8:8 + frame_len]
+                        buf = buf[8 + frame_len:]
+                    else:
+                        # 防御:非帧协议流(理论不发生)按裸流处理,保持旧兜底
+                        line_buf += buf
+                        buf = b""
+                        break
+                _drain_line_buf()
+            # EOF:冲入残余(末尾不足 8 字节的半帧头/无尾 \n 的最后一行)
+            line_buf += buf
+            buf = b""
+            _drain_line_buf()
         finally:
             try:
                 sock.close()

@@ -908,3 +908,12 @@ python3 main.py                            # 建议配 systemd unit:Restart=alwa
 - **存量行处理**:NULL=兜底接所有 worker 任务,代码兼容读 `runner.tags or []`,无需回填
 - **已执行**:2026-09-24 rd-dev 阶段——dev 库 aicoding 已 `alembic upgrade head`(c7d3e9b5a2f4 → d8e4f2a6b9c3);测试库 aicoding_test 已手工补列(conftest create_all 不加列,环境陷阱#2)
 - **配置**:无新增;**依赖**:无新增
+
+## R8.F5 追加(2026-09-27,rd-fix 第 29 轮)— runner 镜像重建 + 热更留痕
+
+- **类型**:容器镜像(发布前必须动作)
+- **背景**:R8.F5 修改 `runner/main.py`(sync 上报补 task_id);镜像重建被 Docker Hub 不可达阻塞(python:3.12-slim 拉取失败,R31.F3 同款)——当前本机容器 `qicheng-runner-bc31bffa` 经 `docker cp main.py` 热更生效
+- **发布动作**:
+  1. Docker Hub 可达后重建:`docker build -t platform/runner:v1 -f docker/runner/Dockerfile runner/`(context 必须是 `runner/` 目录,非仓库根)
+  2. 用旧镜像运行的 runner 容器**不含** task_id 上报——对账收养不生效(仅 R8.F5 收养路径退化为旧行为,不产生新破坏);每台 Runner 机器重建镜像并重建容器
+- **回滚**:runner 侧改动向后兼容(平台容忍无 task_id 的旧上报);平台侧 handle_sync 收养路径对旧上报零影响

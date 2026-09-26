@@ -229,29 +229,33 @@ def _fix_context_block(task: Task) -> str:
 # 事件流注册表(WS /ws/tasks/{tid}/events)
 # ---------------------------------------------------------------------------
 class TaskEventRegistry:
-    """task_id → 前端事件 WS 连接集(内存)"""
+    """task_id → 前端事件 WS 连接表(内存;BUG-057:存 websocket 本体,dict 入 set 会 TypeError)"""
 
     def __init__(self) -> None:
-        self._conns: dict[str, set] = {}
+        self._conns: dict[str, list] = {}
 
     def connect(self, task_id: str, websocket):
-        conn = {"ws": websocket, "task_id": task_id}
-        self._conns.setdefault(task_id, set()).add(conn)
-        return conn
+        conns = self._conns.setdefault(task_id, [])
+        conns.append(websocket)
+        return websocket
 
     def disconnect(self, task_id: str, conn) -> None:
         conns = self._conns.get(task_id)
         if conns is not None:
-            conns.discard(conn)
+            try:
+                conns.remove(conn)
+            except ValueError:
+                pass
 
     async def broadcast(self, task_id: str, payload: dict) -> int:
         sent = 0
-        for conn in list(self._conns.get(task_id, set())):
+        conns = list(self._conns.get(task_id, []))
+        for ws in conns:
             try:
-                await conn["ws"].send_json(payload)
+                await ws.send_json(payload)
                 sent += 1
             except Exception:
-                self.disconnect(task_id, conn)
+                self.disconnect(task_id, ws)
         return sent
 
 
@@ -553,9 +557,18 @@ async def send_message(db: AsyncSession, task: Task, operator: User, content: st
 def _stream_event_to_chat(evt: dict) -> dict | None:
     """
     R32.F3:claude stream-json 事件 → 前端 chat 增量。
-    assistant 事件:逐 content block 文本增量(与终端流式视觉一致);
+    BUG-058:--include-partial-messages 下 stream_event/content_block_delta/text_delta
+    为 token 级增量(逐字流式的真正来源);assistant 整块路径保留作回退。
     其余类型(system/init、user 工具结果等)忽略。result 不上泵(终态 finalize 承载)。
     """
+    if evt.get("type") == "stream_event":
+        event = evt.get("event") or {}
+        delta = event.get("delta") or {}
+        if event.get("type") == "content_block_delta" and delta.get("type") == "text_delta":
+            text = delta.get("text")
+            if text:
+                return {"type": "chat_delta", "text": text}
+        return None
     if evt.get("type") == "assistant":
         msg = evt.get("message") or {}
         for block in msg.get("content") or []:
@@ -564,6 +577,33 @@ def _stream_event_to_chat(evt: dict) -> dict | None:
     if evt.get("type") == "raw":
         return {"type": "chat_delta", "text": evt.get("text", "")}
     return None
+
+
+# BUG-059(R32.F7):chat_delta 打字机平滑参数——上游网关非流式时增量瞬达(实测 126 帧
+# 挤在 0.14s),视觉等同同步整段输出;按最小帧间隔铺开形成逐字流式。
+# 真流式网关时增量到达间隔大于下限,零额外延迟直通(自适应)。
+CHAT_DELTA_SLICE = 16           # 单帧最大字符数(大块增量拆分)
+CHAT_DELTA_MIN_INTERVAL = 0.03  # 相邻帧最小间隔(秒)
+
+
+async def _broadcast_delta_smooth(task_id: str, text: str, state: dict) -> None:
+    """
+    把 chat_delta 平滑为打字机节奏后广播。
+    - text 大于 SLICE → 拆帧;瞬达(相邻增量间隔 < MIN_INTERVAL)→ sleep 补齐节奏
+    - state 跨调用携带 {"last": 上帧时刻}(同一轮对话共享)
+    """
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    if state.get("last") is None:
+        state["last"] = loop.time()
+    for i in range(0, len(text), CHAT_DELTA_SLICE):
+        piece = text[i:i + CHAT_DELTA_SLICE]
+        delay = (state["last"] + CHAT_DELTA_MIN_INTERVAL) - loop.time()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        await task_event_registry.broadcast(task_id, {"type": "chat_delta", "text": piece})
+        state["last"] = loop.time()
 
 
 async def send_message_stream(db: AsyncSession, task: Task, operator: User, content: str) -> dict:
@@ -618,10 +658,11 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
         raise BizError(ErrCode.TERMINAL_UNAVAILABLE, f"AI 执行失败:{e}")
 
     try:
+        delta_state: dict = {}  # R32.F7:打字机平滑节奏状态(同一轮对话共享)
         async for evt in stream_iter:
             delta = _stream_event_to_chat(evt)
             if delta is not None:
-                await task_event_registry.broadcast(task.task_id, delta)
+                await _broadcast_delta_smooth(task.task_id, delta["text"], delta_state)
         response = await finalize()
     except RuntimeError as e:
         err = TaskMessage(task_id=task.task_id, role="assistant", content=f"执行失败:{e}")

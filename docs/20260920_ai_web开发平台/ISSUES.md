@@ -296,3 +296,23 @@
 | BUG | 状态 | 关联 | 根因与处置 | 验证 |
 |---|---|---|---|---|
 | BUG-DATA-001 | verified(2026-09-26 数据修复;open 当日登记当日清理) | —(测试脏数据,非代码 bug;零代码改动) | tasks 表 id 945/946 标题 `??????`/`??????2`(HEX=`3F3F…` 字面 ASCII 问号字节,非 mojibake):2026-09-23 rd-fix 第 8 轮本地 Runner E2E 时外部测试客户端(Windows 控制台 GBK 代码页)在创建请求 payload 侧把中文打成 `?` 写入的测试脏数据,两任务均 cancelled(归因证据:同窗口 id 947 中文完好/同行 error_message 后写中文完好/charset 全链路 utf8mb4);拼音/分支命名代码无产生 `?` 路径(pypinyin errors='ignore' 跳过不替换)。处置=就地改名保留留痕(禁删行):SELECT 确认仍乱码后 `UPDATE tasks SET title='历史测试数据(已清理)' WHERE id IN (945,946) AND title IN ('??????','??????2')`(带前置守卫),rows affected=2、其余行零触碰、未 DELETE。归因附带发现两缺口已登记 BUG-052/BUG-053(open,移交并发会话 R34.F1) | 复检 SELECT:两行 title HEX=`E58E86…`(「历史测试数据(已清理)」合法 UTF-8);全库扫尾 `tasks.title LIKE '%?%'` 其余 0 条 + `requirements.title/req_branch LIKE '%?%'` 0 条,乱码清零。分析 `.scratch/pinyin-analysis.md`,结论 `.scratch/pinyin-fix.md` |
+
+## rd-fix 第 29 轮迁移(2026-09-27,BUG-054/055/056;用户三项复验通过)
+
+| BUG | 状态 | 关联 | 根因与处置 | 验证 |
+|---|---|---|---|---|
+| BUG-054 | verified | R32.F4(R32 增量6) | 并行会话提交时 runner_service.py 被回退到 HEAD,R32 四处改动(validate_tags/ALLOWED_TASK_TAGS/update_runner/pick_runner_db task_tag 形参)丢失而调用方(container_service:99/task_service:402/api runners)均存活已入库——断链致打磨(500)/start_task/PATCH 编辑/创建 tags 全链 TypeError。修复=原样恢复四处改动 | 一手证据 backend 日志 TypeError;R32 套件 21/21 绿;真机:打磨「调整」返 200 拉起任务;用户复验通过 |
+| BUG-055 | verified | R8.F5(容器对账;runner+后端) | container_started 回报在平台事件循环停滞窗口丢失(00:30:08-28,双侧 keepalive 超时断连)→重注册对账 handle_sync 仅按 container_id 匹配→pending 占位行判 destroyed、真容器 cf6b4df15119「未知忽略」成 docker 孤儿,任务 9001。修复=runner 上报补 task_id(qicheng.task_id label)+handle_sync 按 task 收养(真实 id 替换+UNIQUE 后缀+计数并入;双失配才判毁;快照迭代修正) | pytest 4/4(收养/UNIQUE/真毁回归/旧协议兼容);真机收养 E2E:db=1 reported=1,DB 行=cf6b4df15119/running,任务复活;对话/终端 9001 消除;用户复验通过 |
+| BUG-056 | verified | R32.F5(R32.F3 流式特性延续;runner container_manager) | 两段:① R8.F5 热更不完整只拷 main.py,容器内 container_manager.py 旧镜像版缺 claude_prompt_stream(envelope 原文 no attribute)→全量四文件热更;② demux=False 裸读不剥 docker exec 非 tty 8 字节帧头(内容前缀 ..   污染)+ len(buf)<8 把 EOF 残 chunk(4 字节含 result 行尾 
+)永久扣留丢末行。修复=双缓冲剥帧(stream∈{0,1,2}+填充校验只取 stdout)+EOF 冲刷+_drain_line_buf 闭包 | runner 全量 43/43(2 新用例:7 字节切块跨帧分片/stderr 帧隔离);真机 3.2s 返 pong 干净落库(tokens_out=14);用户复验通过 |
+
+**遗留登记**:① runner 镜像重建被 Docker Hub 不可达阻塞(R31.F3 同款),本机容器经 docker cp 四文件热更,旧镜像重建容器会回退(R8.F5/R32.F5 两处修复失效但无新破坏),镜像重建后自愈——DEPLOY.md 发布动作;② 平台事件循环停滞窗口根因未定(疑与定时巡检重叠),登记观察;③ 全量 pytest 回归受共享测试库外部 contention 阻塞(1213 死锁 35 次/13min),隔离窗口单文件全绿,全量归 rd-check。
+
+## rd-fix 第 30 轮迁移(2026-09-27,BUG-057/058;用户复验通过)
+
+| BUG | 状态 | 关联 | 根因与处置 | 验证 |
+|---|---|---|---|---|
+| BUG-057 | verified | R32.F6(R32.F3 流式特性延续;后端 task_service) | TaskEventRegistry.connect 把 conn(dict)塞进 set → `TypeError: unhashable type: 'dict'` → /ws/tasks/{id}/events 端点 accept 后崩断(无关闭帧,ASGI 栈定罪)→ 注册表永远空 → broadcast 恒 conns=0(TEMP-PROBE 日志实证)——chat_delta/chat_done/tool_call/file_changed 全部任务事件推送自上线起对前端不可达。修复=registry 存 websocket 本体(dict[str,list]),connect/disconnect/broadcast 改造,对外契约不变 | pytest 5/5(收发/坏连接摘除/映射/回归);真机探针:对话期间事件 WS 收 14 帧(11 chat_delta + chat_done + 30s 心跳 ping),双向连通实证;用户复验通过 |
+| BUG-058 | verified | R32.F6( runner container_manager + 平台映射) | runner claude_prompt_stream cmd 未加 --include-partial-messages(CLI 默认按 turn 整块);平台 _stream_event_to_chat 无 stream_event 映射。修复=cmd 加 flag(容器内 CLI 实证支持)+ 映射 stream_event/content_block_delta/text_delta → chat_delta(assistant 整块回退保留)。**整段呈现的终极根因为环境限制(另案)**:容器内直连上游网关 SSE 实测 2928 行 span=0.00s(800 词 59.10s 攒齐一次吐)——网关不支持流式;平台全链已就绪,网关开启流式或换流式网关即零改动变逐字输出 | runner 43/43(cmd 断言);真机探针 126 delta 可达;用户复验通过(活动流实时;整段/逐字随网关能力) |
+
+**遗留登记(非平台代码 bug)**:上游 LLM 网关(token-console qwen)SSE 非流式——服务端攒齐完整响应一次性返回(实测 span=0.00s)。归用户网关侧处置(开启流式透传或更换网关);平台侧零改动自适应。

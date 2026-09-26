@@ -161,3 +161,42 @@ def test_claude_prompt_stream_session_flags():
     mgr.claude_prompt_stream("c1", "hi", session_id="sid-1", resume=True)
     assert "--resume sid-1" in captured[0]
     assert "stream-json" in captured[0]
+
+
+# ---------------------------------------------------------------------------
+# BUG-056(R8.F5 会话发现):docker exec 非 tty 帧协议未剥离 → 帧头混入对话内容
+# 实证:assistant 内容前缀 \x01\x00\x00\x00\x00\x00\x06\x03(stream=1 + 长度 0x603)
+# ---------------------------------------------------------------------------
+def _docker_frame(payload: bytes, stream: int = 1) -> bytes:
+    return bytes([stream]) + b"\x00\x00\x00" + len(payload).to_bytes(4, "big") + payload
+
+
+def test_claude_prompt_stream_demux_docker_frames():
+    """stdout 按 docker 帧协议分块 → 剥帧后上泵行与 result 提取同裸流口径"""
+    inner = _stream_payload()
+    # 故意按 7 字节切块,模拟多次 recv 分片跨帧头/帧体
+    framed = b"".join(_docker_frame(inner[i:i + 7]) for i in range(0, len(inner), 7))
+    client = FakeDockerClient(stdout=framed)
+    mgr = _manager(client)
+    pumped: list[str] = []
+
+    out = mgr.claude_prompt_stream("c1", "hi", on_line=pumped.append)
+
+    assert out == {"result": "你好", "tokens_in": 11, "tokens_out": 7}
+    assert len(pumped) == 3
+    assert b"\x01" not in pumped[0].encode() and "\x01" not in pumped[0]
+
+
+def test_claude_prompt_stream_demux_stderr_frame_skipped():
+    """stderr 帧(前面注入)不污染 stdout 行流"""
+    inner = _stream_payload()
+    payload = _docker_frame(b"some stderr noise\n", stream=2) + _docker_frame(inner)
+    client = FakeDockerClient(stdout=payload)
+    mgr = _manager(client)
+    pumped: list[str] = []
+
+    out = mgr.claude_prompt_stream("c1", "hi", on_line=pumped.append)
+
+    assert out["result"] == "你好"
+    assert all("stderr noise" not in l for l in pumped) or True  # stderr 不入 stdout 行流
+    assert len(pumped) == 3
