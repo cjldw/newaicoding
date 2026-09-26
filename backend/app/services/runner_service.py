@@ -436,11 +436,20 @@ async def handle_sync(db: AsyncSession, runner: Runner, reported: list[dict]) ->
 # ---------------------------------------------------------------------------
 # R16:DB 调度器(container_service 消费)
 # ---------------------------------------------------------------------------
-async def pick_runner_db(db: AsyncSession, required_role: str = "worker") -> Optional[Runner]:
+# R32:参与专属标签匹配的任务类型(release 不参与 tag,调度走兜底;
+# 枚举单源:task_service.start_task 引用本常量,防止两处硬编码漂移)
+ALLOWED_TASK_TAGS = frozenset({"requirement", "dev", "test"})
+
+
+async def pick_runner_db(
+    db: AsyncSession, required_role: str = "worker", task_tag: Optional[str] = None,
+) -> Optional[Runner]:
     """
     任务调度:status=online AND current_containers < max_containers AND role 匹配,
     current_containers 最少;并列时按随机(ORDER BY 随机成本高,取前 5 随机选)。
     角色:worker → role=worker;deploy → role=deploy。
+    R32:task_tag 非空时只接 tags 为空/NULL(兜底接所有)或 tags 含该 tag 的 Runner;
+    task_tag=None(deploy/兜底)行为不变。
     """
     role = "deploy" if required_role == "deploy" else "worker"
     result = await db.execute(
@@ -454,6 +463,12 @@ async def pick_runner_db(db: AsyncSession, required_role: str = "worker") -> Opt
         .limit(5)
     )
     candidates = list(result.scalars().all())
+    # R32:标签匹配先于负载排序(标签不含该 tag 的 Runner 即使最空闲也不可接)
+    if task_tag:
+        candidates = [
+            r for r in candidates
+            if not (r.tags or []) or task_tag in (r.tags or [])
+        ]
     if not candidates:
         return None
     min_load = candidates[0].current_containers
