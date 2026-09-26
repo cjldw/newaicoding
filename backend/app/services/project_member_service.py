@@ -10,12 +10,14 @@ Guard 约定:
 """
 
 import logging
+import time
 from typing import Optional
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import BizError, ErrCode
+from app.core.security import mask_phone  # R1 打码复用 admin 同函数(users_admin 亦从此导入)
 from app.models.project import Project, ProjectRepo
 from app.models.project_member import ProjectMember
 from app.models.user import User
@@ -387,3 +389,62 @@ async def transfer_ownership(
         await _sync_all_repos(db, project, new_user_obj, "update", "owner")
     if operator.role != "superadmin":
         await _sync_all_repos(db, project, operator, "update", "editor")
+
+
+# ---------------------------------------------------------------------------
+# R1 候选用户列表(owner 专属,成员批量邀请前置)
+# ---------------------------------------------------------------------------
+async def list_candidate_users(
+    db: AsyncSession,
+    project: Project,
+    operator: User,
+    q: Optional[str],
+    page: int,
+    page_size: int,
+) -> dict:
+    """
+    候选用户列表(owner 专属,超管经 get_project_role 虚拟 owner 旁路)。
+    数据源=users 全量平台用户(disabled 照常返回,前端按 status/is_member 禁选);
+    q 对 phone/nickname LIKE 模糊;phone 打码复用 admin 同一 mask_phone。
+    """
+    await require_project_role(db, project, operator, "owner")
+    started = time.monotonic()
+    logger.info(
+        "候选用户列表入口 project=%s q=%r page=%s page_size=%s by=%s",
+        project.project_id, q, page, page_size, operator.user_id,
+    )
+
+    conditions = []
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        conditions.append((User.phone.like(like)) | (User.nickname.like(like)))
+
+    total = (await db.execute(
+        select(func.count(User.id)).where(*conditions)
+    )).scalar() or 0
+    rows = (await db.execute(
+        select(User).where(*conditions)
+        .order_by(User.created_at.asc(), User.id.asc())
+        .offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    # is_member:一次查项目成员全量 user_id 集合,内存标记(成员 ≤50;owner 行懒回填前也视为成员)
+    member_ids = set((await db.execute(
+        select(ProjectMember.user_id).where(ProjectMember.project_id == project.project_id)
+    )).scalars().all())
+    member_ids.add(project.owner_id)
+
+    items = [{
+        "user_id": u.user_id,
+        "phone": mask_phone(u.phone),
+        "nickname": u.nickname,
+        "avatar_url": u.avatar_url,
+        "status": u.status,
+        "is_member": u.user_id in member_ids,
+    } for u in rows]
+
+    logger.info(
+        "候选用户列表完成 project=%s total=%s 耗时=%.0fms by=%s",
+        project.project_id, total, (time.monotonic() - started) * 1000, operator.user_id,
+    )
+    return {"items": items, "total": total, "page": page, "page_size": page_size}

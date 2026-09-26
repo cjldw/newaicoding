@@ -177,6 +177,24 @@ async def list_members(
 
 
 # -------------------------------------------------------------------
+# GET /api/projects/{project_id}/candidate-users - 候选用户列表(R1 成员批量邀请)
+# -------------------------------------------------------------------
+@router.get("/{project_id}/candidate-users")
+async def list_candidate_users(
+    project_id: str,
+    q: str = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """候选用户列表(owner/超管;全量平台用户分页+phone/nickname 模糊;is_member/status 供前端禁选)"""
+    project = await project_service.get_project_or_404(db, project_id)
+    data = await project_member_service.list_candidate_users(db, project, current_user, q, page, page_size)
+    return success(data=data)
+
+
+# -------------------------------------------------------------------
 # POST /api/projects/{project_id}/members - 邀请成员(手机号精确搜索)
 # -------------------------------------------------------------------
 @router.post("/{project_id}/members")
