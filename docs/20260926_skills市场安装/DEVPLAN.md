@@ -20,12 +20,12 @@ Skills/MCP 能力域两 PRD 合并:**市场安装**(内置 ModelScope+skills.sh 
 
 ## 当前进度
 
-**当前进度: 1/7 - R2 开发中**
+**当前进度: 2/7 - R3 开发中**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
 | R1 | 市场源配置(超管) | M1 后端+M2 前端 | ✅ | ./DEVPLAN/R1.md |
-| R2 | 市场搜索接口(后端代理) | M1 后端 | ⬜ | ./DEVPLAN/R2.md |
+| R2 | 市场搜索接口(后端代理) | M1 后端 | ✅ | ./DEVPLAN/R2.md |
 | R3 | 一键安装到项目 | M1 后端 | ⬜ | ./DEVPLAN/R3.md |
 | R4 | 市场搜索安装 Dialog | M2 前端 | ⬜ | ./DEVPLAN/R4.md |
 | R5 | 系统级采集(probe_claude) | M1 后端+Runner | ⬜ | ./DEVPLAN/R5.md |
@@ -56,3 +56,6 @@ Skills/MCP 能力域两 PRD 合并:**市场安装**(内置 ModelScope+skills.sh 
 |---|---|---|
 | 2026-09-26 | 初始版本(两 PRD 合并;/mcp 需新做补全 UI 按调研修正范围) | rd-plan 调研 |
 | 2026-09-27 | R1 完成+枚举笔误 modescope→modelscope 修正+P2 hook 解包修复 | rd-dev R1 收口 |
+| 2026-09-27 | R2 完成:市场搜索接口(后端代理双源,400/502 分界+5min 缓存);QA+源配置回归 48/48 全绿(含收口修复 6 新用例) | rd-dev R2 收口 |
+| 2026-09-27 | R2 契约裁定:响应 items[].market 与请求参数统一回显 **type 值**(modelscope/skillssh),非 PRD 字面「源名」(skills.sh)——请求/响应同值自洽,R3 安装 round-trip {market,ref} 依赖同值;QA 测试矩阵扩至 25 用例全绿 | rd-dev R2 QA 甄别 |
+| 2026-09-27 | R2 code-review 收口(大改动双轴):不通过→修 8 项——ModelScope Success:false 软失败不缓存走 502、进程缓存 512 上限满即清、市场源重复 type 校验拒绝、limit 非整数统一 400/17004、httpx follow_redirects、installs int() 兜底、死代码清理×3(#12/#13/#14);**不修 7 项记录在案**:#6 超时无总预算(httpx 无原生支持,成本>收益)、#7 缓存键不含 source base(契约字面口径 (market,q,limit),300s 窗口可接受)、#8 except Exception 折叠 502(已有分级日志)、#10 q/limit 校验 API/service 双份、#11 双适配器同构未抽 _fetch_json、#15 市场类型双注册表——后 3 项属分层/架构收敛,建议 rd-check 或后续需求点处理 | rd-dev R2 收口裁决 |

@@ -218,7 +218,8 @@ def _validate_strlist(key: str, value: Any) -> list:
 def _validate_skill_market_sources(key: str, value: Any) -> list:
     """
     R1(skills 市场):skill_market_sources 校验——JSON 数组,每项 {name, type, base}。
-    - type ∈ SKILL_MARKET_SOURCE_TYPES(modelscope|skillssh,PRD 定稿拼写)
+    - type ∈ SKILL_MARKET_SOURCE_TYPES(modelscope|skillssh,PRD 定稿拼写),同批拒重复
+      (同 strlist 拒重口径,不静默合并——search 按 type 取源,重复即无提示死配置)
     - base 必须 https:// 开头(http 裸串/非 URL 一律拒绝)
     - 校验拒绝按 R2 批量邀请/R3 知识条目新约定抛 HTTP 400(旧键仍为 200+2007,不受影响)
     - 空数组拒绝(「未配置」语义=键缺失,与 strlist 同口径;防止误清空市场源)
@@ -233,6 +234,7 @@ def _validate_skill_market_sources(key: str, value: Any) -> list:
         raise _bad(f"配置项 {key} 至少需要 1 个市场源")
 
     out: list = []
+    seen_types: set = set()
     for i, item in enumerate(value, 1):
         if not isinstance(item, dict):
             raise _bad(f"配置项 {key} 第{i}项须为对象(name/type/base)")
@@ -249,6 +251,9 @@ def _validate_skill_market_sources(key: str, value: Any) -> list:
             raise _bad(
                 f"配置项 {key} 第{i}项 type 非法(须为 {'|'.join(SKILL_MARKET_SOURCE_TYPES)})"
             )
+        if stype in seen_types:
+            raise _bad(f"配置项 {key} 第{i}项 type 重复: {stype}")
+        seen_types.add(stype)
 
         base = item.get("base")
         if not isinstance(base, str):

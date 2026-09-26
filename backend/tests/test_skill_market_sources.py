@@ -100,6 +100,19 @@ class TestServiceContract:
         assert getattr(e.value, "code", None) == ErrCode.PLATFORM_SETTING_INVALID
         assert "type" in e.value.message
 
+    def test_validate_rejects_duplicate_type(self):
+        """同批两条 type=modelscope → 2007 拒重(同 strlist 口径,不静默合并;
+        search 按 type 取源,重复即无提示死配置)"""
+        bad = [
+            {"name": "A", "type": "modelscope", "base": "https://a.example.com"},
+            {"name": "B", "type": "modelscope", "base": "https://b.example.com"},
+        ]
+        with pytest.raises(Exception) as e:
+            validate_setting_value("skill_market_sources", bad)
+        assert getattr(e.value, "code", None) == ErrCode.PLATFORM_SETTING_INVALID
+        assert "type" in e.value.message
+        assert "重复" in e.value.message
+
     def test_validate_rejects_missing_name(self):
         """缺 name → 2007,文案指明 name"""
         bad = [{"type": "skillssh", "base": "https://ok.example.com"}]
@@ -213,6 +226,10 @@ class TestInvalidSourcesRejected:
             "base_not_url": [{"name": "X", "type": "skillssh", "base": "not-a-url"}],
             "missing_type": [{"name": "X", "base": "https://ok.example.com"}],
             "illegal_type": [{"name": "X", "type": "github", "base": "https://ok.example.com"}],
+            "duplicate_type": [
+                {"name": "A", "type": "modelscope", "base": "https://a.example.com"},
+                {"name": "B", "type": "modelscope", "base": "https://b.example.com"},
+            ],
             "missing_base": [{"name": "X", "type": "skillssh"}],
             "missing_name": [{"type": "skillssh", "base": "https://ok.example.com"}],
             "non_array": {"name": "X", "type": "skillssh", "base": "https://ok.example.com"},
