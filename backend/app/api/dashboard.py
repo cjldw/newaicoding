@@ -82,7 +82,10 @@ async def dashboard_summary(
         return {"total": 0, "by_status": {}, "recent": []}
 
     result = {"requirements": _empty_block(), "dev_tasks": _empty_block(),
-              "test_tasks": _empty_block(), "release_tasks": _empty_block()}
+              "test_tasks": _empty_block(), "release_tasks": _empty_block(),
+              # R21.F1(BUG-051):可见 active 项目数(成员/owner 口径;超管=全部 active),
+              # 前端「有无项目」门槛与统计同源,替代 owner-only 的 /api/projects 口径
+              "visible_projects": len(pids)}
 
     if not pids:
         return success(data=result)

@@ -10,7 +10,6 @@
 import { useNavigate } from 'react-router-dom'
 import { FileText, Code2, FlaskConical, Rocket, Plus, FolderKanban, LayoutDashboard } from 'lucide-react'
 import { useDashboardSummary } from '@/api/dashboard'
-import { useProjectList } from '@/api/projects'
 import type { DashboardBlock } from '@/api/dashboard'
 
 const ST_CN: Record<string, string> = {
@@ -87,8 +86,9 @@ function fmtTime(iso: string | null | undefined): string {
 export function Dashboard() {
   const nav = useNavigate()
   const { data: summary } = useDashboardSummary()
-  const { data: projects } = useProjectList({})
-  const hasProject = (projects?.total ?? 0) > 0
+  // R21.F1(BUG-051):门槛与数据同源——summary 的 visible_projects(成员/owner 可见 active 项目),
+  // 弃用 owner-only 的 /api/projects 口径(成员但非 owner 曾被误判「无项目」)
+  const hasProject = (summary?.visible_projects ?? 0) > 0
 
   const cards = DIMS.map((d) => {
     const block: DashboardBlock = (summary as any)?.[d.key] ?? { total: 0, by_status: {}, recent: [] }

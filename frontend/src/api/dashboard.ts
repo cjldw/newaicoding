@@ -38,6 +38,8 @@ export interface DashboardBlock {
 }
 
 export interface DashboardSummary {
+  /** R21.F1(BUG-051):可见 active 项目数(成员/owner 口径;超管=全部 active) */
+  visible_projects: number
   requirements: DashboardBlock
   dev_tasks: DashboardBlock
   test_tasks: DashboardBlock
