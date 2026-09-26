@@ -4,7 +4,7 @@
 
 ## 数据库变更
 
-迁移(alembic,down_revision 以当时 head 为准):
+迁移(alembic;skills 两列落地为 `b8e4d2f6a9c1_r3skills_install_source.py`,down_revision=`f8b2d4a6c1e3`,精确回填已在迁移内以 op.execute 执行;开发库/测试库均已升级至 b8e4d2f6a9c1):
 
 ```sql
 -- upgrade

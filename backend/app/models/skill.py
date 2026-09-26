@@ -44,6 +44,20 @@ class Skill(Base):
         index=True,
         comment="作用域",
     )
+    # R3(skills 市场安装):来源(platform 内置/project 上传/market 市场安装);
+    # 存量行迁移内按 scope 回填(scope=project → 'project',其余默认 'platform')
+    source = Column(
+        Enum("platform", "project", "market", name="skill_source_enum"),
+        nullable=False,
+        default="platform",
+        server_default="platform",
+        comment="来源(platform 内置/project 上传/market 市场安装)",
+    )
+    source_url = Column(
+        String(512),
+        nullable=True,
+        comment="来源 URL(仅 source=market 时有值:安装时的实际外呼 URL)",
+    )
     project_id = Column(CHAR(36), nullable=True, index=True, comment="scope=project 时必填")
     created_by = Column(CHAR(36), nullable=False, comment="创建者 user_id")
     created_at = Column(DateTime, default=func.now(), server_default=func.now(), nullable=False)

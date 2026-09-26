@@ -37,6 +37,12 @@ HTTP_TIMEOUT = 5.0
 # limit 校验(R2 契约:上限 50;默认值/整数解析在 API 层,越界走 BizError 400 而非 FastAPI 422)
 LIMIT_MAX = 50
 
+# R3 安装:SKILL.md 内容上限 256KB(UTF-8 字节数;恰好 256KB 允许,超出 400)
+SKILL_MD_MAX_BYTES = 256 * 1024
+
+# R3 安装:skillssh 下载包内 SKILL.md 的固定 path
+SKILL_MD_PATH = "SKILL.md"
+
 # 进程内内存缓存:TTL 300s,键 (market, q_trimmed, limit),值 (过期时刻, 响应 data);
 # 容量上限防膨胀(仿 knowledge_service._code_cache 先例:满即整体清空)
 CACHE_TTL_SECONDS = 300.0
@@ -246,6 +252,115 @@ _ADAPTERS = {
 
 
 # ---------------------------------------------------------------------------
+# 源解析(R1 platform_settings;search 与 fetch_skill_md 共用)
+# ---------------------------------------------------------------------------
+async def _resolve_source(db: AsyncSession, market: str) -> dict:
+    """market 须在源列表(R1);读取层未配置时兜底默认两源种子,永非空"""
+    sources = await platform_settings_service.get_setting(db, "skill_market_sources")
+    source = next(
+        (s for s in sources if isinstance(s, dict) and s.get("type") == market), None
+    )
+    if source is None:
+        logger.info("[skill_market] market 不在源列表 market=%r sources=%s", market, sources)
+        raise _param_invalid(f"市场 {market or '(空)'} 不在可用源列表")
+    return source
+
+
+# ---------------------------------------------------------------------------
+# R3 安装适配器:拉取 SKILL.md(双市场各自独立:异常在适配器内收口为 502)
+# ---------------------------------------------------------------------------
+async def _fetch_modelscope(source: dict, ref: str) -> dict:
+    """ModelScope 适配器:GET {base}/skills/{ref}/resolve/master/SKILL.md(纯文本,单文件)"""
+    url = f"{source['base']}/skills/{ref}/resolve/master/{SKILL_MD_PATH}"
+    started = time.monotonic()
+    client = _get_client()
+    try:
+        try:
+            resp = await client.get(url)
+        except httpx.HTTPError as e:
+            logger.warning("[skill_market] modelscope 拉取外呼异常 url=%s err=%s", url, e)
+            raise _unavailable() from e
+        if resp.status_code != 200:
+            logger.warning(
+                "[skill_market] modelscope 拉取上游非200 status=%s url=%s body=%s",
+                resp.status_code, url, resp.text[:200],
+            )
+            raise _unavailable()
+        # source_url 口径:实际外呼 URL(重定向后最终 URL,与外呼记录/审计一致)
+        source_url = str(resp.request.url)
+        logger.info(
+            "[skill_market] modelscope 拉取完成 ref=%r bytes=%s 耗时=%.3fs",
+            ref, len(resp.content), time.monotonic() - started,
+        )
+        return {"content": resp.text, "source_url": source_url, "extra_files": 0}
+    finally:
+        await client.aclose()
+
+
+async def _fetch_skillssh(source: dict, ref: str) -> dict:
+    """skills.sh 适配器:GET {base}/api/download/{ref} → files[path=SKILL.md].contents;
+    files>1 时 extra_files=支撑文件数(len(files)-1,仅装 SKILL.md)"""
+    url = f"{source['base']}/api/download/{ref}"
+    started = time.monotonic()
+    client = _get_client()
+    try:
+        try:
+            resp = await client.get(url)
+        except httpx.HTTPError as e:
+            logger.warning("[skill_market] skillssh 拉取外呼异常 url=%s err=%s", url, e)
+            raise _unavailable() from e
+        if resp.status_code != 200:
+            logger.warning(
+                "[skill_market] skillssh 拉取上游非200 status=%s url=%s body=%s",
+                resp.status_code, url, resp.text[:200],
+            )
+            raise _unavailable()
+        try:
+            body = resp.json()
+        except ValueError as e:
+            logger.warning("[skill_market] skillssh 拉取响应非 JSON url=%s", url)
+            raise _unavailable() from e
+        # 壳软失败(缺 files 键/非数组)→ 502,与搜索适配器口径一致
+        files = body.get("files") if isinstance(body, dict) else None
+        if not isinstance(files, list):
+            logger.warning(
+                "[skill_market] skillssh 拉取软失败 缺 files 壳 url=%s body=%s",
+                url, resp.text[:200],
+            )
+            raise _unavailable()
+        entry = next(
+            (f for f in files if isinstance(f, dict) and f.get("path") == SKILL_MD_PATH),
+            None,
+        )
+        contents = entry.get("contents") if entry is not None else None
+        if not isinstance(contents, str):
+            logger.warning(
+                "[skill_market] skillssh 下载包内无 %s url=%s files=%s",
+                SKILL_MD_PATH, url, [f.get("path") for f in files if isinstance(f, dict)],
+            )
+            raise _unavailable()
+        source_url = str(resp.request.url)
+        logger.info(
+            "[skill_market] skillssh 拉取完成 ref=%r files=%s bytes=%s 耗时=%.3fs",
+            ref, len(files), len(contents.encode("utf-8")), time.monotonic() - started,
+        )
+        return {
+            "content": contents,
+            "source_url": source_url,
+            "extra_files": max(len(files) - 1, 0),
+        }
+    finally:
+        await client.aclose()
+
+
+# 拉取分支分发表(type → 适配器;与搜索共用 type 值)
+_FETCH_ADAPTERS = {
+    "modelscope": _fetch_modelscope,
+    "skillssh": _fetch_skillssh,
+}
+
+
+# ---------------------------------------------------------------------------
 # 服务入口(api 层调用)
 # ---------------------------------------------------------------------------
 async def search(db: AsyncSession, market: str, q: str, limit: int) -> dict:
@@ -266,13 +381,7 @@ async def search(db: AsyncSession, market: str, q: str, limit: int) -> dict:
     market = (market or "").strip()
 
     # 2. market 须在源列表(R1 platform_settings;读取层未配置时兜底默认两源种子,永非空)
-    sources = await platform_settings_service.get_setting(db, "skill_market_sources")
-    source = next(
-        (s for s in sources if isinstance(s, dict) and s.get("type") == market), None
-    )
-    if source is None:
-        logger.info("[skill_market] market 不在源列表 market=%r sources=%s", market, sources)
-        raise _param_invalid(f"市场 {market or '(空)'} 不在可用源列表")
+    source = await _resolve_source(db, market)
 
     # 3. 缓存命中不外呼(键含 market,跨市场互不串扰)
     key = (market, q, limit)
@@ -297,5 +406,46 @@ async def search(db: AsyncSession, market: str, q: str, limit: int) -> dict:
     logger.info(
         "[skill_market] 搜索完成 market=%s q=%r limit=%s items=%s 总耗时=%.3fs",
         market, q, limit, len(items), time.monotonic() - started,
+    )
+    return result
+
+
+async def fetch_skill_md(db: AsyncSession, market: str, ref: str) -> dict:
+    """
+    市场拉取 SKILL.md(R3 一键安装):校验 → 源解析(R1)→ 适配器外呼 → 尺寸护栏。
+    返回 {"content": str, "source_url": 实际外呼URL, "extra_files": 支撑文件数}。
+    ref 空串/market 不在源列表 → 400(17004);上游超时/404/5xx/壳软失败 → 502(17005)
+    「市场暂不可用」;content UTF-8 字节数 > 256KB → 400(17004)。
+    """
+    started = time.monotonic()
+    logger.info("[skill_market] 拉取入口 market=%r ref=%r", market, ref)
+
+    # 1. 参数校验(先于外呼;ref 前后空格 trim)
+    ref = (ref or "").strip()
+    if not ref:
+        raise _param_invalid("ref 不能为空")
+    market = (market or "").strip()
+
+    # 2. market 须在源列表(R1;与 search 共用解析)
+    source = await _resolve_source(db, market)
+
+    # 3. 分发拉取适配器(失败/软失败即时透传 502,不入库)
+    adapter = _FETCH_ADAPTERS.get(market)
+    try:
+        result = await adapter(source, ref)
+    except BizError:
+        raise  # 502 已在适配器内收口,原样透传
+    except Exception as e:
+        logger.exception("[skill_market] 拉取适配器未预期异常 market=%s ref=%r", market, ref)
+        raise _unavailable() from e
+
+    # 4. 尺寸护栏:content ≤256KB(QA 口径按字符串长度;恰 256KB 允许)——市场内容是注入面,先拦体积再校验格式
+    size = len(result["content"])
+    if size > SKILL_MD_MAX_BYTES:
+        raise _param_invalid(f"SKILL.md 内容超过 {SKILL_MD_MAX_BYTES // 1024}KB 上限(实际 {size} 字符)")
+
+    logger.info(
+        "[skill_market] 拉取完成 market=%s ref=%r bytes=%s extra_files=%s 总耗时=%.3fs",
+        market, ref, size, result["extra_files"], time.monotonic() - started,
     )
     return result

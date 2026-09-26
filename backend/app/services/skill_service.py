@@ -159,12 +159,16 @@ async def upload_skill(
     operator: User,
     filename: str,
     content: str,
+    source: str = "project",
+    source_url: Optional[str] = None,
 ) -> dict:
     """
     上传项目级自定义 Skill(.md)。
     - 校验 frontmatter(17003)
     - 同项目同名:覆盖式更新内容(V1 无版本管理);同名平台 Skill 不受影响
       (注入时项目级覆盖平台级)
+    - source/source_url:来源标记(R3 市场一键安装复用覆盖语义,传 "market"+外呼 URL;
+      默认 "project"/None——上传覆盖时同步重置来源,清除残留的市场溯源)
     """
     if not filename.endswith(".md"):
         raise BizError(ErrCode.SKILL_FORMAT_INVALID, "文件格式错误:缺少 YAML frontmatter 的 name 或 description")
@@ -183,6 +187,8 @@ async def upload_skill(
     if skill is not None:
         skill.description = description
         skill.content = content
+        skill.source = source
+        skill.source_url = source_url
         await db.flush()
     else:
         skill = Skill(
@@ -192,6 +198,8 @@ async def upload_skill(
             scope="project",
             project_id=project.project_id,
             created_by=operator.user_id,
+            source=source,
+            source_url=source_url,
         )
         db.add(skill)
         await db.flush()
@@ -205,6 +213,36 @@ async def upload_skill(
 
     logger.info("上传 Skill project=%s name=%s by=%s", project.project_id, name, operator.user_id)
     return {"skill_id": skill.skill_id, "name": name, "description": description}
+
+
+async def install_skill_from_market(
+    db: AsyncSession,
+    project: Project,
+    operator: User,
+    content: str,
+    source_url: str,
+) -> dict:
+    """
+    市场一键安装(R3):SKILL.md 拉取结果入库。
+    - parse_skill_markdown 校验(frontmatter 缺 name/description/非 kebab → 17003 带原因);
+      BizError 默认 status_code=200,本接口契约 400,故此处重抛为 400
+    - 复用 upload_skill 同名覆盖语义(scope=project 不重复建行;关联同样幂等)
+    - 来源固定 source="market",source_url=实际外呼 URL
+    返回 {skill_id, name, description, source, source_url}(extra_files 由调用方补充)。
+    """
+    try:
+        parse_skill_markdown(content)
+    except BizError as e:
+        raise BizError(e.code, e.message, status_code=400) from e
+    data = await upload_skill(
+        db, project, operator, "SKILL.md", content,
+        source="market", source_url=source_url,
+    )
+    logger.info(
+        "市场安装 Skill project=%s name=%s by=%s source_url=%s",
+        project.project_id, data["name"], operator.user_id, source_url,
+    )
+    return {**data, "source": "market", "source_url": source_url}
 
 
 async def uninstall_skill(db: AsyncSession, project: Project, operator: User, skill_id: str) -> None:
