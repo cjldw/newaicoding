@@ -1,12 +1,15 @@
 /**
  * ArchivePage — 需求归档页 /requirements/:reqId/archive
- * 结构:页面标题 + 需求信息卡片 + 时间线 + 归档总结 + 关联知识条目 Table
+ * 结构:页头(返回 + 标题/状态 + 创建人/时间)+ 时间线卡 + 归档总结卡 + 关联知识条目表卡
+ * R33.F6:全页从 shadcn Card/Tailwind 裸混迁移到 vp 统一卡片语言
+ * (.card/.card-head/.card-body/.timeline/.tl-item,表格贴卡缘灰底贯通同 manage/*)
  */
+import { useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Archive } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
+import { Archive, ArrowLeft, Check } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
+import { BreadcrumbOverrideProvider, type CrumbItem } from '@/components/layout/Breadcrumb'
+import { useRequirementDetail } from '@/api/requirements'
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from '@/components/ui/Table'
@@ -42,142 +45,164 @@ export default function ArchivePage() {
   const { reqId = '' } = useParams<{ reqId: string }>()
   const nav = useNavigate()
   const { data: archive, isLoading } = useArchive(reqId)
+  // R33.F7:面包屑 override —— 项目管理 / {需求标题} / 归档(与需求详情同构;
+  // RequirementDetail 无 project_id 字段,项目名链路待后端补字段后升级;数据未就绪退回 pattern 链)
+  const { data: req } = useRequirementDetail(reqId)
+
+  const crumbs: CrumbItem[] = useMemo(() => [
+    { label: '项目管理', href: '/projects' },
+    { label: req?.title ?? '需求', href: `/requirements/${reqId}` },
+    { label: '归档' },
+  ], [req?.title, reqId])
 
   if (isLoading) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">加载中...</div>
+    return (
+      <div className="page wide">
+        <div className="page-loading">加载中...</div>
+      </div>
+    )
   }
   if (!archive) {
-    return <div className="container mx-auto px-4 py-6 text-text-muted">暂无归档数据</div>
+    return (
+      <div className="page wide">
+        <div className="page-loading">暂无归档数据</div>
+      </div>
+    )
   }
 
   // R4 P1 修复:对齐后端 archive_service.get_archive_data 平铺响应(无嵌套 requirement,knowledge 键名)
   const { title, status, created_by, created_at, timeline, summary_file_path, knowledge } = archive
 
   return (
+    <BreadcrumbOverrideProvider crumbs={crumbs}>
     <div className="page wide">
-      {/* 页面标题 */}
+      {/* 返回 + 页头(与需求详情同构) */}
+      <button className="btn btn-ghost btn-sm mb-4" onClick={() => nav(-1)}>
+        <ArrowLeft size={14} /> 返回
+      </button>
       <div className="page-head">
-        {/* R2.F8(BUG-UI-068):h1 补 icon 惯例 */}
-        <h1 className="flex items-center gap-2"><Archive size={18} /> 需求归档</h1>
-      </div>
-
-      {/* 需求信息卡片 */}
-      <Card className="p-5 mb-6">
-        <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-lg font-semibold text-text">{title}</h2>
-          <Badge variant="outline">{status}</Badge>
-        </div>
-        <div className="flex gap-6 text-sm text-text-muted">
-          <span>创建人:{created_by?.nickname || created_by?.username || '-'}</span>
-          <span>创建时间:{formatTime(created_at)}</span>
-        </div>
-      </Card>
-
-      {/* 时间线视图 */}
-      <Card className="p-5 mb-6">
-        <h3 className="text-base font-semibold text-text mb-4">时间线</h3>
-        <div className="relative pl-6">
-          {/* 垂直线 */}
-          <div className="absolute left-[7px] top-0 bottom-0 w-px bg-border" />
-          <div className="flex flex-col" style={{ gap: '16px' }}>
-            {timeline.map((node, idx) => (
-              <div key={idx} className="relative flex items-start gap-3">
-                {/* 节点圆点 */}
-                <div className="absolute -left-6 top-1.5 w-3.5 h-3.5 rounded-full bg-primary border-2 border-surface" />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <Badge variant="secondary">{node.type}</Badge>
-                    <span className="text-sm text-text">{node.description}</span>
-                  </div>
-                  <div className="text-xs text-text-muted">
-                    {formatTime(node.timestamp)}
-                    {node.task_type ? ` · ${node.task_type}` : ''}
-                  </div>
-                </div>
-              </div>
-            ))}
-            {timeline.length === 0 && (
-              <div className="text-sm text-text-muted py-2">暂无时间线数据</div>
-            )}
+        <div className="flex-1">
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="flex items-center gap-2 text-2xl font-semibold text-text"><Archive size={18} /> {title}</h1>
+            <Badge variant="outline">{status}</Badge>
+          </div>
+          <div className="text-sm text-text-muted">
+            创建人: {created_by?.nickname || created_by?.username || '-'}
+            <span className="mx-2">·</span>
+            {formatTime(created_at)}
           </div>
         </div>
-      </Card>
+      </div>
 
-      {/* 归档总结卡片 */}
-      <Card className="p-5 mb-6">
-        <h3 className="text-base font-semibold text-text mb-3">归档总结</h3>
-        {summary_file_path ? (
-          <pre className="text-sm text-text bg-surface-strong rounded p-3 whitespace-pre-wrap font-mono">
-            {summary_file_path}
-          </pre>
-        ) : (
-          <div className="text-sm text-text-muted">暂无</div>
-        )}
-      </Card>
-
-      {/* 关联知识条目列表 */}
-      <div className="card">
-        <h3 className="text-base font-semibold text-text mb-4">关联知识条目</h3>
-        <div className="scrollx">
-          <Table className="tbl">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[100px]">类型</TableHead>
-                <TableHead>标题</TableHead>
-                <TableHead className="w-[180px]">标签</TableHead>
-                <TableHead className="w-[90px]">状态</TableHead>
-                <TableHead className="w-[80px]">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {knowledge.map((entry: KnowledgeEntry) => {
-                const tb = typeBadgeMap[entry.type] ?? typeBadgeMap.doc
-                const sb = statusBadgeMap[entry.status] ?? statusBadgeMap.draft
-                return (
-                  <TableRow key={entry.entry_id}>
-                    <TableCell>
-                      <Badge variant={tb.variant}>{tb.label}</Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">{entry.title}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {(entry.tags ?? []).map((tag, i) => (
-                          <Badge key={i} variant="default">{tag}</Badge>
-                        ))}
-                        {(!entry.tags || entry.tags.length === 0) && (
-                          <span className="text-text-muted text-sm">-</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={sb.variant}>{sb.label}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        /* R4:查看接通条目详情(项目级/平台级按 entry.project_id 选路由,同列表卡片口径) */
-                        onClick={() => nav(entry.project_id
-                          ? `/projects/${entry.project_id}/knowledge/${entry.entry_id}`
-                          : `/knowledge/${entry.entry_id}`)}
-                      >
-                        查看
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-              {knowledge.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center text-text-muted py-8">
-                    暂无关联知识条目
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+      {/* 时间线卡(vp .timeline/.tl-item 体系,替换 Tailwind 手绘版) */}
+      <div className="card mb-6">
+        <div className="card-head"><span className="card-title">时间线</span></div>
+        <div className="card-body">
+          {timeline.length === 0 ? (
+            <div className="empty">暂无时间线数据</div>
+          ) : (
+            <div className="timeline">
+              {timeline.map((node, idx) => (
+                <div key={idx} className="tl-item done">
+                  <span className="tl-dot"><Check size={11} /></span>
+                  <div className="tl-c">
+                    <div className="tl-t">
+                      <Badge variant="secondary">{node.type}</Badge>{' '}{node.description}
+                    </div>
+                    <div className="tl-m">
+                      {formatTime(node.timestamp)}
+                      {node.task_type ? ` · ${node.task_type}` : ''}
+                    </div>
+                  </div>
+                  <span className="when">{formatTime(node.timestamp)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* 归档总结卡 */}
+      <div className="card mb-6">
+        <div className="card-head"><span className="card-title">归档总结</span></div>
+        <div className="card-body">
+          {summary_file_path ? (
+            <pre className="md-pre">{summary_file_path}</pre>
+          ) : (
+            <div className="empty">暂无</div>
+          )}
+        </div>
+      </div>
+
+      {/* 关联知识条目表卡(表格贴卡缘,灰底贯通同 manage/*;BUG-UI-079 口径) */}
+      <div className="card mb-6">
+        <div className="card-head"><span className="card-title">关联知识条目</span></div>
+        {knowledge.length === 0 ? (
+          <div className="empty">暂无关联知识条目</div>
+        ) : (
+          <div className="scrollx">
+            <Table className="tbl">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[100px]">类型</TableHead>
+                  <TableHead>标题</TableHead>
+                  <TableHead className="w-[180px]">标签</TableHead>
+                  <TableHead className="w-[90px]">状态</TableHead>
+                  <TableHead className="ops">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {knowledge.map((entry: KnowledgeEntry) => {
+                  const tb = typeBadgeMap[entry.type] ?? typeBadgeMap.doc
+                  const sb = statusBadgeMap[entry.status] ?? statusBadgeMap.draft
+                  return (
+                    <TableRow
+                      key={entry.entry_id}
+                      className="rowclick"
+                      onClick={() => nav(entry.project_id
+                        ? `/projects/${entry.project_id}/knowledge/${entry.entry_id}`
+                        : `/knowledge/${entry.entry_id}`)}
+                    >
+                      <TableCell>
+                        <Badge variant={tb.variant}>{tb.label}</Badge>
+                      </TableCell>
+                      <TableCell className="font-medium">{entry.title}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {(entry.tags ?? []).map((tag, i) => (
+                            <Badge key={i} variant="default">{tag}</Badge>
+                          ))}
+                          {(!entry.tags || entry.tags.length === 0) && (
+                            <span className="text-text-muted text-sm">-</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={sb.variant}>{sb.label}</Badge>
+                      </TableCell>
+                      <TableCell className="ops">
+                        <button
+                          className="btn btn-sm"
+                          /* R4:查看接通条目详情(项目级/平台级按 entry.project_id 选路由,同列表卡片口径) */
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            nav(entry.project_id
+                              ? `/projects/${entry.project_id}/knowledge/${entry.entry_id}`
+                              : `/knowledge/${entry.entry_id}`)
+                          }}
+                        >
+                          查看
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
     </div>
+    </BreadcrumbOverrideProvider>
   )
 }
