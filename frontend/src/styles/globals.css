@@ -597,11 +597,23 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .md h1,.md h2,.md h3{scroll-margin-top:68px}
 /* 窄屏隐藏目录,正文恢复单栏(沿用现有 1180 断点) */
 @media (max-width:1180px){.md-layout{grid-template-columns:minmax(0,1fr)}.md-toc{display:none}}
+/* ===== A 型条目「关联代码」粘性工作台(rd-ui-sticky,2026-09-26,回退 rd-ui-fill 视口固定):
+   页面恢复 .page.wide 正常文档流滚动,仅工作台容器钉屏——说明区滚走后标题+树+预览钉在视口内,
+   树/预览各自内滚。topbar(.main 直下,.route-scroll 滚动口之外,50px)不占滚动口,
+   sticky top 相对滚动口计:8px = 视口 58px(顶栏 50 + 间距 8);max-height 钳位 100vh-70
+   (上 58 / 下留 12)。.entry-code-zone::after 在工作台后垫高 48px 给粘性留行程:
+   sticky 元素困在包含块内,末元素无滚动余量则 sticky 不生效 */
+.entry-code-dock{position:sticky;top:8px;z-index:30;min-width:0;max-height:calc(100vh - 70px)}
+.entry-code-zone::after{content:'';display:block;height:48px}
+/* 该页底部 48px padding 会参与滚动行程(在粘性行程之外),滚到底时 dock 顶被压进顶栏下
+   ——由 zone::after 提供底部留白,页面自身 padding-bottom 归零,钉住态恰好贴滚动口底 */
+.page:has(.entry-code-zone){padding-bottom:0}
 /* ===== .code-tree/.code-preview — A 型条目「左文件树+右文件预览」工作台(2026-09-25;
-   树=code 接口递归响应拼装,点击文件右侧预览:.md→markdown / 代码→monaco / 二进制→占位)===== */
-.code-wb{display:grid;grid-template-columns:240px minmax(0,1fr);gap:16px;align-items:start}
-/* 左栏文件树:sticky 跟随滚动,多 source 时分组(组间分隔线) */
-.code-tree{position:sticky;top:68px;max-height:calc(100vh - 84px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--vp-radius)}
+   树=code 接口递归响应拼装,点击文件右侧预览:.md→markdown / 代码→monaco / 二进制→占位;
+   2026-09-26 rd-ui-sticky:去自身 sticky/定高,撑满 .entry-code-dock 余高、两栏各自内滚)===== */
+.code-wb{display:grid;grid-template-columns:240px minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:16px;flex:1;min-height:0;min-width:0}
+/* 左栏文件树:撑满列高内滚(粘性已上移到 .entry-code-dock 容器;多 source 时分组,组间分隔线) */
+.code-tree{min-height:0;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--vp-radius)}
 .code-tree-group+.code-tree-group{border-top:1px solid var(--border)}
 .code-tree-head{display:flex;align-items:center;gap:6px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
 .code-tree-head .ic{color:var(--faint);flex:none}
@@ -616,16 +628,18 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .code-tree-retry{display:inline-flex;align-items:center;gap:3px;margin-left:auto;flex:none;border:none;background:none;cursor:pointer;font-size:11px;color:var(--muted);padding:2px 4px;border-radius:4px}
 .code-tree-retry:hover{color:var(--text);background:var(--surface-2)}
 .code-tree-note{padding:6px 10px 2px}
-/* 右栏预览:头部路径+来源+重新拉取;md 正文带内边距,代码编辑器定高 */
-.code-preview{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--vp-radius);overflow:hidden}
-.code-preview-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);min-width:0}
+/* 右栏预览:纵向 flex(头部 shrink,体部撑满内滚);头部路径+来源+重新拉取;
+   md 正文带内边距,代码编辑器撑满体部(monaco 高度受 body flex 约束,不再无限撑高) */
+.code-preview{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:var(--vp-radius);overflow:hidden}
+.code-preview-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);min-width:0;flex:none}
 .code-preview-head .ic{color:var(--faint);flex:none}
 .code-preview-path{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
 .code-preview-acts{margin-left:auto;display:flex;align-items:center;flex:none}
+.code-preview-body{flex:1;min-height:0;overflow-y:auto}
 .code-preview-md{padding:14px 16px}
-.code-preview-editor{height:560px}
-/* 窄屏退单栏:树在上(限高不 sticky),预览在下(沿用 1180 断点) */
-@media (max-width:1180px){.code-wb{grid-template-columns:minmax(0,1fr)}.code-tree{position:static;max-height:300px}}
+.code-preview-editor{height:100%;min-height:300px}
+/* 窄屏退单栏:粘性取消,树在上(限高内滚)、预览在下定高(沿用 1180 断点) */
+@media (max-width:1180px){.entry-code-dock{position:static;max-height:none}.code-wb{grid-template-columns:minmax(0,1fr);grid-template-rows:none}.code-tree{max-height:300px}.code-preview-body{overflow:visible}.code-preview-editor{height:560px}}
 /* ===== login ===== */
 .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px;background:
  radial-gradient(900px 480px at 80% -10%, var(--blue-bg), transparent 60%),

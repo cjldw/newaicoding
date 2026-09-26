@@ -6,16 +6,21 @@
  * - /knowledge/:entryId(平台级)
  *
  * 区块结构(照分片「页面结构说明」):
- *   .page
+ *   .page.wide(全宽,对齐测试管理等页;rd-ui-sticky,2026-09-26)
+ *   ├─ A 型 → 「关联代码」工作台粘性钉屏(.entry-code-dock:position:sticky;
+ *   │  top:8px = 视口 58px,顶栏在 .route-scroll 滚动口之外;max-height:100vh-70px。
+ *   │  页面本体正常文档流滚动,说明区滚走后标题+树+预览钉在视口内,树/预览各自内滚)。
+ *   │  B 型 → 同为文档流随页滚
  *   ├─ .page-head:←返回 | 类型徽章+标题 | 状态徽章 | .acts(发布/提升/编辑/删除,按权限显示)
  *   ├─ 信息行:创建者(AI/人)·创建时间·标签 chips·source_links 链接
  *   ├─ 正文区(B 型,R28.F2 左右模式):大纲 ≥2 条时左 .md-toc 目录(sticky,点击锚点平滑
  *   │  滚动)+ 右正文卡;<2 条退单栏;≤1180px 隐藏目录(A 型不渲染大纲)
- *   ├─ .card 正文区:.md 渲染 content(A 型 = 说明文字,全宽放工作台上方;无 content
- *   │  且为 A 型时不显示此卡)
+ *   ├─ .card 正文区:.md 渲染 content(A 型 = 说明文字,普通文档流全宽放工作台上方,
+ *   │  随页滚走;无 content 且为 A 型时不显示此卡)
  *   └─ 代码工作台(仅 A 型,2026-09-25):标题「关联代码」+ 左 .code-tree 文件树
- *      (240px sticky,头部 repo·branch,目录折叠/文件选中高亮)+ 右 .code-preview
- *      (.md → markdown / 代码 → monaco 只读 / 二进制 → 占位;头部路径+来源+重新拉取)
+ *      (撑满列高内滚,头部 repo·branch,目录折叠/文件选中高亮)+ 右 .code-preview
+ *      (.md → markdown / 代码 → monaco 只读 / 二进制 → 占位;头部路径+来源+重新拉取,
+ *      体部撑满列高内滚)。整体由 .entry-code-dock 粘性钉屏(2026-09-26)
  *
  * 权限:消费详情接口 permissions{can_edit,can_delete,editable_fields,can_publish,can_promote}
  * (R3 + R3.F2);后端未返回时容错缺省 —— 发布优先后端 can_publish,缺省回退
@@ -755,7 +760,7 @@ export default function EntryDetail() {
   const tags = entry.tags ?? []
 
   return (
-    <div className="page">
+    <div className="page wide">
       {/* page-head:返回 | 类型徽章+标题 | 状态徽章 | acts(按权限) */}
       <div className="page-head">
         <button className="btn btn-ghost icon-btn" title="返回" onClick={goBack}>
@@ -851,8 +856,8 @@ export default function EntryDetail() {
             ))}
           </aside>
         )}
-        <div className={showToc ? 'md-main' : undefined}>
-          {/* 正文卡:.md 渲染 content(B 型正文 / A 型说明文字,全宽在代码工作台上方) */}
+        <div className={showToc ? 'md-main' : isCodeEntry ? 'entry-code-zone' : undefined}>
+          {/* 正文卡:.md 渲染 content(B 型正文 / A 型说明文字,普通文档流随页滚走) */}
           {showBodyCard && (
             <Card className="p-5 mb-5">
               {hasContent ? (
@@ -864,10 +869,13 @@ export default function EntryDetail() {
           )}
 
           {/* 代码引用区(仅 A 型):「关联代码」工作台 —— 左文件树 + 右文件预览;
-              说明文字(content)已在上方正文卡全宽渲染,A 型不出大纲 */}
+              说明文字(content)已在上方正文卡全宽渲染,A 型不出大纲;
+              .entry-code-dock 粘性钉屏(页面滚动时标题+树+预览钉在视口内,树/预览各自内滚;
+              sticky top 相对 .route-scroll 滚动口,topbar 在滚动口外,8px = 视口 58px);
+              .entry-code-zone::after 垫高给粘性留行程(末元素无滚动余量 sticky 不生效) */}
           {codeSources.length > 0 && (
-            <div className="flex flex-col gap-3">
-              <div className="card-title">
+            <div className="entry-code-dock flex flex-col gap-3">
+              <div className="card-title shrink-0">
                 <FileCode size={15} />关联代码
               </div>
               <CodeWorkbench

@@ -10,6 +10,7 @@
 | 知识条目详情 markdown 预览(EntryDetail) | ✅ | 无新稿,样板轨:.md 作用域 + utils/markdown.ts | 升级共享渲染器全能力;KnowledgeBaseView 弃本地版,消灭第三份重复实现 |
 | 知识条目详情页左右模式(左大纲+右正文) | ✅ | 无新稿,样板轨:.md/.md-toc 作用域 | 大纲自 h2/h3 提取,锚点滚动;<2 标题自动退单栏 |
 | A 型条目代码工作台(左文件树+右文件预览) | ✅ | 无新稿,样板轨:同上 | 树=source_links 递归路径;点击文件右侧预览(md→markdown/代码→monaco);说明 markdown 在上方说明区 |
+| A 型工作台粘性固定(关联代码区块钉屏) | ✅ | 无新稿,样板轨:.route-scroll 文档流 + sticky | 首轮全页视口固定方案被用户否决回退;终稿=页面正常滚动,「关联代码」容器 .entry-code-dock sticky 钉屏(top:8px/max-height 100vh-70),树/预览余高内滚;宽屏保留 |
 
 ## 设计稿来源
 
