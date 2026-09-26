@@ -20,13 +20,13 @@
 
 ## 当前进度
 
-**当前进度: 3/7 (43%) - R1/R4/R5 已完成**
+**当前进度: 4/7 (57%) - R1/R2/R3/R4/R5 已完成,接下来 R6**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
 | R1 | 关联用户字段(创建+存储) | M1 后端+M2 前端 | ✅ | ./DEVPLAN/R1.md |
-| R2 | 关联用户详情可编辑 | M1 后端+M2 前端 | 🔄 | ./DEVPLAN/R2.md |
-| R3 | 评审通过站内通知 | M1 后端 | ⬜ | ./DEVPLAN/R3.md |
+| R2 | 关联用户详情可编辑 | M1 后端+M2 前端 | ✅ | ./DEVPLAN/R2.md |
+| R3 | 评审通过站内通知 | M1 后端 | ✅ | ./DEVPLAN/R3.md |
 | R4 | 原型链接字段 | M1 后端+M2 前端 | ✅ | ./DEVPLAN/R4.md |
 | R5 | 交付时间字段+逾期标记 | M1 后端+M2 前端 | ✅ | ./DEVPLAN/R5.md |
 | R6 | 交付提醒(每日巡检) | M1 后端 | ⬜ | ./DEVPLAN/R6.md |
@@ -61,3 +61,5 @@
 | 2026-09-26 | 新增 R7 工作台「与我相关」口径升级(created_by → 关联用户∪created_by,任务加需求传导;骨架保留不按角色分叉) | 用户指令 + 方案确认 |
 | 2026-09-26 | 人工核对通过(R1-R7 全确认;R4 链接整组 400 口径确认;ErrCode 顺带修复列入 R1) | 用户确认 |
 | 2026-09-26 | 技术决策:alembic 迁移在 R1 一次建齐三字段列(related_user_ids/prototype_links/delivery_date),R4/R5 直接使用——按 DEVPLAN「三字段同迁」建议,避免三次 ALTER | rd-dev 决策留痕 |
+| 2026-09-26 | 提交策略:工作区混有 20260920 流程待提交改动(R34.F1 分支策略/R21.F1 工作台门槛/UI polish),requirement_service.py 同文件双需求混排——按 hunk 级暂存只提交 R3 范围(import/_notify_related_users_on_approve/挂钩),其余原样保留归该流程提交;test_requirements_api.py 的 R34 断言改动当前 1 failed(R34.F1 未接线),不并入本提交 | rd-dev 决策留痕 |
+| 2026-09-26 | R3 审计非阻塞备注移交:①DB 级 flush 异常可用 savepoint 加固(概率极低);②sent 日志记尝试数非成功数;③驳回后再通知无专属用例(结构保证)——不修,留 rd-check 参考 | rd-dev 决策留痕 |

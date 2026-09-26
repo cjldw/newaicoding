@@ -14,7 +14,7 @@ from app.models.project import Project, ProjectRepo
 from app.models.project_member import ProjectMember
 from app.models.requirement import Requirement
 from app.models.user import User
-from app.services import container_service, runner_service
+from app.services import container_service, notification_service, runner_service
 from app.services.audit_service import audit_write  # R25 审计接入(事务内,失败不阻塞)
 from app.services.runner_service import runner_registry
 
@@ -248,6 +248,50 @@ async def submit_review(db: AsyncSession, req: Requirement) -> None:
     logger.info("需求提交评审 req=%s", req.req_id)
 
 
+async def _notify_related_users_on_approve(db: AsyncSession, req: Requirement, operator: User) -> None:
+    """
+    R3 评审通过站内通知(PRD-A R3):状态变 approved 时向当次关联用户发站内信。
+    收件人口径:related_user_ids 去重(保序)→ 排除操作人 → 过滤仍为项目成员者;
+    NULL/空名单 → 零发送。单个发送失败仅记日志继续(调用方再整体兜底,不阻塞评审)。
+    """
+    ids = [uid for uid in dict.fromkeys(req.related_user_ids or []) if uid != operator.user_id]  # 去重保序 + 排除操作人
+    if not ids:
+        return
+
+    # 过滤仍为该项目成员(评审时点可能已被移出)
+    result = await db.execute(
+        select(ProjectMember.user_id).where(
+            ProjectMember.project_id == req.project_id,
+            ProjectMember.user_id.in_(ids),
+        )
+    )
+    member_ids = set(result.scalars().all())
+    recipients = [uid for uid in ids if uid in member_ids]
+    if len(recipients) < len(ids):
+        logger.info(
+            "评审通过通知跳过非项目成员 req=%s project=%s skip=%s",
+            req.req_id, req.project_id, [uid for uid in ids if uid not in member_ids],
+        )
+    if not recipients:
+        return
+
+    for uid in recipients:
+        try:
+            await notification_service.send_notification(
+                db,
+                recipient_id=uid,
+                type="review_approved",
+                level="normal",
+                title=f"需求《{req.title}》已评审通过",
+                content="可以开始开发了",
+                link=f"/requirements/{req.req_id}",
+                project_id=req.project_id,
+            )
+        except Exception as e:
+            logger.warning("评审通过通知单发失败(跳过继续) req=%s recipient=%s: %s", req.req_id, uid, e)
+    logger.info("评审通过通知完成 req=%s sent=%d", req.req_id, len(recipients))
+
+
 async def review_requirement(
     db: AsyncSession, project: Project, operator: User, req: Requirement,
     approved: bool, reject_reason: Optional[str],
@@ -295,6 +339,11 @@ async def review_requirement(
             db, operator, "requirement.review_approve",
             project_id=req.project_id, target_type="requirement", target_id=req.req_id,
         )
+        # R3 评审通过站内通知(整体兜底:失败不阻塞评审主流程)
+        try:
+            await _notify_related_users_on_approve(db, req, operator)
+        except Exception as e:
+            logger.warning("评审通过通知失败(不阻塞评审) req=%s: %s", req.req_id, e)
     else:
         if not reject_reason:
             raise BizError(ErrCode.NOT_IN_POLISHING, "驳回时必须填写理由")
