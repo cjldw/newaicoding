@@ -268,4 +268,11 @@
 
 验证:后端 pytest test_r32_chat_stream_inject 5/5(注入下发/零下发/stream 事件转换/流式生命周期);runner pytest test_r32_claude_stream 5/5(注入合并/逐行上泵/非 JSON 兜底/session flags),runner 全量 45/46(1 failed=test_host_shell_alive_after_spawn Windows 专属回归,本机 Darwin 未标记 skip 属存量,git status 断言该文件零改动,与 R32 无关);前端 tsc 0 错+build 过。**真机复核归用户**:① 项目装 Skill 后新任务容器 ls /root/.claude/skills;② 对话发消息看逐字流式;③ / 补全下拉。
 
+## R33 侧栏抽屉 + 导览弹窗优化(2026-09-26,rd-ui)
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| R33.F1 侧栏抽屉 | fixed(视觉复核归用户) | 用户口径「左侧菜单支持抽屉收起打开」:顶栏面包屑左加 PanelLeft 开关,220px ↔ 56px 图标栏(.shell.side-collapsed 栅格列切换);收起态隐藏 logo 文字/sgroup/lbl/cnt/tour 卡,图标居中,title 原生 tooltip;localStorage(sidebar_collapsed)记忆;≤900px 断点侧栏已横向化,收起态天然不生效(无冲突) |
+| R33.F2 导览弹窗优化 | fixed(视觉复核归用户) | 标题补 Play 图标 + 副标语(「按顺序走一遍…约 2 分钟」);步骤行升级:序号圈放大 15→20px 灰底、hover 主色填充,标题 13px 主色加 hover 边框,右侧 ChevronRight 箭头 hover 淡入;旧 L489-491 规则保留,新规则同特异性靠后覆盖 |
+
 **未代修留痕(第 27 轮越界发现)**:① 测试隔离——test_terminal_api 单跑 8/8 绿,紧跟 avatar/r8f4 等文件同会话跑则 9 errors(sqlalchemy 会话状态跨文件泄漏;全量轮 21E 同类+并行会话同库死锁叠加),非产品缺陷,测试基建待办;② 本机 docker SDK 未装(用户口径「docker 本机不装,保证代码 ok」),test_r31_local_runner 4 例 ModuleNotFoundError 属预期环境约束,R31 本机快速创建在本机不可用,部署机启用时需装 docker SDK 并补 pyproject 声明(本轮曾装 7.2.0 已按口径卸回)。

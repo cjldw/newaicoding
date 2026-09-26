@@ -7,8 +7,10 @@
  * - 完成/跳过:写 localStorage tour_completed="true" → 关闭,后续不再自动弹出
  * - 遮罩点击:仅关闭,不写标记(下次登录仍自动弹出)
  * - 挂载策略:由 MainLayout 条件渲染(open 时才挂载)→ useTourSteps 仅在弹窗打开时发请求
+ *   (BUG-UI-071 方案②:open 状态显式透传给 useTourSteps 的 enabled,查询层再加一道门)
  */
 import { useNavigate } from 'react-router-dom'
+import { ChevronRight, Play } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/Dialog'
 import { useTourSteps } from '@/hooks/useTourSteps'
 
@@ -33,12 +35,14 @@ export function isTourCompleted(): boolean {
 }
 
 interface TourDialogProps {
+  /** 弹窗开合状态(MainLayout 的 tourOpen):仅 open 时才发起导览数据链请求 */
+  open: boolean
   onClose: () => void
 }
 
-export function TourDialog({ onClose }: TourDialogProps) {
+export function TourDialog({ open, onClose }: TourDialogProps) {
   const navigate = useNavigate()
-  const { steps } = useTourSteps()
+  const { steps } = useTourSteps({ enabled: open })
 
   // 点击步骤:关闭弹窗 → 跳转对应页面
   function handleStepClick(link: string) {
@@ -53,13 +57,19 @@ export function TourDialog({ onClose }: TourDialogProps) {
   }
 
   return (
-    <Dialog open={true} onOpenChange={(v) => { if (!v) onClose() }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <DialogContent
         showClose={false}
         className="tour-dialog"
         style={{ width: 480, borderRadius: '0.5rem', animation: 'tourIn 0.3s ease-out' }}
       >
-        <DialogTitle>平台导览</DialogTitle>
+        {/* R33:标题补图标 + 副标语(原裸标题偏单薄) */}
+        <DialogTitle>
+          <span className="tour-title-ico"><Play size={15} />平台导览</span>
+        </DialogTitle>
+        <p className="small muted" style={{ margin: '2px 0 12px' }}>
+          按顺序走一遍平台核心页面,约 2 分钟;点击任意步骤直接跳转。
+        </p>
         <div className="tour-steps">
           {steps.map((s) => (
             <button
@@ -69,7 +79,8 @@ export function TourDialog({ onClose }: TourDialogProps) {
               onClick={() => handleStepClick(s.link)}
             >
               <span className="n">{s.n}</span>
-              {s.title}
+              <span className="st">{s.title}</span>
+              <ChevronRight size={14} className="arr" />
             </button>
           ))}
         </div>

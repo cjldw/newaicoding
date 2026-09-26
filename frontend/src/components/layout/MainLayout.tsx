@@ -11,10 +11,10 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FolderKanban, ListChecks, Activity, FlaskConical, Rocket,
   BookOpen, Server, Users, ScrollText, Settings, Bell, LogOut, Blocks,
-  ExternalLink, CheckCheck, Loader2, Play, Sun, Moon,
+  ExternalLink, CheckCheck, Loader2, Play, Sun, Moon, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
-import { getAvColor, getInitial } from '@/utils/avatar'
+import { getAvColor, getInitial, isAvatarUrlFailed, markAvatarUrlFailed } from '@/utils/avatar'
 import { Breadcrumb } from './Breadcrumb'
 import { useUnreadCount, useNotificationList, useMarkNotificationRead, useMarkAllRead } from '@/api/notifications'
 import { TourDialog, isTourCompleted } from '@/components/TourDialog'
@@ -68,6 +68,7 @@ function SItems({ items }: { items: NavItem[] }) {
           key={item.to}
           to={item.to}
           end={item.end}
+          title={item.label}
           className={({ isActive }) => `sitem${isActive ? ' on' : ''}`}
         >
           <span className="ic"><item.icon size={15} /></span>
@@ -100,6 +101,17 @@ export function MainLayout() {
   const [tourOpen, setTourOpen] = useState(false)
   // R30:黑白主题(挂载即写 <html data-theme>;顶栏按钮切换,localStorage 持久化)
   const { theme, toggle: toggleTheme } = useTheme()
+  // R33:侧栏抽屉收起(220px ↔ 56px 图标栏;localStorage 记忆;≤900px 断点强制展开态语义)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebar_collapsed') === 'true' } catch { return false }
+  })
+  const toggleSidebar = () => {
+    setSidebarCollapsed((v) => {
+      const next = !v
+      try { localStorage.setItem('sidebar_collapsed', String(next)) } catch { /* 静默 */ }
+      return next
+    })
+  }
 
   useEffect(() => {
     setAvatarError(false)
@@ -185,11 +197,11 @@ export function MainLayout() {
   const roleBadge = getRoleBadge(user?.role)
 
   return (
-    <div className="shell">
+    <div className={`shell${sidebarCollapsed ? ' side-collapsed' : ''}`}>
       <aside className="sidebar">
-        <div className="logo">
+        <div className="logo" title="旗橙 · AI 研发流程平台">
           <span className="logo-mark"><OrangeMark size={17} /></span>
-          <span>
+          <span className="logo-txt">
             <b>旗橙</b>
             <span>AI 研发流程平台</span>
           </span>
@@ -218,6 +230,14 @@ export function MainLayout() {
 
       <div className="main">
         <header className="topbar">
+          {/* R33:侧栏抽屉开关(面包屑左;收起态图标反向) */}
+          <button
+            className="btn btn-ghost icon-btn"
+            title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+            onClick={toggleSidebar}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          </button>
           <div className="crumb"><Breadcrumb /></div>
           <div className="top-actions">
             {/* 站内信铃铛:未读徽章 + 下拉最近通知 + 查看全部 */}
@@ -338,14 +358,18 @@ export function MainLayout() {
             {/* 用户按钮:头像[姓名首字]+姓名+角色徽章,下拉含退出登录 */}
             <div className="user-btn-wrap" ref={userBtnRef}>
               <button className="user-btn" onClick={handleUserBtnClick} type="button">
-                {/* R28:有 avatar_url 渲染圆形头像图(28px,object-fit:cover),失败/无头像回退首字母+hash 取色 */}
-                {user?.avatar_url && !avatarError ? (
+                {/* R28:有 avatar_url 渲染圆形头像图(28px,object-fit:cover),失败/无头像回退首字母+hash 取色
+                    BUG-UI-072:已记忆失败的 URL 命中集合直接回退,重挂载不再重复发 404 请求 */}
+                {user?.avatar_url && !avatarError && !isAvatarUrlFailed(user.avatar_url) ? (
                   <img
                     className="av"
                     src={user.avatar_url}
                     alt={displayName}
                     style={{ objectFit: 'cover' }}
-                    onError={() => setAvatarError(true)}
+                    onError={() => {
+                      markAvatarUrlFailed(user.avatar_url)
+                      setAvatarError(true)
+                    }}
                   />
                 ) : (
                   <span className="av" style={{ background: avColor }}>{getInitial(displayName)}</span>
@@ -382,7 +406,7 @@ export function MainLayout() {
       </div>
 
       {/* R29:平台导览弹窗(条件挂载,open 时才拉取步骤数据) */}
-      {tourOpen && <TourDialog onClose={() => setTourOpen(false)} />}
+      {tourOpen && <TourDialog open={tourOpen} onClose={() => setTourOpen(false)} />}
     </div>
   )
 }

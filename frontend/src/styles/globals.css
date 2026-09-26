@@ -719,6 +719,27 @@ select.input{cursor:pointer}
   .page{padding:16px 16px 40px}
   .kv{min-width:45%}
 }
+/* ===== R33 侧栏抽屉(220px ↔ 56px 图标栏)===== */
+.shell.side-collapsed{grid-template-columns:56px minmax(0,1fr)}
+.shell.side-collapsed .sidebar{padding:14px 8px}
+.shell.side-collapsed .logo{justify-content:center;padding:4px 0 14px}
+.shell.side-collapsed .logo-txt{display:none}
+.shell.side-collapsed .sgroup{display:none}
+.shell.side-collapsed .sitem{justify-content:center;padding:8px 0;gap:0}
+.shell.side-collapsed .sitem .lbl{display:none}
+.shell.side-collapsed .sitem .cnt{display:none}
+.shell.side-collapsed .tour{display:none}
+/* 收起态导航项 tooltip(原生 title 属性) */
+.shell.side-collapsed .sitem{position:relative}
+/* ===== R29 导览弹窗样式优化(R33;覆盖 L489-491 旧规则,特异性同级靠后生效)===== */
+.tour-dialog .tour-title-ico{display:inline-flex;align-items:center;gap:8px}
+.tour-dialog .tour-step{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:var(--vp-radius-sm);background:none;border:1px solid transparent;cursor:pointer;color:var(--text);font-size:13px;font-family:inherit;text-align:left;width:100%;transition:background .12s,border-color .12s}
+.tour-dialog .tour-step:hover{color:var(--text);background:var(--surface-2);border-color:var(--border)}
+.tour-dialog .tour-step .n{width:20px;height:20px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);color:var(--muted);font-size:11px;display:grid;place-items:center;flex:none;font-family:var(--mono);font-weight:500}
+.tour-dialog .tour-step:hover .n{background:var(--primary);border-color:var(--primary);color:#fff}
+.tour-dialog .tour-step .st{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tour-dialog .tour-step .arr{color:var(--faint);flex:none;opacity:0;transition:opacity .12s}
+.tour-dialog .tour-step:hover .arr{opacity:1}
 @media (prefers-reduced-motion: reduce){
   *{animation:none!important;transition:none!important}
 }
