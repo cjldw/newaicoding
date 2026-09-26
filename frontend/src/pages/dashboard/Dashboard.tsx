@@ -1,7 +1,8 @@
 /**
  * Dashboard — R21 工作台(vp 原型对齐)
- * - 四卡片(dcard)统计:需求/dev/test/release,created_by=me 口径
+ * - 四卡片(dcard)统计:需求/dev/test/release,「与我相关」口径(关联用户∪创建者,R7)
  * - 每类最近 5 条(dlist-row),点击进详情
+ * - R7:行加交付徽章(已逾期 b-red / 明天截止 b-amber)+ running pulse dot;行动优先排序;零新视觉
  * - 无项目空态引导
  * 数据源:/api/dashboard/summary(R21 聚合接口)
  */
@@ -25,6 +26,50 @@ interface Dim {
   Icon: typeof FileText
   href: string
   rowHref: (id: string) => string
+}
+
+/** R7:recent 行(delivery_date 为后端并行透传,可选) */
+interface RecentRow {
+  task_id?: string
+  req_id?: string
+  title: string
+  status: string
+  project: { name?: string }
+  updated_at?: string
+  delivery_date?: string | null
+}
+
+// R7:终态集合(需求 done/archived/rejected;任务 done/archived/failed/cancelled/timeout/passed)——终态不标交付徽章
+const TERMINAL_ST = new Set(['done', 'archived', 'rejected', 'failed', 'cancelled', 'timeout', 'passed'])
+// R7:「运行中/待办」行动态(running/pending/reviewing/polishing),排序优先于普通行
+const ACTIVE_ST = new Set(['running', 'pending', 'reviewing', 'polishing'])
+
+// R7:「今天/明天」按 GMT+8(Asia/Shanghai)计算,与 R5 RequirementList.gmt8Today 同约定:
+// now + 8h 后取 UTC 年月日即为 GMT+8 墙钟日期,输出 YYYY-MM-DD 与 delivery_date(DATE 串)直接字典序比较
+function gmt8Date(offsetDays = 0): string {
+  const gmt8 = new Date(Date.now() + 8 * 3600 * 1000 + offsetDays * 86400 * 1000)
+  const y = gmt8.getUTCFullYear()
+  const m = String(gmt8.getUTCMonth() + 1).padStart(2, '0')
+  const d = String(gmt8.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+// R7:行动优先级——已逾期 0 > 明天截止 1 > 运行中/待办状态 2 > 其他 3(同级内调用方再按更新时间倒序)
+function actionRank(status: string, deliveryDate: string | null | undefined, today: string, tomorrow: string): number {
+  if (deliveryDate && !TERMINAL_ST.has(status)) {
+    if (deliveryDate < today) return 0
+    if (deliveryDate === tomorrow) return 1
+  }
+  if (ACTIVE_ST.has(status)) return 2
+  return 3
+}
+
+// R7:交付徽章(复用 R5 逾期判定口径)——已设日期且非终态:<今天 红已逾期,=明天 黄明天截止;否则不渲染
+function DeliveryBadge({ row, today, tomorrow }: { row: RecentRow; today: string; tomorrow: string }) {
+  if (!row.delivery_date || TERMINAL_ST.has(row.status)) return null
+  if (row.delivery_date < today) return <span className="bdg b-red small">已逾期</span>
+  if (row.delivery_date === tomorrow) return <span className="bdg b-amber small">明天截止</span>
+  return null
 }
 
 const DIMS: Dim[] = [
@@ -63,9 +108,20 @@ export function Dashboard() {
 
   const lists = DIMS.map((d) => {
     const block: DashboardBlock = (summary as any)?.[d.key] ?? { total: 0, by_status: {}, recent: [] }
-    const rows = block.recent as { task_id?: string; req_id?: string; title: string; status: string; project: { name?: string }; updated_at?: string }[]
+    const rows = block.recent as RecentRow[]
+    // R7:行动优先前端 resort(数据仍后端 recent 5 条)——已逾期 > 明天截止 > 运行中/待办 > 最近更新;同级更新时间倒序
+    const today = gmt8Date()
+    const tomorrow = gmt8Date(1)
+    const sorted = rows
+      .slice()
+      .sort((a, b) => {
+        const ra = actionRank(a.status, a.delivery_date, today, tomorrow)
+        const rb = actionRank(b.status, b.delivery_date, today, tomorrow)
+        if (ra !== rb) return ra - rb
+        return (b.updated_at ?? '').localeCompare(a.updated_at ?? '')
+      })
     const emptyText = d.key === 'requirements' ? '暂无需求,去创建第一个需求' : `暂无${d.name}`
-    const idOf = (r: { task_id?: string; req_id?: string }) => r.task_id ?? r.req_id ?? ''
+    const idOf = (r: RecentRow) => r.task_id ?? r.req_id ?? ''
     return (
       <div className="card" key={d.key}>
         <div className="card-head">
@@ -75,7 +131,7 @@ export function Dashboard() {
           </a>
         </div>
         <div>
-          {rows.length ? rows.map((it) => (
+          {sorted.length ? sorted.map((it) => (
             <div
               key={idOf(it)}
               className="dlist-row"
@@ -83,7 +139,12 @@ export function Dashboard() {
             >
               <span className="ttl"><b className="mono small">{idOf(it).slice(0, 8)}</b> · {it.title}</span>
               <span className="small muted nowrap">{it.project?.name || '—'}</span>
-              <span className="bdg b-zinc small">{ST_CN[it.status] ?? it.status}</span>
+              {/* R7:running 行状态徽章内加 pulse dot(复用 TaskDetail StatusBadge / globals .dot.pulse 写法) */}
+              <span className="bdg b-zinc small">
+                {it.status === 'running' && <span className="dot pulse" />}
+                {ST_CN[it.status] ?? it.status}
+              </span>
+              <DeliveryBadge row={it} today={today} tomorrow={tomorrow} />
               <span className="mono small faint nowrap">{fmtTime(it.updated_at)}</span>
             </div>
           )) : <div className="empty">{emptyText}</div>}
@@ -97,7 +158,7 @@ export function Dashboard() {
       <div className="page-head">
         <div>
           <h1 className="flex items-center gap-2"><LayoutDashboard size={18} /> 工作台</h1>
-          <div className="sub">与我相关的四类数据 · 口径「我创建的」(created_by=me)+ 成员项目过滤,与四维管理菜单同源工具(R21)</div>
+          <div className="sub">与我相关的四类数据 · 口径「关联用户∪创建者」+ 成员项目过滤,与四维管理菜单同源工具(R21/R7)</div>
         </div>
       </div>
       {hasProject ? (

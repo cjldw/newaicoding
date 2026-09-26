@@ -16,6 +16,8 @@ export interface RecentRequirement {
   status: string
   project: DashboardProjectRef
   updated_at: string
+  /** R7:交付时间透传(DATE 串),前端逾期/明天截止徽章用 */
+  delivery_date?: string | null
 }
 
 export interface RecentTask {
@@ -25,6 +27,8 @@ export interface RecentTask {
   type?: string
   project: DashboardProjectRef
   updated_at: string
+  /** R7:传导需求的交付时间透传(DATE 串),前端逾期/明天截止徽章用 */
+  delivery_date?: string | null
 }
 
 export interface DashboardBlock {
