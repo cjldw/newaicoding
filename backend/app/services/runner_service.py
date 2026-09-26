@@ -165,6 +165,37 @@ def resolve_request(req_id: str, ok: bool, data=None, error: str = "") -> bool:
 
 
 # ---------------------------------------------------------------------------
+# R32:tags 校验
+# ---------------------------------------------------------------------------
+ALLOWED_TASK_TAGS = {"requirement", "dev", "test"}
+
+
+def validate_tags(value, role: str) -> list[str]:
+    """
+    R32 tags 校验:
+    - 必须 list[str],每值 ∈ {requirement,dev,test},去重保序
+    - deploy 角色必须空(非空 → 16008)
+    - 非法值 → 16008
+    """
+    if value is None:
+        value = []
+    if not isinstance(value, list):
+        raise BizError(ErrCode.RUNNER_TAG_INVALID, f"任务类型标签非法:{value}")
+    # 单遍完成校验+去重保序(失败即抛,不进列表)
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for v in value:
+        if not isinstance(v, str) or v not in ALLOWED_TASK_TAGS:
+            raise BizError(ErrCode.RUNNER_TAG_INVALID, f"任务类型标签非法:{v}")
+        if v not in seen:
+            seen.add(v)
+            deduped.append(v)
+    if role == "deploy" and deduped:
+        raise BizError(ErrCode.RUNNER_TAG_INVALID, "deploy Runner 不参与任务类型标签")
+    return deduped
+
+
+# ---------------------------------------------------------------------------
 # R16:Runner 管理(超管)
 # ---------------------------------------------------------------------------
 def _generate_token() -> str:
@@ -174,16 +205,20 @@ def _generate_token() -> str:
 async def create_runner(
     db: AsyncSession, operator_user_id: str,
     name: str, role: str, max_containers: int = 10, public_ip: Optional[str] = None,
+    tags: Optional[list] = None,
 ) -> tuple[Runner, str]:
     """
     超管创建 Runner 并生成一次性 token(仅创建响应显示一次,平台只存 bcrypt hash)。
     deploy 角色必须提供 public_ip(部署 URL 指向)。
+    R32:tags 校验 + 落库。
     """
     dup = await db.execute(select(Runner.id).where(Runner.name == name).limit(1))
     if dup.scalar_one_or_none() is not None:
         raise BizError(ErrCode.CONFIG_NAME_DUPLICATE, "同名 Runner 已存在")
     if role == "deploy" and not public_ip:
         raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "deploy 角色必须填写公网 IP")
+    # R32:tags 校验(deploy + 非空 tags → 16008)
+    validated_tags = validate_tags(tags, role)
 
     token = _generate_token()
     runner = Runner(
@@ -194,12 +229,57 @@ async def create_runner(
         public_ip=public_ip,
         created_by=operator_user_id,
         status="offline",
+        tags=validated_tags or None,
     )
     db.add(runner)
     await db.flush()
     await db.refresh(runner)
-    logger.info("Runner 创建 name=%s role=%s by=%s", name, role, operator_user_id)
+    logger.info("Runner 创建 name=%s role=%s tags=%s by=%s", name, role, validated_tags, operator_user_id)
     return runner, token
+
+
+async def update_runner(
+    db: AsyncSession, runner_id: str, **kwargs,
+) -> tuple[Runner, dict]:
+    """
+    R32:Runner 全字段编辑(PATCH)。
+    支持字段:name/max_containers/tags/public_ip。
+    - role/token/is_local 不可编辑(换角色=删了重建,分片边界明令)
+    - name 变更 → 唯一校验(自撞防护:未变跳过,A4)
+    - tags → validate_tags(deploy+非空 → 16008)
+    - disabled 行允许编辑(禁用只挡调度,元数据无碍,A3)
+    返回 (runner, before快照) 供 API 层审计(runner.update)。
+    """
+    runner = await get_runner_or_404(db, runner_id)
+    before = {
+        "name": runner.name,
+        "max_containers": runner.max_containers,
+        "public_ip": runner.public_ip,
+        "tags": list(runner.tags or []),
+    }
+    # 逐字段赋值(仅处理传入字段,未传=不改动)
+    if "name" in kwargs and kwargs["name"] is not None:
+        new_name = kwargs["name"]
+        # 名称未变跳过唯一校验(避免自撞,A4)
+        if new_name != runner.name:
+            dup = await db.execute(select(Runner.id).where(Runner.name == new_name).limit(1))
+            if dup.scalar_one_or_none() is not None:
+                raise BizError(ErrCode.RUNNER_NAME_EXISTS, "Runner 名称已存在,请更换")
+            runner.name = new_name
+    if "max_containers" in kwargs and kwargs["max_containers"] is not None:
+        runner.max_containers = kwargs["max_containers"]
+    if "public_ip" in kwargs:
+        # deploy 行公网 IP 置空 → 2007 口径拒绝(沿用 create 既有文案;非 deploy 不限)
+        if runner.role == "deploy" and not (kwargs["public_ip"] or "").strip():
+            raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "deploy 角色必须填写公网 IP")
+        runner.public_ip = kwargs["public_ip"]
+    if "tags" in kwargs:
+        validated = validate_tags(kwargs["tags"], runner.role)
+        runner.tags = validated or None
+    await db.flush()
+    await db.refresh(runner)
+    logger.info("Runner 更新 runner=%s fields=%s", runner_id, list(kwargs.keys()))
+    return runner, before
 
 
 async def get_runner_or_404(db: AsyncSession, runner_id: str) -> Runner:
@@ -386,11 +466,12 @@ async def handle_sync(db: AsyncSession, runner: Runner, reported: list[dict]) ->
 # ---------------------------------------------------------------------------
 # R16:DB 调度器(container_service 消费)
 # ---------------------------------------------------------------------------
-async def pick_runner_db(db: AsyncSession, required_role: str = "worker") -> Optional[Runner]:
+async def pick_runner_db(db: AsyncSession, required_role: str = "worker", task_tag: Optional[str] = None) -> Optional[Runner]:
     """
     任务调度:status=online AND current_containers < max_containers AND role 匹配,
     current_containers 最少;并列时按随机(ORDER BY 随机成本高,取前 5 随机选)。
     角色:worker → role=worker;deploy → role=deploy。
+    R32:应用层过滤 tags(空/NULL=兜底接所有;非空=只接同名 task_tag)。
     """
     role = "deploy" if required_role == "deploy" else "worker"
     result = await db.execute(
@@ -406,6 +487,14 @@ async def pick_runner_db(db: AsyncSession, required_role: str = "worker") -> Opt
     candidates = list(result.scalars().all())
     if not candidates:
         return None
+    # R32:应用层 tags 过滤(空/NULL=兜底接所有;非空=只接同名 task_tag)
+    # 热路径:not r.tags 短路即可判空,不做 set 分配(code-review #3)
+    if task_tag:
+        candidates = [r for r in candidates if not r.tags or task_tag in r.tags]
+        if not candidates:
+            # Q61:调度日志细分,排障可辨"等哪类专属 Runner"
+            logger.info("调度无候选:等待 %s 专属 Runner", task_tag)
+            return None
     min_load = candidates[0].current_containers
     least = [r for r in candidates if r.current_containers == min_load]
     return random.choice(least)

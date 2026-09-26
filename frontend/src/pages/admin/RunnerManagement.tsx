@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react'
-import { Plus, Copy, RefreshCcw, Ban, Trash2, Server, Terminal, Play, Square, RotateCcw } from 'lucide-react'
+import { Plus, Copy, RefreshCcw, Ban, Trash2, Server, Terminal, Play, Square, RotateCcw, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -20,10 +20,13 @@ import { TerminalPanel } from '@/components/TerminalPanel'
 import {
   useRunners, useCreateRunner, useResetRunnerToken, useDisableRunner, useDeleteRunner,
   useCreateLocalRunner, useStartRunner, useStopRunner, useRestartRunner,
+  useUpdateRunner,
   getRunnerErrorMessage,
+  TAG_OPTIONS,
 } from '@/api/admin/runners'
+import { ApiError } from '@/api/client'
 import { createRunnerShellSession, closeTerminalSession, type TerminalSession } from '@/api/terminal'
-import type { Runner } from '@/api/admin/runners'
+import type { Runner, TagValue } from '@/api/admin/runners'
 
 const ROLE_OPTIONS = [
   { label: '工作节点(跑任务容器)', value: 'worker' },
@@ -39,6 +42,36 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   online: { label: '在线', cls: 'bdg b-green' },
   offline: { label: '离线', cls: 'bdg b-amber' },
   disabled: { label: '禁用', cls: 'bdg b-zinc' },
+}
+// R32:任务类型标签徽章(requirement=需求/b-blue,dev=开发/b-violet,test=测试/b-amber)
+const TAG_BADGE: Record<string, { label: string; cls: string }> = {
+  requirement: { label: '需求', cls: 'bdg b-blue' },
+  dev: { label: '开发', cls: 'bdg b-violet' },
+  test: { label: '测试', cls: 'bdg b-amber' },
+}
+
+/** R32:TagPicker 内联组件(3 checkbox + Label;三弹窗复用) */
+function TagPicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>任务类型标签</Label>
+      <div className="flex gap-4">
+        {TAG_OPTIONS.map(opt => (
+          <label key={opt.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={value.includes(opt.value)}
+              onChange={e => {
+                if (e.target.checked) onChange([...value, opt.value])
+                else onChange(value.filter(v => v !== opt.value))
+              }}
+            />
+            {opt.label}
+          </label>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function formatTime(s: string | null) {
@@ -79,12 +112,14 @@ export function RunnerManagement() {
   const startRunner = useStartRunner()
   const stopRunner = useStopRunner()
   const restartRunner = useRestartRunner()
+  // R32:编辑 Runner
+  const updateRunner = useUpdateRunner()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [successOpen, setSuccessOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
   const [resetSuccessOpen, setResetSuccessOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', role: 'worker' as 'worker' | 'deploy', max_containers: 10, public_ip: '' })
+  const [form, setForm] = useState({ name: '', role: 'worker' as 'worker' | 'deploy', max_containers: 10, public_ip: '', tags: [] as string[] })
   const [createdToken, setCreatedToken] = useState('')
   const [createdName, setCreatedName] = useState('')
   const [resetTokenValue, setResetTokenValue] = useState('')
@@ -93,12 +128,18 @@ export function RunnerManagement() {
 
   // R31:快速创建弹窗(名称/最大容器数)+ 提交 pending;本机行操作 pending(runner_id)
   const [localOpen, setLocalOpen] = useState(false)
-  const [localForm, setLocalForm] = useState({ name: '', max_containers: 10 })
+  const [localForm, setLocalForm] = useState({ name: '', max_containers: 10, tags: [] as string[] })
   const [localErr, setLocalErr] = useState<string | null>(null)
   const [localBusy, setLocalBusy] = useState(false)
   const [runnerBusy, setRunnerBusy] = useState<string | null>(null)
   // R31:本机删除二次确认(代停语义提示)
   const [localDeleteTarget, setLocalDeleteTarget] = useState<Runner | null>(null)
+  // R32:编辑弹窗状态
+  const [editOpen, setEditOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<Runner | null>(null)
+  const [editForm, setEditForm] = useState({ name: '', max_containers: 10, tags: [] as string[], public_ip: '' })
+  const [editErr, setEditErr] = useState<string | null>(null)
+  const [editBusy, setEditBusy] = useState(false)
 
   // R26:Runner 宿主终端(shell 会话;并发上限 1 由后端 6002 把关)
   const [shellRunner, setShellRunner] = useState<Runner | null>(null)
@@ -135,7 +176,7 @@ export function RunnerManagement() {
   }
 
   function openCreate() {
-    setForm({ name: '', role: 'worker', max_containers: 10, public_ip: '' })
+    setForm({ name: '', role: 'worker', max_containers: 10, public_ip: '', tags: [] })
     setCreateOpen(true)
   }
 
@@ -143,7 +184,7 @@ export function RunnerManagement() {
     if (!form.name.trim()) { setMsg({ type: 'error', text: '名称不能为空' }); return }
     if (form.role === 'deploy' && !form.public_ip.trim()) { setMsg({ type: 'error', text: '公网 IP 不能为空' }); return }
     try {
-      const payload = { name: form.name.trim(), role: form.role, max_containers: form.max_containers, ...(form.role === 'deploy' ? { public_ip: form.public_ip.trim() } : {}) }
+      const payload = { name: form.name.trim(), role: form.role, max_containers: form.max_containers, tags: form.tags, ...(form.role === 'deploy' ? { public_ip: form.public_ip.trim() } : {}) }
       const res = await createRunner.mutateAsync(payload)
       setCreatedToken(res.data.token)
       setCreatedName(res.data.name)
@@ -184,6 +225,7 @@ export function RunnerManagement() {
       const res = await createLocalRunner.mutateAsync({
         name: localForm.name.trim() || undefined,
         max_containers: localForm.max_containers,
+        tags: localForm.tags, // R32:本机快速创建带 tag
       })
       setLocalOpen(false)
       const st = res.data.status
@@ -238,6 +280,48 @@ export function RunnerManagement() {
     }
   }
 
+  // R32:打开编辑弹窗(回填当前行数据)
+  function openEdit(r: Runner) {
+    setEditTarget(r)
+    setEditForm({
+      name: r.name,
+      max_containers: r.max_containers,
+      tags: r.tags || [],
+      public_ip: r.public_ip || '',
+    })
+    setEditErr(null)
+    setEditOpen(true)
+  }
+
+  // R32:编辑保存(16005 名称冲突/16008 标签非法 → 弹窗不关 + Alert 原文 + 输入保留)
+  async function handleEditSubmit() {
+    if (!editTarget) return
+    setEditBusy(true)
+    setEditErr(null)
+    try {
+      await updateRunner.mutateAsync({
+        runnerId: editTarget.runner_id,
+        data: {
+          name: editForm.name.trim(),
+          max_containers: editForm.max_containers,
+          tags: editForm.tags,
+          ...(editTarget.role === 'deploy' ? { public_ip: editForm.public_ip.trim() } : {}),
+        },
+      })
+      setEditOpen(false)
+      setMsg({ type: 'success', text: 'Runner 已更新' })
+    } catch (e) {
+      // 16005/16008 直显后端原文;其他错误走通用文案
+      if (e instanceof ApiError && (e.code === 16005 || e.code === 16008)) {
+        setEditErr(e.message)
+      } else {
+        setEditErr(getRunnerErrorMessage(e))
+      }
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
   function copyToken(t: string) { navigator.clipboard.writeText(t) }
 
   const startupCmd = `docker run -d \\
@@ -257,7 +341,7 @@ export function RunnerManagement() {
         </div>
         <div className="acts">
           {/* R31:本机快速创建(与远程 token 流程并存);acts 主按钮最多一个,快速创建降次级 */}
-          <Button onClick={() => { setLocalForm({ name: '', max_containers: 10 }); setLocalErr(null); setLocalOpen(true) }}>
+          <Button onClick={() => { setLocalForm({ name: '', max_containers: 10, tags: [] }); setLocalErr(null); setLocalOpen(true) }}>
             <Plus className="w-4 h-4 mr-1" />快速创建(本机)
           </Button>
           <Button variant="primary" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />新建 Runner</Button>
@@ -271,12 +355,13 @@ export function RunnerManagement() {
           <TableHeader>
             <TableRow>
               <TableHead>名称</TableHead><TableHead>角色</TableHead><TableHead>状态</TableHead>
+              <TableHead>任务类型</TableHead>
               <TableHead>当前容器数</TableHead><TableHead>机器信息</TableHead><TableHead>最后心跳</TableHead>
               <TableHead className="ops">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && <TableRow><TableCell colSpan={7} className="text-center py-8 text-text-muted">加载中…</TableCell></TableRow>}
+            {isLoading && <TableRow><TableCell colSpan={8} className="text-center py-8 text-text-muted">加载中…</TableCell></TableRow>}
             {runners?.map(r => {
               const rb = ROLE_BADGE[r.role]; const sb = STATUS_BADGE[r.status]
               const busy = runnerBusy === r.runner_id
@@ -289,6 +374,16 @@ export function RunnerManagement() {
                     <span className={sb.cls}>{sb.label}</span>
                     {/* R31:本机快速创建标记 chip */}
                     {r.is_local && <span className="chip" style={{ marginLeft: 6 }}>本机</span>}
+                  </TableCell>
+                  {/* R32:任务类型列——有 tag 渲染对应 chips,空 tags 显示「通用」chip */}
+                  <TableCell>
+                    {(r.tags && r.tags.length > 0)
+                      ? r.tags.map(t => {
+                          const tb = TAG_BADGE[t]
+                          return <span key={t} className={tb.cls} style={{ marginRight: 4 }}>{tb.label}</span>
+                        })
+                      : <span className="chip">通用</span>
+                    }
                   </TableCell>
                   <TableCell>{r.current_containers}/{r.max_containers}</TableCell>
                   <TableCell className="text-text-muted">{formatMachine(r)}</TableCell>
@@ -322,11 +417,27 @@ export function RunnerManagement() {
                           </>
                         )}
                         {' '}
+                        {/* R32:本机行编辑按钮 */}
+                        <button className="btn btn-sm" disabled={busy} onClick={() => {
+                          setEditTarget(r)
+                          setEditForm({ name: r.name, max_containers: r.max_containers, tags: r.tags || [], public_ip: r.public_ip || '' })
+                          setEditErr(null)
+                          setEditOpen(true)
+                        }}><Pencil className="w-3.5 h-3.5 mr-1" />编辑</button>
+                        {' '}
                         <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => setLocalDeleteTarget(r)}><Trash2 className="w-3.5 h-3.5 mr-1" />删除</button>
                       </>
                     ) : (
-                      /* 远程行:R16 原操作,零改动 */
+                      /* 远程行:R16 原操作 + R32 编辑 */
                       <>
+                        {/* R32:远程行编辑按钮 */}
+                        <button className="btn btn-sm" onClick={() => {
+                          setEditTarget(r)
+                          setEditForm({ name: r.name, max_containers: r.max_containers, tags: r.tags || [], public_ip: r.public_ip || '' })
+                          setEditErr(null)
+                          setEditOpen(true)
+                        }}><Pencil className="w-3.5 h-3.5 mr-1" />编辑</button>
+                        {' '}
                         <button className="btn btn-sm" onClick={() => { setResetTarget(r); setResetOpen(true) }}><RefreshCcw className="w-3.5 h-3.5 mr-1" />重置 token</button>
                         {' '}
                         <button className="btn btn-sm" onClick={() => handleDisable(r)}><Ban className="w-3.5 h-3.5 mr-1" />禁用</button>
@@ -338,7 +449,7 @@ export function RunnerManagement() {
                 </TableRow>
               )
             })}
-            {!isLoading && !runners?.length && <TableRow><TableCell colSpan={7} className="text-center py-8 text-text-muted">暂无 Runner</TableCell></TableRow>}
+            {!isLoading && !runners?.length && <TableRow><TableCell colSpan={8} className="text-center py-8 text-text-muted">暂无 Runner</TableCell></TableRow>}
           </TableBody>
         </Table>
       </div>
@@ -353,6 +464,8 @@ export function RunnerManagement() {
             <div className="space-y-1.5"><Label>角色</Label><Select options={ROLE_OPTIONS} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value as 'worker' | 'deploy' }))} /></div>
             <div className="space-y-1.5"><Label>最大容器数</Label><Input type="number" value={form.max_containers} onChange={e => setForm(f => ({ ...f, max_containers: Number(e.target.value) || 10 }))} /></div>
             {form.role === 'deploy' && <div className="space-y-1.5"><Label>公网 IP</Label><Input placeholder="部署 URL 将指向该 IP" value={form.public_ip} onChange={e => setForm(f => ({ ...f, public_ip: e.target.value }))} /></div>}
+            {/* R32:新建远程 Runner 加 tag 多选(默认全不勾=兜底) */}
+            <TagPicker value={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} />
           </div>
           <DialogFooter className="pt-4"><Button variant="ghost" onClick={() => setCreateOpen(false)}>取消</Button><Button variant="primary" onClick={handleCreate}>创建</Button></DialogFooter>
         </DialogContent>
@@ -398,6 +511,8 @@ export function RunnerManagement() {
           <div className="space-y-4 pt-2">
             <div className="space-y-1.5"><Label>名称</Label><Input placeholder="留空自动生成 local-xxxxxxxx" value={localForm.name} onChange={e => setLocalForm(f => ({ ...f, name: e.target.value }))} /></div>
             <div className="space-y-1.5"><Label>最大容器数</Label><Input type="number" min={1} max={100} value={localForm.max_containers} onChange={e => setLocalForm(f => ({ ...f, max_containers: Number(e.target.value) || 10 }))} /></div>
+            {/* R32:本机快速创建加 tag 多选(默认全不勾=兜底) */}
+            <TagPicker value={localForm.tags} onChange={v => setLocalForm(f => ({ ...f, tags: v }))} />
           </div>
           <DialogFooter className="pt-4">
             <Button variant="ghost" onClick={() => { setLocalOpen(false); setLocalErr(null) }}>取消</Button>
@@ -417,6 +532,48 @@ export function RunnerManagement() {
             <Button variant="ghost" onClick={() => setLocalDeleteTarget(null)}>取消</Button>
             <Button variant="primary" disabled={!!localDeleteTarget && runnerBusy === localDeleteTarget.runner_id} onClick={handleLocalDeleteConfirmed}>
               {localDeleteTarget && runnerBusy === localDeleteTarget.runner_id ? '停止容器中…' : '确认删除'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* R32:编辑 Runner 弹窗(500px;deploy 行显示公网 IP 必填 + 隐藏 tags 并提示;worker 行显示 tags 多选) */}
+      <Dialog open={editOpen} onOpenChange={(o) => { if (!o) setEditOpen(false) }}>
+        <DialogContent className="w-[500px]">
+          <DialogHeader>
+            <DialogTitle>编辑 Runner</DialogTitle>
+            <DialogDescription>修改 Runner 名称、最大容器数与任务类型标签</DialogDescription>
+          </DialogHeader>
+          {editErr && <Alert variant="error">{editErr}</Alert>}
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>名称</Label>
+              <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} maxLength={64} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>最大容器数</Label>
+              <Input type="number" min={1} max={100} value={editForm.max_containers} onChange={e => setEditForm(f => ({ ...f, max_containers: Number(e.target.value) || 10 }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>角色</Label>
+              <div className="text-sm text-text-secondary">{editTarget?.role === 'deploy' ? 'deploy' : 'worker'}</div>
+            </div>
+            {editTarget?.role === 'deploy' ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label>公网 IP<span className="text-red-500">*</span></Label>
+                  <Input value={editForm.public_ip} onChange={e => setEditForm(f => ({ ...f, public_ip: e.target.value }))} placeholder="例如 1.2.3.4" />
+                </div>
+                <div className="text-xs text-text-muted">deploy Runner 不参与任务类型标签</div>
+              </>
+            ) : (
+              <TagPicker value={editForm.tags} onChange={v => setEditForm(f => ({ ...f, tags: v }))} />
+            )}
+          </div>
+          <DialogFooter className="pt-4">
+            <Button variant="ghost" onClick={() => setEditOpen(false)}>取消</Button>
+            <Button variant="primary" disabled={editBusy} onClick={handleEditSubmit}>
+              {editBusy ? '保存中…' : '保存'}
             </Button>
           </DialogFooter>
         </DialogContent>

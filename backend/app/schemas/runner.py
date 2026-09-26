@@ -13,6 +13,8 @@ class CreateRunnerRequest(BaseModel):
     max_containers: int = Field(default=10, ge=1, le=100)
     # deploy 时必填(服务层校验)
     public_ip: Optional[str] = Field(default=None, max_length=64)
+    # R32:任务类型标签(空/缺省=通用兜底;服务层 validate_tags 校验)
+    tags: Optional[list[str]] = None
 
 
 class CreateRunnerData(BaseModel):
@@ -37,6 +39,7 @@ class RunnerItem(BaseModel):
     max_containers: int
     public_ip: Optional[str] = None
     is_local: bool = False  # R31:本机快速创建标记
+    tags: list[str] = []  # R32:任务类型标签(恒数组,NULL 存量折 [])
     created_at: datetime
 
 

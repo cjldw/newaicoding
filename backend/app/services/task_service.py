@@ -135,6 +135,8 @@ async def create_polish_task(db: AsyncSession, project: Project, requirement: Re
         owner_user_id=requirement.created_by,
         env=env,
         repos=repos,
+        # R32:打磨任务固定 requirement 专属匹配(未打 requirement 标的通用 Runner 兜底可接)
+        task_tag="requirement",
     )
     # 调度成功即运行(打磨容器与 start_task 同口径置 running)
     task.status = "running"
@@ -395,6 +397,9 @@ async def start_task(db: AsyncSession, task: Task, project: Project, requirement
 
     # R7:发布任务固定在 deploy Runner(R16 role=deploy)
     required_role = "deploy" if task.type == "release" else "worker"
+    # R32:任务类型标签透传调度(requirement/dev/test 参与专属匹配;release 不参与 tag)
+    # 枚举单源:复用 runner_service.ALLOWED_TASK_TAGS,防止两处硬编码漂移(code-review #1)
+    task_tag = task.type if task.type in runner_service.ALLOWED_TASK_TAGS else None
     await container_service.schedule_and_start(
         db,
         project_id=project.project_id,
@@ -403,6 +408,7 @@ async def start_task(db: AsyncSession, task: Task, project: Project, requirement
         env=env,
         repos=repos,
         required_role=required_role,
+        task_tag=task_tag,
     )
 
     # R6:test 任务容器拉起后先进"用例审阅"(AI 生成用例 → 用户确认后才 running)
