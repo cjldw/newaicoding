@@ -41,19 +41,27 @@ async def update_platform_settings(
     超管更新配置(部分更新 {key: value});仅白名单 key 可写,非法值 2007。
     变更即时生效(读取处实时查表)。R25:审计在 API 层接入(service 签名不改)。
     """
-    # R23: payload 含 llm_* 键时,先整批校验(2007)→ 连通性测试(失败 2008)→ 才落库
-    llm_keys = {"llm_base_url", "llm_api_key", "llm_model"}
-    provided = llm_keys & payload.keys()
+    # R23→R1: payload 含任一 llm_* 键时,先整批校验(2007)→ 连通性测试(失败 2008)→ 才落库。
+    # R1 起齐备口径为四键(service.LLM_KEYS:base_url/api_key/models/default_model,旧键 llm_model 出局)
+    provided = platform_settings_service.LLM_KEYS & payload.keys()
     if provided:
         # 齐备性前置:缺任一键 2007(必须先于下方取键,避免 KeyError)
-        if provided != llm_keys:
-            raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "平台默认模型需完整配置三项")
+        if provided != platform_settings_service.LLM_KEYS:
+            raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "平台默认模型需完整配置四项")
         # 逐键预校验(与 update_settings 同规则;提前到测试前,非法格式不必等网络超时)
         for key in provided:
             platform_settings_service.validate_setting_value(key, payload[key])
+        # R1: 默认模型必须是 llm_models 已有项(归一化后比对;校验拒绝,先于连通测试)
+        models = platform_settings_service.validate_setting_value("llm_models", payload["llm_models"])
+        default_model = platform_settings_service.validate_setting_value(
+            "llm_default_model", payload["llm_default_model"]
+        )
+        if default_model not in models:
+            raise BizError(ErrCode.PLATFORM_SETTING_INVALID, "默认模型必须为模型名列表中的已有项")
         try:
+            # R1: 连通测试对象=默认模型(其余模型名不做保存期测试,运行时报错沿用 R23 口径)
             await llm_service.test_connectivity(
-                payload["llm_base_url"], payload["llm_api_key"], payload["llm_model"]
+                payload["llm_base_url"], payload["llm_api_key"], default_model
             )
         except BizError as e:
             # 项目级测试失败是 13001;平台默认保存失败用独立码 2008,便于前端区分文案

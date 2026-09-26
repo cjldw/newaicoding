@@ -69,6 +69,10 @@ class ErrCode:
     CONFIG_DEFAULT_EXISTS = 13003  # 同项目已有 default 配置
     CONFIG_DEFAULT_UNDELETABLE = 13004  # 不可删除 default 配置
 
+    # R1 平台多模型配置(13xxx 段顺延)
+    LLM_MODELS_LIMIT = 13008       # 平台模型名数超上限(>10)
+    LLM_MODEL_DUPLICATE = 13009    # 平台模型名重复(llm_models 列表内去重校验失败)
+
     # R17 MCP / Skills
     MCP_JSON_INVALID = 17001       # MCP 配置 JSON 格式错误(message 携带行号)
     SKILL_ALREADY_INSTALLED = 17002  # 已安装过该 Skill

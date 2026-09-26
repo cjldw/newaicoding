@@ -152,22 +152,27 @@ async def resolve_config(db, project_id: str, config_id: Optional[str] = None) -
 
 async def _resolve_platform_config(db) -> dict:
     """
-    R23: 平台默认 LLM 回退(llm_base_url / llm_api_key / llm_model 三键齐备才生效)。
+    R23: 平台默认 LLM 回退(llm_base_url / llm_api_key + R1 的 llm_models /
+    llm_default_model,四键齐备才生效)。
+    R1: 模型经 service 读取层兼容(存量单值 llm_model → [旧值];default 缺失 →
+    列表第一项),返回 model=默认模型。
     任一缺失 → 13005;部分键存在(手工改库等异常)按未配置处理并告警。
     """
     from app.services.platform_settings_service import get_setting
 
     base_url = await get_setting(db, "llm_base_url")
     api_key = await get_setting(db, "llm_api_key")
-    model = await get_setting(db, "llm_model")
+    models = await get_setting(db, "llm_models")
+    model = await get_setting(db, "llm_default_model")
 
     # 部分键存在:视为未配置,告警便于排查脏数据
     present = [name for name, value in
-               (("llm_base_url", base_url), ("llm_api_key", api_key), ("llm_model", model)) if value]
-    if present and len(present) < 3:
+               (("llm_base_url", base_url), ("llm_api_key", api_key),
+                ("llm_models", models), ("llm_default_model", model)) if value]
+    if present and len(present) < 4:
         logger.warning("平台默认 LLM 配置不完整(仅 %s),按未配置处理", present)
 
-    if not base_url or not api_key or not model:
+    if not base_url or not api_key or not models or not model:
         raise BizError(
             13005,
             "项目与平台均未配置模型,请联系管理员配置平台默认或在项目设置中添加模型配置",

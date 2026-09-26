@@ -162,7 +162,7 @@ class TestConsumersCleanBizCode:
 
     @pytest.mark.asyncio
     async def test_resolve_config_stale_llm_key_returns_13005(self, db_session, registered_user):
-        """llm_base_url/llm_model 正常 + llm_api_key 失效 → 13005(修复前:InvalidTag)"""
+        """llm_base_url/llm_models/llm_default_model 正常 + llm_api_key 失效 → 13005(修复前:InvalidTag)"""
         from app.core.response import BizError
         from app.services import llm_service
 
@@ -171,7 +171,8 @@ class TestConsumersCleanBizCode:
         project = await _insert_project(db_session, registered_user["user_id"])
         await _insert_platform_setting(db_session, "llm_base_url", "https://platform-llm.example.com/v1")
         await _insert_stale_encrypted_setting(db_session, "llm_api_key", "sk-stale")
-        await _insert_platform_setting(db_session, "llm_model", "platform-model")
+        await _insert_platform_setting(db_session, "llm_models", ["platform-model"])
+        await _insert_platform_setting(db_session, "llm_default_model", "platform-model")
 
         with pytest.raises(BizError) as exc_info:
             await llm_service.resolve_config(db_session, project.project_id)
@@ -185,7 +186,8 @@ class TestConsumersCleanBizCode:
         project = await _insert_project(db_session, registered_user["user_id"])
         await _insert_platform_setting(db_session, "llm_base_url", "https://platform-llm.example.com/v1")
         await _insert_stale_encrypted_setting(db_session, "llm_api_key", "sk-stale")
-        await _insert_platform_setting(db_session, "llm_model", "platform-model")
+        await _insert_platform_setting(db_session, "llm_models", ["platform-model"])
+        await _insert_platform_setting(db_session, "llm_default_model", "platform-model")
 
         resp = await client.get(
             f"/api/projects/{project.project_id}/model-configs/resolvable",

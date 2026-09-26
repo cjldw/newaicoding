@@ -2,7 +2,7 @@
 R23 平台默认 LLM 配置与项目回退链 — Red phase (失败测试)
 =====================================================
 覆盖 R23.md 完成判据 1-7,10:
-1. SETTING_KEYS 加 3 键 + str 类型 + 三键齐备校验
+1. SETTING_KEYS 加 llm_* 键 + 类型校验 + 齐备校验
 2. 保存连通测试(2008)
 3. GET 回显打码
 4. resolve_config 平台回退
@@ -11,7 +11,10 @@ R23 平台默认 LLM 配置与项目回退链 — Red phase (失败测试)
 7. 项目优先于平台
 10. 异常:部分键存在
 
-预期:全部失败或跳过(红测阶段,功能未实现)
+R1 口径迁移(改口径不改意图):llm 单值 llm_model 升级为 llm_models 列表 +
+llm_default_model,齐备口径三键 → 四键;原「三键」保存/回显/回退用例统一
+改用四键 payload 与断言。存量旧键兼容行为由 tests/test_platform_llm_models.py
+(TestGetCompatMapping / TestResolvePlatformConfigCompat)专门覆盖。
 """
 import uuid
 import contextlib
@@ -62,31 +65,32 @@ async def _create_project_config(db_session, project_id: str, created_by: str = 
 
 
 # ---------------------------------------------------------------------------
-# 判据 1:SETTING_KEYS 加 3 键 + str 类型 + 三键齐备校验
+# 判据 1:SETTING_KEYS llm_* 键 + 类型校验 + 齐备校验(R1 起四键)
 # ---------------------------------------------------------------------------
 class TestPlatformSettingsLLMKeys:
     """PUT /api/admin/platform-settings 含 llm_* 键"""
 
     @pytest.mark.asyncio
     async def test_put_partial_llm_keys_rejected(self, client, superadmin_headers):
-        """含部分 llm_* 键返回 2007(三键必须齐备)"""
+        """含部分 llm_* 键返回 2007(R1 起四键必须齐备)"""
         resp = await client.put(
             "/api/admin/platform-settings",
             headers=superadmin_headers,
             json={
                 "llm_base_url": "https://llm.example.com/v1",
                 "llm_api_key": "sk-test-key-1234567890",
-                # 缺 llm_model
+                # 缺 llm_models / llm_default_model
             },
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 2007
-        assert "三键" in data["message"] or "齐备" in data["message"] or "完整" in data["message"]
+        assert "四键" in data["message"] or "四项" in data["message"] \
+            or "齐备" in data["message"] or "完整" in data["message"]
 
     @pytest.mark.asyncio
     async def test_put_all_llm_keys_success(self, client, superadmin_headers):
-        """三键齐备 + 连通测试成功 → 200"""
+        """四键齐备 + 连通测试成功 → 200"""
         with _llm_mock(_llm_ok_handler):
             resp = await client.put(
                 "/api/admin/platform-settings",
@@ -94,7 +98,8 @@ class TestPlatformSettingsLLMKeys:
                 json={
                     "llm_base_url": "https://llm.example.com/v1",
                     "llm_api_key": "sk-test-key-1234567890",
-                    "llm_model": "claude-sonnet-5",
+                    "llm_models": ["claude-sonnet-5"],
+                    "llm_default_model": "claude-sonnet-5",
                 },
             )
         assert resp.status_code == 200
@@ -102,7 +107,8 @@ class TestPlatformSettingsLLMKeys:
         assert data["code"] == 0
         assert "llm_base_url" in data["data"]["updated"]
         assert "llm_api_key" in data["data"]["updated"]
-        assert "llm_model" in data["data"]["updated"]
+        assert "llm_models" in data["data"]["updated"]
+        assert "llm_default_model" in data["data"]["updated"]
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +127,8 @@ class TestPlatformSettingsConnectivity:
                 json={
                     "llm_base_url": "https://llm.example.com/v1",
                     "llm_api_key": "sk-wrong-key",
-                    "llm_model": "claude-sonnet-5",
+                    "llm_models": ["claude-sonnet-5"],
+                    "llm_default_model": "claude-sonnet-5",
                 },
             )
         assert resp.status_code == 200
@@ -131,7 +138,7 @@ class TestPlatformSettingsConnectivity:
 
         # DB 不应有 llm_* 行
         from app.models.project import PlatformSetting
-        for key in ["llm_base_url", "llm_api_key", "llm_model"]:
+        for key in ["llm_base_url", "llm_api_key", "llm_models", "llm_default_model"]:
             result = await db_session.execute(
                 select(PlatformSetting).where(PlatformSetting.key == key)
             )
@@ -147,7 +154,8 @@ class TestPlatformSettingsConnectivity:
                 json={
                     "llm_base_url": "https://llm.example.com/v1",
                     "llm_api_key": "sk-test-key-1234567890",
-                    "llm_model": "claude-sonnet-5",
+                    "llm_models": ["claude-sonnet-5"],
+                    "llm_default_model": "claude-sonnet-5",
                 },
             )
         assert resp.status_code == 200
@@ -181,7 +189,8 @@ class TestPlatformSettingsMasking:
                 json={
                     "llm_base_url": "https://llm.example.com/v1",
                     "llm_api_key": "sk-test-key-1234567890",
-                    "llm_model": "claude-sonnet-5",
+                    "llm_models": ["claude-sonnet-5"],
+                    "llm_default_model": "claude-sonnet-5",
                 },
             )
 
@@ -197,9 +206,10 @@ class TestPlatformSettingsMasking:
         # 不应含明文
         assert "sk-test-key-1234567890" not in masked_key
 
-        # llm_base_url/llm_model 明文
+        # llm_base_url 明文;R1 起模型名为列表 + 默认项(明文回显)
         assert data["llm_base_url"] == "https://llm.example.com/v1"
-        assert data["llm_model"] == "claude-sonnet-5"
+        assert data["llm_models"] == ["claude-sonnet-5"]
+        assert data["llm_default_model"] == "claude-sonnet-5"
 
 
 # ---------------------------------------------------------------------------
@@ -210,15 +220,16 @@ class TestResolveConfigPlatformFallback:
 
     @pytest.mark.asyncio
     async def test_resolve_config_no_project_with_platform(self, db_session, registered_user):
-        """无项目配置 + 平台 3 键 → 返回 platform 配置(解密正确)"""
+        """无项目配置 + 平台 4 键 → 返回 platform 配置(解密正确)"""
         from app.services import llm_service
 
         project = await _insert_project(db_session, registered_user["user_id"])
 
-        # 写入平台 3 键
+        # 写入平台 4 键(R1 起模型名为列表 + 默认项)
         await _insert_platform_setting(db_session, "llm_base_url", "https://platform-llm.example.com/v1")
         await _insert_platform_setting(db_session, "llm_api_key", "sk-platform-key-12345")
-        await _insert_platform_setting(db_session, "llm_model", "platform-model")
+        await _insert_platform_setting(db_session, "llm_models", ["platform-model"])
+        await _insert_platform_setting(db_session, "llm_default_model", "platform-model")
 
         # resolve_config
         result = await llm_service.resolve_config(db_session, project.project_id)
@@ -280,11 +291,12 @@ class TestResolvableEndpoint:
 
     @pytest.mark.asyncio
     async def test_resolvable_platform_state(self, client, auth_headers, db_session, registered_user):
-        """无项目配置 + 平台 3 键 → effective_source=platform"""
+        """无项目配置 + 平台 4 键 → effective_source=platform"""
         project = await _insert_project(db_session, registered_user["user_id"])
         await _insert_platform_setting(db_session, "llm_base_url", "https://platform-llm.example.com/v1")
         await _insert_platform_setting(db_session, "llm_api_key", "sk-platform-key")
-        await _insert_platform_setting(db_session, "llm_model", "platform-model")
+        await _insert_platform_setting(db_session, "llm_models", ["platform-model"])
+        await _insert_platform_setting(db_session, "llm_default_model", "platform-model")
 
         resp = await client.get(
             f"/api/projects/{project.project_id}/model-configs/resolvable",
@@ -355,10 +367,11 @@ class TestProjectPriorityOverPlatform:
         project = await _insert_project(db_session, registered_user["user_id"])
         await _create_project_config(db_session, project.project_id)
 
-        # 平台配置
+        # 平台配置(R1 四键:模型名列表 + 默认项)
         await _insert_platform_setting(db_session, "llm_base_url", "https://platform-llm.example.com/v1")
         await _insert_platform_setting(db_session, "llm_api_key", "sk-platform-key")
-        await _insert_platform_setting(db_session, "llm_model", "platform-model")
+        await _insert_platform_setting(db_session, "llm_models", ["platform-model"])
+        await _insert_platform_setting(db_session, "llm_default_model", "platform-model")
 
         result = await llm_service.resolve_config(db_session, project.project_id)
         assert result["source"] == "project"
