@@ -102,6 +102,36 @@ export const skillMarketApi = {
     api.post<InstallRemoteResult>(`/projects/${projectId}/skills/install-remote`, { market, ref }),
 }
 
+// ---- 系统级资产(R6;镜像内置 skills/MCP 快照,只读展示)----
+// GET /system-assets(JWT):{collected:true, skills:[{name,detail}], mcps:[{name,detail}],
+//   collected_at, image_tag} 或 {collected:false}(未采集引导态)
+// POST /admin/system-assets/collect(超管,R5):{skills:n, mcps:n, collected_at, image_tag[, warning]}
+export interface SystemAssetEntry {
+  name: string
+  detail: Record<string, unknown>
+}
+
+export interface SystemAssetsData {
+  collected: boolean
+  skills?: SystemAssetEntry[]
+  mcps?: SystemAssetEntry[]
+  collected_at?: string
+  image_tag?: string
+}
+
+export interface CollectSystemAssetsResult {
+  skills: number
+  mcps: number
+  collected_at: string
+  image_tag: string
+  warning?: string
+}
+
+export const systemAssetsApi = {
+  get: () => api.get<SystemAssetsData>('/system-assets'),
+  collect: () => api.post<CollectSystemAssetsResult>('/admin/system-assets/collect'),
+}
+
 // ---- Error codes ----
 export const SkillErrorCodes = {
   JSON_FORMAT_ERROR: 17001,
@@ -248,6 +278,23 @@ export function useUninstallSkill(projectId: string) {
   return useMutation({
     mutationFn: (skillId: string) => skillsApi.uninstall(projectId, skillId).then(r => r.data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['installed-skills', projectId] }) },
+  })
+}
+
+// ---- React Query Hooks: 系统级资产(R6;项目侧两处只读展示 + 超管采集)----
+export function useSystemAssets() {
+  return useQuery({
+    queryKey: ['system-assets'],
+    queryFn: () => systemAssetsApi.get().then(r => r.data),
+  })
+}
+
+// 采集成功 invalidate 列表(SkillsMarket「系统级已安装」区块自动刷新;17006=探测失败,502 可重试)
+export function useCollectSystemAssets() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => systemAssetsApi.collect().then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['system-assets'] }) },
   })
 }
 

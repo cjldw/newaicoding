@@ -1,6 +1,7 @@
 /**
- * McpConfigManagement — MCP 配置 Tab(R17)
+ * McpConfigManagement — MCP 配置 Tab(R17;R6 系统级 MCP 只读区块)
  * - 标题"MCP 配置" + "使用模板"按钮(secondary)
+ * - 「系统级 MCP」只读列表(镜像内置,无写入口;未采集引导态)
  * - JSON 编辑器(全宽 Textarea,等宽字体 font-mono,rows=20,实时 JSON.parse 校验)
  * - 底部提示"配置将注入到任务容器的 `~/.claude/config.json`"
  * - 保存按钮(primary 右下角,viewer 隐藏)
@@ -19,7 +20,7 @@ import {
   DialogFooter,
 } from '@/components/ui/Dialog'
 import {
-  useMcpConfig, useUpdateMcpConfig, useMcpTemplates,
+  useMcpConfig, useUpdateMcpConfig, useMcpTemplates, useSystemAssets,
   getSkillErrorMessage,
 } from '@/api/skills'
 import type { McpTemplate, McpTemplateParam } from '@/api/skills'
@@ -34,6 +35,8 @@ export function McpConfigManagement({ projectId }: McpConfigManagementProps) {
   const { data: mcpData, isLoading } = useMcpConfig(projectId)
   const { data: templates } = useMcpTemplates(projectId)
   const updateMcp = useUpdateMcpConfig(projectId)
+  // R6:系统级资产快照(镜像内置 MCP,只读;未采集 → 引导态「暂未采集」)
+  const { data: systemAssets } = useSystemAssets()
   const { data: membersData } = useProjectMembers(projectId)
   const user = useAuthStore(state => state.user)
   const currentMember = membersData?.items.find(m => m.user_id === user?.user_id)
@@ -119,6 +122,14 @@ export function McpConfigManagement({ projectId }: McpConfigManagementProps) {
     setSelectedTemplate(null)
   }
 
+  function formatDate(dateStr: string): string {
+    try {
+      return new Date(dateStr).toLocaleString('zh-CN')
+    } catch {
+      return dateStr
+    }
+  }
+
   const hintParts = useMemo(() => {
     const parts = '配置将注入到任务容器的 `~/.claude/config.json`'.split('`')
     return parts
@@ -138,6 +149,34 @@ export function McpConfigManagement({ projectId }: McpConfigManagementProps) {
           <FileJson className="w-4 h-4 mr-2" />
           使用模板
         </Button>
+      </div>
+
+      {/* R6:系统级 MCP 只读列表(镜像内置,无写入口;与 Skills 系统级 Tab 同样式) */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="text-sm font-medium text-text">系统级 MCP</h3>
+          <span className="text-sm text-text-muted">
+            {systemAssets?.collected && systemAssets.collected_at
+              ? `采集于 ${formatDate(systemAssets.collected_at)}`
+              : '暂未采集'}
+          </span>
+        </div>
+        {systemAssets?.collected && (
+          <div className="space-y-2">
+            {(systemAssets.mcps ?? []).map(m => (
+              <div
+                key={m.name}
+                className="flex items-center justify-between p-3 border border-border rounded-md"
+              >
+                <span className="font-medium text-text">{m.name}</span>
+                <span className="bdg b-zinc">镜像内置</span>
+              </div>
+            ))}
+            {(systemAssets.mcps ?? []).length === 0 && (
+              <p className="text-sm text-text-muted">镜像未内置 MCP</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* JSON 编辑器 */}

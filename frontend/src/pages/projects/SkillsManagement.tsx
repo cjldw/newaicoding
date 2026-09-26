@@ -1,8 +1,8 @@
 /**
- * SkillsManagement — Skills 管理 Tab(R17;R4 市场搜索安装)
+ * SkillsManagement — Skills 管理 Tab(R17;R4 市场搜索安装;R6 系统级只读 Tab)
  * - 标题"Skills 管理" + "从市场安装"(secondary) + "上传自定义"(primary)按钮(viewer 隐藏)
  * - 已安装 Table:Skill 名/描述/来源徽章(platform=secondary/project=primary)/安装人/安装时间/操作[查看/卸载]
- * - 市场安装对话框:双 Tab「市场安装(R1 源 Select+防抖搜索+远程安装) | 平台库(原平铺列表)」
+ * - 市场安装对话框:三 Tab「市场安装(R1 源 Select+防抖搜索+远程安装) | 平台库(原平铺列表) | 系统级(R6 镜像内置只读)」
  * - 上传对话框 + Skill 详情对话框
  */
 
@@ -23,7 +23,7 @@ import {
 import {
   useInstalledSkills, useSkillMarket, useInstallSkill, useUploadSkill,
   useUninstallSkill, useMarketSources, useMarketSearch, useInstallRemote,
-  getSkillErrorMessage,
+  useSystemAssets, getSkillErrorMessage,
 } from '@/api/skills'
 import type { Skill, MarketSearchItem } from '@/api/skills'
 import { ApiError } from '@/api/client'
@@ -49,7 +49,8 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
   const uninstallSkill = useUninstallSkill(projectId)
   // ---- R4:市场搜索安装(Dialog 双 Tab)----
   const [marketOpen, setMarketOpen] = useState(false)
-  type MarketTab = 'market' | 'library'
+  // R6:'system' 第三 Tab(镜像内置 skills 只读,无写入口)
+  type MarketTab = 'market' | 'library' | 'system'
   const [marketTab, setMarketTab] = useState<MarketTab>('market')
   const [searchInput, setSearchInput] = useState('')
   const searchQ = useDebounce(searchInput.trim(), 300)
@@ -61,6 +62,8 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
   const searchEnabled = marketOpen && marketTab === 'market' && activeMarket !== '' && searchQ !== ''
   const marketSearch = useMarketSearch(activeMarket, searchQ, searchEnabled)
   const installRemote = useInstallRemote(projectId)
+  // R6:系统级资产快照(镜像内置,只读;未采集 → 引导态「暂未采集」)
+  const { data: systemAssets } = useSystemAssets()
   // 已装比对(R4:命中 installed 列表 name 即禁按;本会话刚装的 ref 兜底,防列表刷新竞态)
   const installedNames = new Set((installed ?? []).map(s => s.name))
   const sourceOptions = (marketSources ?? []).map(s => ({ label: s.name, value: s.type }))
@@ -249,7 +252,9 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>从市场安装</DialogTitle>
-            <DialogDescription>从市场搜索或从平台库选择 Skill 安装到本项目</DialogDescription>
+            <DialogDescription>
+              从市场搜索或从平台库选择 Skill 安装到本项目;「系统级」为镜像内置只读列表
+            </DialogDescription>
           </DialogHeader>
           <div className="tabs">
             <button
@@ -263,6 +268,12 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
               onClick={() => setMarketTab('library')}
             >
               平台库
+            </button>
+            <button
+              className={`tab${marketTab === 'system' ? ' on' : ''}`}
+              onClick={() => setMarketTab('system')}
+            >
+              系统级
             </button>
           </div>
           {message && (
@@ -331,7 +342,7 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
                 )}
               </div>
             </div>
-          ) : (
+          ) : marketTab === 'library' ? (
             <div className="mt-3 space-y-2 max-h-[400px] overflow-y-auto">
               {(marketSkills ?? []).map(skill => (
                 <div
@@ -353,6 +364,33 @@ export function SkillsManagement({ projectId }: SkillsManagementProps) {
               ))}
               {(marketSkills ?? []).length === 0 && (
                 <p className="text-center text-text-muted py-4">暂无可安装的 Skills</p>
+              )}
+            </div>
+          ) : (
+            /* R6:系统级 Tab(镜像内置 skills 只读列表,无安装/卸载入口) */
+            <div className="mt-3 space-y-2 max-h-[400px] overflow-y-auto">
+              {systemAssets?.collected ? (
+                <>
+                  {systemAssets.collected_at && (
+                    <p className="text-sm text-text-muted">
+                      采集于 {formatDate(systemAssets.collected_at)}
+                    </p>
+                  )}
+                  {(systemAssets.skills ?? []).map(s => (
+                    <div
+                      key={s.name}
+                      className="flex items-center justify-between p-3 border border-border rounded-md"
+                    >
+                      <span className="font-medium text-text">{s.name}</span>
+                      <span className="bdg b-zinc">镜像内置</span>
+                    </div>
+                  ))}
+                  {(systemAssets.skills ?? []).length === 0 && (
+                    <p className="text-center text-text-muted py-4">镜像未内置 Skills</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-center text-text-muted py-4">暂未采集</p>
               )}
             </div>
           )}

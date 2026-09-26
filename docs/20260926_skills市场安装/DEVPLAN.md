@@ -20,7 +20,7 @@ Skills/MCP 能力域两 PRD 合并:**市场安装**(内置 ModelScope+skills.sh 
 
 ## 当前进度
 
-**当前进度: 5/7 (71%) - R6/R7 待开发(R5 本会话已收口提交)**
+**当前进度: 6/7 (86%) - R7 开发中**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
@@ -29,7 +29,7 @@ Skills/MCP 能力域两 PRD 合并:**市场安装**(内置 ModelScope+skills.sh 
 | R3 | 一键安装到项目 | M1 后端 | ✅ | ./DEVPLAN/R3.md |
 | R4 | 市场搜索安装 Dialog | M2 前端 | ✅ | ./DEVPLAN/R4.md |
 | R5 | 系统级采集(probe_claude) | M1 后端+Runner | ✅ | ./DEVPLAN/R5.md |
-| R6 | 系统级只读展示 | M1 后端+M2 前端 | ⬜ | ./DEVPLAN/R6.md |
+| R6 | 系统级只读展示 | M1 后端+M2 前端 | ✅ | ./DEVPLAN/R6.md |
 | R7 | 对话 /skills /mcp 候选合并 | M1 后端+M2 前端 | ⬜ | ./DEVPLAN/R7.md |
 
 ## 模块拆分与时间线
@@ -63,3 +63,4 @@ Skills/MCP 能力域两 PRD 合并:**市场安装**(内置 ModelScope+skills.sh 
 | 2026-09-27 | R3 完成:市场一键安装(POST /projects/{pid}/skills/install-remote,editor+;fetch_skill_md 双适配器拉 SKILL.md,256KB 字符上限,502/400 收口;frontmatter 强校验→同名覆盖入库 source=market+source_url 溯源,extra_files 提示支撑文件数;迁移 b8e4d2f6a9c1 skills 加 source/source_url,存量按 scope 回填);QA 18/18、三套件 66 全绿;审计通过(3 非阻断备注留痕 .scratch/R3/audit-review.md,不改代码) | rd-dev R3 收口 |
 | 2026-09-27 | R5 code-review 收口(大改动双轴):15 项发现→**修 14/不修 1**——必修 6:探测子命令失败静默吞(部分结果+警告语义)、迁移双 head 归单头(部署阻断)、probe 容器去 managed 标签(消 auto-restart 竞态)、skills 只取目录、mcpServers 非 dict 按空降级、超时重试堆叠阻断(失败标记时间窗+runner wait_for);建议修 8:name str coerce、session 不钉 120s、删 _containers_api shim、测试死分支×2、抽 _read_container_json 消 inject/probe 漂移、fixture 只清 _last_result、_pick_probe_runner 对齐先例;**不修记录**:#9 并发去重无 image 键(HTTP 不传 image,latent) | rd-dev R5 收口裁决 |
 | 2026-09-27 | R4 完成:市场搜索安装 Dialog(双 Tab「市场安装\|平台库」零新视觉;R1 源 Select+300ms 防抖搜索+结果列表=名/描述 truncate/安装量徽章/安装按钮;已装禁按标「已安装」+extra_files>1 支撑文件提示+成功提示需新启任务容器生效;平台库平铺列表原样迁 Tab 二不回归);tsc 零错误;审计通过(3 非阻断备注留痕 .scratch/R4/audit-review.md) | rd-dev R4 收口 |
+| 2026-09-27 | R6 完成:系统级只读展示(GET /api/system-assets,JWT 两态:collected 数据/未采集 false;admin/SkillsMarket 系统级区块+超管采集钮 loading,项目 Skills/MCP 页「系统级」只读 Tab/区块标「镜像内置」);collected_at 序列化改 ISO「T」形态修 Safari new Date() Invalid Date(N1);pytest 18 passed + tsc 零错误;审计通过(备注留痕 .scratch/R6/audit-review.md) | rd-dev R6 收口 |

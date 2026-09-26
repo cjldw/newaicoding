@@ -22,7 +22,7 @@ import logging
 import time
 from datetime import datetime
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import BizError, ErrCode
@@ -60,6 +60,30 @@ async def _pick_probe_runner(db: AsyncSession):
             status_code=502,
         )
     return conn
+
+
+async def list_system_assets(db: AsyncSession) -> dict:
+    """
+    读侧(R6):全量快照只读展示。返回响应契约:
+      - 从未采集(表空)→ {"collected": False}(引导态)
+      - 已采集 → {collected: True, skills: [{name, detail}], mcps: [{name, detail}],
+                  collected_at: str, image_tag: str}
+    collected_at/image_tag 取最近一次采集(max collected_at);任意登录用户可读。
+    """
+    res = await db.execute(select(ClaudeSystemAsset).order_by(ClaudeSystemAsset.id))
+    rows = list(res.scalars().all())
+    if not rows:
+        return {"collected": False}
+    latest = max(rows, key=lambda r: r.collected_at)
+    return {
+        "collected": True,
+        "skills": [{"name": r.name, "detail": r.detail} for r in rows if r.kind == "skill"],
+        "mcps": [{"name": r.name, "detail": r.detail} for r in rows if r.kind == "mcp"],
+        # ISO「T」形态(照仓库 datetime 透传先例 isoformat()):空格分隔格式
+        # Safari new Date() 解析为 Invalid Date,前端三处「采集于」会显示异常
+        "collected_at": latest.collected_at.isoformat(timespec="seconds"),
+        "image_tag": latest.image_tag,
+    }
 
 
 async def collect(db: AsyncSession, operator_user_id: str, image: str = DEFAULT_PROBE_IMAGE) -> dict:
