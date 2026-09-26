@@ -4,8 +4,10 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Column,
+    Date,
     DateTime,
     Enum,
     String,
@@ -45,6 +47,9 @@ class Requirement(Base):
         server_default="medium",
         comment="优先级(V1 仅展示)",
     )
+    related_user_ids = Column(JSON, nullable=True, comment="关联用户ID列表(R1;存量行 NULL=空)")
+    prototype_links = Column(JSON, nullable=True, comment="原型链接[{label,url}](R4 消费)")
+    delivery_date = Column(Date, nullable=True, comment="交付截止日(R5 消费)")
     created_by = Column(CHAR(36), nullable=False, index=True, comment="创建者 user_id")
     reviewed_by = Column(CHAR(36), nullable=True, comment="评审人 user_id")
     reviewed_at = Column(DateTime, nullable=True, comment="评审时间")

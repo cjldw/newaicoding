@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.response import BizError, ErrCode
 from app.models.container import Container
 from app.models.project import Project, ProjectRepo
+from app.models.project_member import ProjectMember
 from app.models.requirement import Requirement
 from app.models.user import User
 from app.services import container_service, runner_service
@@ -67,6 +68,7 @@ async def build_detail(db: AsyncSession, req: Requirement) -> dict:
         "acceptance_criteria": req.acceptance_criteria,
         "status": req.status,
         "priority": req.priority,
+        "related_user_ids": req.related_user_ids or [],  # R1:存量 NULL 归一为 []
         "req_branch": req.req_branch,
         "prd_file_path": req.prd_file_path,
         "created_by": await _creator_brief(db, req.created_by),
@@ -78,6 +80,27 @@ async def build_detail(db: AsyncSession, req: Requirement) -> dict:
         "created_at": req.created_at,
         "updated_at": req.updated_at,
     }
+
+
+# ---------------------------------------------------------------------------
+# 关联用户过滤(R1 创建 / R2 编辑共用)
+# ---------------------------------------------------------------------------
+async def _filter_related_members(db: AsyncSession, project_id: str, ids: Optional[list]) -> list:
+    """
+    关联用户口径(PRD-A R1):非项目成员 id **静默剔除**(不报错)+ 去重(保持输入顺序)。
+    空/None → [](创建/编辑侧直接落库,详情侧再归一为 [])。
+    """
+    if not ids:
+        return []
+    unique_ids = list(dict.fromkeys(ids))  # 去重且保序
+    result = await db.execute(
+        select(ProjectMember.user_id).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id.in_(unique_ids),
+        )
+    )
+    member_ids = set(result.scalars().all())
+    return [uid for uid in unique_ids if uid in member_ids]
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +143,9 @@ async def create_requirement(db: AsyncSession, project: Project, operator: User,
         )
         logger.info("需求分支已创建 repo=%s branch=%s", repo.gitlab_repo_id, branch)
 
+    # R1 关联用户:剔除非项目成员 + 去重(静默口径)
+    related_user_ids = await _filter_related_members(db, project.project_id, req_data.get("related_user_ids"))
+
     requirement = Requirement(
         req_id=req_id,
         project_id=project.project_id,
@@ -129,6 +155,7 @@ async def create_requirement(db: AsyncSession, project: Project, operator: User,
         acceptance_criteria=req_data.get("acceptance_criteria"),
         req_branch=branch,
         priority=req_data.get("priority", "medium"),
+        related_user_ids=related_user_ids,
         created_by=operator.user_id,
         status="draft",
     )

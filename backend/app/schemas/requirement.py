@@ -16,6 +16,8 @@ class CreateRequirementRequest(BaseModel):
     acceptance_criteria: Optional[str] = None
     priority: Priority = "medium"
     req_branch: Optional[str] = Field(default=None, max_length=64)
+    # R1 关联用户:项目成员 id 列表,非必填默认 [];非成员 id 由服务层静默剔除
+    related_user_ids: Optional[List[str]] = None
 
 
 class UpdateRequirementRequest(BaseModel):
@@ -74,6 +76,7 @@ class RequirementDetailData(BaseModel):
     acceptance_criteria: Optional[str] = None
     status: str
     priority: str
+    related_user_ids: List[str] = Field(default_factory=list)  # R1 关联用户(空/None 归一为 [])
     req_branch: str
     prd_file_path: str
     created_by: RequirementCreator

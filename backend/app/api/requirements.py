@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.response import BizError, success
+from app.core.response import BizError, ErrCode, success
 from app.database import get_db
 from app.models.requirement import Requirement
 from app.models.user import User

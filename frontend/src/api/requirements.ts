@@ -52,6 +52,8 @@ export interface RequirementDetail {
   priority: RequirementPriority
   req_branch: string
   prd_file_path: string
+  // R1 关联用户(后端契约:RequirementDetailData.related_user_ids,存量行 NULL=空)
+  related_user_ids?: string[]
   created_by: RequirementUser
   reviewed_by: RequirementUser | null
   reviewed_at: string | null
@@ -69,6 +71,8 @@ export interface CreateRequirementRequest {
   acceptance_criteria?: string
   priority?: RequirementPriority
   req_branch?: string
+  // R1 关联用户:项目成员 user_id 列表,非必填,空数组照传(后端静默剔除非成员+去重)
+  related_user_ids?: string[]
 }
 
 export interface CreateRequirementResponse {
