@@ -1,26 +1,30 @@
 /**
  * TaskCreateDialog — 统一任务创建表单
- * R1:仅搭空壳(Dialog + 表单字段占位),统一 /manage/tasks 页头"新建任务"按钮的创建入口
- * 表单结构由后续需求点完善:
- * - R2   任务类型选择器(dev/test/release,注册机制)
- * - R3.2 可搜索的项目/需求选择器(后端搜索,参考 RelatedUserSelect)— 已实现
- * - R4   统一表单结构(公共字段:项目/需求/类型/标题/描述)
- * - R5   类型特有字段插槽(dev 无 / test 提示文案 / release 部署端口)
+ * R1:统一 /manage/tasks 页头"新建任务"按钮的创建入口
+ * R2:任务类型选择器(dev/test/release)
+ * R3.2:可搜索的项目/需求选择器(后端搜索)
+ * R4:完整表单结构(项目→需求→类型→标题→描述→类型特有字段)+ 必填校验 + 提交 + 错误提示 + 成功跳详情
+ * R5:类型特有字段插槽(当前内联渲染:test 提示文案 / release 部署端口;dev 无,待提取注册表 TaskTypeFields)
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Select } from '@/components/ui/Select'
+import { Alert } from '@/components/ui/Alert'
 import { SearchableSelect } from '@/components/SearchableSelect'
 import type { SearchableSelectOption } from '@/components/SearchableSelect'
 import { searchProjects } from '@/api/projects'
 import type { ProjectListItem } from '@/api/projects'
 import { searchRequirements } from '@/api/requirements'
 import type { RequirementListItem } from '@/api/requirements'
-import type { TaskType } from '@/api/tasks'
+import { createTask, getTaskErrorMessage } from '@/api/tasks'
+import type { CreateTaskPayload, TaskType } from '@/api/tasks'
+import { ApiError } from '@/api/client'
 
 /** R2:任务类型选项(dev/test/release,requirement 不走创建表单)— 文案照 R2 文案清单 */
 const TASK_TYPE_OPTIONS: Array<{ label: string; value: Exclude<TaskType, 'requirement'> }> = [
@@ -28,6 +32,10 @@ const TASK_TYPE_OPTIONS: Array<{ label: string; value: Exclude<TaskType, 'requir
   { label: '测试', value: 'test' },
   { label: '发布', value: 'release' },
 ]
+
+/** R5:release 部署端口合法范围(全平台唯一) */
+const PORT_MIN = 10000
+const PORT_MAX = 10099
 
 // R3.2:后端列表项 → 选择器选项(项目:名称+描述;需求:标题)
 function toProjectOption(p: ProjectListItem): SearchableSelectOption {
@@ -40,21 +48,52 @@ function toRequirementOption(r: RequirementListItem): SearchableSelectOption {
 interface TaskCreateDialogProps {
   open: boolean
   onClose: () => void
+  /** 可选：预填项目 ID（项目详情页使用时传入，禁用项目选择器） */
+  projectId?: string
 }
 
-export function TaskCreateDialog({ open, onClose }: TaskCreateDialogProps) {
-  // R2:任务类型(空串 = 未选择,显示 placeholder)
-  const [type, setType] = useState<Exclude<TaskType, 'requirement'> | ''>('')
+export function TaskCreateDialog({ open, onClose, projectId }: TaskCreateDialogProps) {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
   // R3.2:项目/需求选择(保存完整 option,关闭面板后仍能回显 label)
   const [project, setProject] = useState<SearchableSelectOption | null>(null)
   const [requirement, setRequirement] = useState<SearchableSelectOption | null>(null)
+  // R2:任务类型(空串 = 未选择,显示 placeholder)
+  const [type, setType] = useState<Exclude<TaskType, 'requirement'> | ''>('')
+  // R4:公共字段(标题可选,留空取需求标题;描述可选,留空后端生成默认)
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  // R5:release 类型特有字段(部署端口,字符串暂存便于输入)
+  const [deployPort, setDeployPort] = useState('')
+  // R4:错误提示(校验失败 / 接口失败统一走 Alert)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  /** R2:切换类型时清空类型特有字段(公共字段保留);字段本体由 R5 插槽实现 */
-  const handleTypeChange = (next: Exclude<TaskType, 'requirement'>) => {
-    if (next === type) return
-    setType(next)
-    // TODO(R5):清空类型特有字段(deploy_port / test 提示文案等)
-  }
+  // 当传入 projectId 时，初始化项目状态
+  useEffect(() => {
+    if (open && projectId) {
+      // 使用 searchProjects 获取项目信息
+      searchProjects(projectId).then((items) => {
+        const p = items.find(item => item.project_id === projectId)
+        if (p) {
+          setProject({ value: p.project_id, label: p.name, description: p.description || undefined })
+        }
+      })
+    }
+  }, [open, projectId])
+
+  /** R4:打开对话框时初始化表单状态(表单清空) */
+  useEffect(() => {
+    if (open) {
+      setProject(null)
+      setRequirement(null)
+      setType('')
+      setTitle('')
+      setDescription('')
+      setDeployPort('')
+      setErrorMsg(null)
+    }
+  }, [open])
 
   // R3.2:搜索走后端(debounce 300ms 在 SearchableSelect 内做)
   const fetchProjectOptions = useCallback(
@@ -75,17 +114,80 @@ export function TaskCreateDialog({ open, onClose }: TaskCreateDialogProps) {
     setRequirement(null)
   }
 
+  /** R2/R4:切换类型时更新 type 并清空类型特有字段(公共字段保留) */
+  const handleTypeChange = (next: Exclude<TaskType, 'requirement'>) => {
+    if (next === type) return
+    setType(next)
+    setDeployPort('')
+  }
+
+  // R4:提交(POST /requirements/{req_id}/tasks);成功后关弹窗 + 跳任务详情页 + 刷新列表
+  const mutation = useMutation({
+    mutationFn: () => {
+      const payload: CreateTaskPayload = {
+        type: type as Exclude<TaskType, 'requirement'>,
+        title: title.trim(),
+        description: description.trim(),
+      }
+      if (type === 'release') payload.deploy_port = Number(deployPort)
+      return createTask(requirement!.value, payload)
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['dimension'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks', requirement!.value] })
+      onClose()
+      navigate(`/tasks/${data.task_id}`)
+    },
+    onError: (err: Error) => {
+      const msg = err instanceof ApiError ? getTaskErrorMessage(err.code, err.message) : err.message
+      setErrorMsg(`创建失败:${msg || '请重试'}`)
+    },
+  })
+
+  /** R4:前端必填校验(项目/需求/类型;release 端口格式)→ 拦截并提示,表单保持 */
+  const handleSubmit = () => {
+    if (!project) {
+      setErrorMsg('请选择关联项目')
+      return
+    }
+    if (!requirement) {
+      setErrorMsg('请选择关联需求')
+      return
+    }
+    if (!type) {
+      setErrorMsg('请选择任务类型')
+      return
+    }
+    if (type === 'release') {
+      const n = Number(deployPort)
+      if (!deployPort || !Number.isInteger(n) || n < PORT_MIN || n > PORT_MAX) {
+        setErrorMsg('部署端口需为 10000-10099')
+        return
+      }
+    }
+    setErrorMsg(null)
+    mutation.mutate()
+  }
+
+  const submitting = mutation.isPending
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent onClose={onClose}>
+      {/* R4 设计规范:对话框宽度 w-[440px] */}
+      <DialogContent className="w-[440px]" onClose={onClose}>
         <DialogHeader>
-          {/* 文案照 R1 文案清单:对话框标题 "新建任务 · 快速创建" */}
-          <DialogTitle className="flex items-center gap-2"><Plus size={16} /> 新建任务 · 快速创建</DialogTitle>
+          {/* 文案照 R4 文案清单:对话框标题 "新建任务" */}
+          <DialogTitle className="flex items-center gap-2"><Plus size={16} /> 新建任务</DialogTitle>
         </DialogHeader>
 
-        {/* TODO(R4):标题/描述与提交逻辑待 R4 实现;项目/需求选择器 R3.2 已落地 */}
+        {/* R4 布局:单列,内容区 flex flex-col gap-4 py-2;字段结构 label + 控件 flex-col gap-1.5 */}
         <div className="flex flex-col gap-4 py-2">
-          {/* R3.2:可搜索项目选择器(文案照 R3.2 文案清单) */}
+          {/* R4:错误提示(校验/接口失败,表单保持) */}
+          {errorMsg && (
+            <Alert variant="error" onClose={() => setErrorMsg(null)}>{errorMsg}</Alert>
+          )}
+
+          {/* R3.2:可搜索项目选择器(文案照 R3.2 文案清单;必填红星) */}
           <div className="flex flex-col gap-1.5">
             <label className="block text-sm font-medium text-text">
               关联项目 <span className="text-red-fg">*</span>
@@ -97,9 +199,10 @@ export function TaskCreateDialog({ open, onClose }: TaskCreateDialogProps) {
               placeholder="请选择项目"
               searchPlaceholder="搜索项目(名称)"
               emptyText="暂无项目,请先创建项目"
+              disabled={submitting}
             />
           </div>
-          {/* R3.2:可搜索需求选择器(跟随所选项目;未选项目时禁用) */}
+          {/* R3.2:可搜索需求选择器(跟随所选项目;未选项目时禁用;必填红星) */}
           <div className="flex flex-col gap-1.5">
             <label className="block text-sm font-medium text-text">
               关联需求 <span className="text-red-fg">*</span>
@@ -108,14 +211,14 @@ export function TaskCreateDialog({ open, onClose }: TaskCreateDialogProps) {
               value={requirement}
               onChange={setRequirement}
               fetchOptions={fetchRequirementOptions}
-              disabled={!project}
+              disabled={!project || submitting}
               disabledPlaceholder="请先选择项目"
               placeholder="请选择需求"
               searchPlaceholder="搜索需求(标题/描述)"
               emptyText="该项目暂无可选需求"
             />
           </div>
-          {/* R2:类型选择器(位于项目选择器之后),label + Select,flex-col gap-1.5 */}
+          {/* R2:类型选择器(必填红星) */}
           <div className="flex flex-col gap-1.5">
             <label className="block text-sm font-medium text-text">
               任务类型 <span className="text-red-fg">*</span>
@@ -124,24 +227,64 @@ export function TaskCreateDialog({ open, onClose }: TaskCreateDialogProps) {
               value={type}
               placeholder="请选择任务类型"
               options={TASK_TYPE_OPTIONS}
+              disabled={submitting}
               onChange={(e) => handleTypeChange(e.target.value as Exclude<TaskType, 'requirement'>)}
             />
           </div>
+          {/* R4:任务标题(可选,留空默认取需求标题,max 128) */}
           <div className="flex flex-col gap-1.5">
-            <label className="block text-sm font-medium text-text">标题</label>
-            <Input disabled placeholder="R4 实现:留空默认取需求标题(max 128)" />
+            <label className="block text-sm font-medium text-text">任务标题</label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="留空默认取需求标题"
+              maxLength={128}
+              disabled={submitting}
+            />
           </div>
+          {/* R4:任务描述(可选,留空后端生成默认) */}
           <div className="flex flex-col gap-1.5">
-            <label className="block text-sm font-medium text-text">描述</label>
-            <Textarea disabled rows={3} placeholder="R4 实现:要让 AI 做什么(留空后端生成默认)" />
+            <label className="block text-sm font-medium text-text">任务描述</label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="本次要让 AI 做什么?"
+              rows={3}
+              disabled={submitting}
+            />
           </div>
-          {/* TODO(R5):类型特有字段插槽区(按所选类型动态渲染) */}
+          {/* R5:类型特有字段插槽(按所选类型动态渲染;切换类型时已清空状态)
+              dev 无特有字段;test 提示文案;release 部署端口(必填,全平台唯一) */}
+          {type === 'test' && (
+            <div className="rounded-md border border-border bg-surface-strong px-3 py-2 text-xs text-text-muted">
+              AI 基于 PRD 验收标准 + 测试仓库存量用例生成用例,人审后执行
+            </div>
+          )}
+          {type === 'release' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="block text-sm font-medium text-text">
+                部署端口 <span className="text-red-fg">*</span>
+              </label>
+              <Input
+                type="number"
+                value={deployPort}
+                onChange={(e) => setDeployPort(e.target.value)}
+                placeholder="10000-10099"
+                min={PORT_MIN}
+                max={PORT_MAX}
+                disabled={submitting}
+              />
+              <div className="text-xs text-text-muted">全平台唯一,范围 10000-10099</div>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>取消</Button>
-          {/* TODO(R4):提交逻辑 + 必填校验 + 成功后跳任务详情页并刷新列表 */}
-          <Button variant="primary" disabled>创建</Button>
+          {/* R4:取消关闭对话框(重置由 open effect 在下次打开时统一做) */}
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>取消</Button>
+          <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
+            {submitting ? '创建中...' : '创建'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

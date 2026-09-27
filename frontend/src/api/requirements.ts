@@ -146,6 +146,9 @@ export const requirementsApi = {
     api.post<{ message: string }>(`/requirements/${reqId}/review`, data),
   cancel: (reqId: string, data: CancelRequest) =>
     api.post<{ message: string }>(`/requirements/${reqId}/cancel`, data),
+  // R4.F1:删除需求(后端 owner-only + 状态/关联任务守卫;硬删,从属数据随行清除)
+  remove: (reqId: string) =>
+    api.delete<{ message: string }>(`/requirements/${reqId}`),
   // R1.F2:分支名预览(后端拼音策略权威生成;title 必填 1-128,与创建时 default_req_branch 同口径)
   branchPreview: (title: string) =>
     api.get<{ branch: string }>(`/requirements/branch-preview?title=${encodeURIComponent(title)}`),
@@ -267,6 +270,19 @@ export function useCancelRequirement() {
     mutationFn: ({ reqId, data }: { reqId: string; data: CancelRequest }) =>
       requirementsApi.cancel(reqId, data),
     onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['requirement', variables.reqId] })
+    },
+  })
+}
+
+// R4.F1:删除需求(成功后失效四维列表 + 需求详情缓存;后端 400/403 由调用方 Alert 展示)
+export function useDeleteRequirement() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ reqId }: { reqId: string }) =>
+      requirementsApi.remove(reqId).then(r => r.data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['dimension'] })
       qc.invalidateQueries({ queryKey: ['requirement', variables.reqId] })
     },
   })

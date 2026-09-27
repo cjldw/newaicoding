@@ -27,7 +27,8 @@ Skills/MCP 能力域两 PRD 合并:**市场安装**(内置 ModelScope+skills.sh 
 | R1 | 市场源配置(超管) | M1 后端+M2 前端 | ✅ | ./DEVPLAN/R1.md |
 | R2 | 市场搜索接口(后端代理) | M1 后端 | ✅ | ./DEVPLAN/R2.md |
 | R3 | 一键安装到项目 | M1 后端 | ✅ | ./DEVPLAN/R3.md |
-| R4 | 市场搜索安装 Dialog | M2 前端 | ✅ | ./DEVPLAN/R4.md |
+| R4 | 市场搜索安装 Dialog | M2 前端 | ✅ |
+| R4.F1 | admin 侧市场搜索安装(用户指令) | M1 后端+M2 前端 | 🔄 | ./DEVPLAN/R4.F1.md | ./DEVPLAN/R4.md |
 | R5 | 系统级采集(probe_claude) | M1 后端+Runner | ✅ | ./DEVPLAN/R5.md |
 | R6 | 系统级只读展示 | M1 后端+M2 前端 | ✅ | ./DEVPLAN/R6.md |
 | R7 | 对话 /skills /mcp 候选合并 | M1 后端+M2 前端 | ✅ | ./DEVPLAN/R7.md |
@@ -55,6 +56,7 @@ Skills/MCP 能力域两 PRD 合并:**市场安装**(内置 ModelScope+skills.sh 
 | 日期 | 变更 | 原因 |
 |---|---|---|
 | 2026-09-26 | 初始版本(两 PRD 合并;/mcp 需新做补全 UI 按调研修正范围) | rd-plan 调研 |
+| 2026-09-27 | 新增 R4.F1(用户指令):admin「Skills 市场」页也实现市场搜索安装——超管搜市场装入平台官方库(scope=platform),全项目二级可装 | 用户指令,范围扩展留痕 |
 | 2026-09-27 | R1 完成+枚举笔误 modescope→modelscope 修正+P2 hook 解包修复 | rd-dev R1 收口 |
 | 2026-09-27 | R2 完成:市场搜索接口(后端代理双源,400/502 分界+5min 缓存);QA+源配置回归 48/48 全绿(含收口修复 6 新用例) | rd-dev R2 收口 |
 | 2026-09-27 | R2 契约裁定:响应 items[].market 与请求参数统一回显 **type 值**(modelscope/skillssh),非 PRD 字面「源名」(skills.sh)——请求/响应同值自洽,R3 安装 round-trip {market,ref} 依赖同值;QA 测试矩阵扩至 25 用例全绿 | rd-dev R2 QA 甄别 |

@@ -10,6 +10,7 @@ from app.core.auth import get_current_user
 from app.core.response import BizError, ErrCode, success
 from app.database import get_db
 from app.models.requirement import Requirement
+from app.models.task import Task
 from app.models.user import User
 from app.schemas.requirement import (
     CancelRequest,
@@ -251,8 +252,54 @@ async def cancel_requirement(
     from app.services.project_member_service import require_project_role, get_project_role
 
     role = await get_project_role(db, project, current_user)
-    require_project_role(db, project, current_user, "viewer")
+    await require_project_role(db, project, current_user, "viewer")
     if role != "owner":
         raise BizError(ErrCode.NO_PROJECT_PERMISSION, "仅项目所有者可取消需求", status_code=403)
     await requirement_service.cancel_requirement(db, current_user, requirement, req.reason)
     return success(message="需求已取消")
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/requirements/{req_id} - 删除需求(R4.F1)
+# ---------------------------------------------------------------------------
+@router.delete("/requirements/{req_id}")
+async def delete_requirement(
+    req_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除需求(owner-only;仅未产生数据状态且无关联任务可删,硬删+从属数据随行清除)"""
+    from app.services.audit_service import audit_write
+    from app.services.project_member_service import get_project_role, require_project_role
+    from app.services.project_service import get_project_or_404
+
+    requirement = await requirement_service.get_requirement_or_404(db, req_id)
+    project = await get_project_or_404(db, requirement.project_id)
+
+    # 守卫①:owner-only(对齐 cancel 档——删除比取消更彻底,非 owner → 403/1901)
+    role = await get_project_role(db, project, current_user)
+    await require_project_role(db, project, current_user, "viewer")
+    if role != "owner":
+        raise BizError(ErrCode.NO_PROJECT_PERMISSION, "仅项目所有者可删除需求", status_code=403)
+
+    # 守卫②:评审通过(approved)及之后的下游链路状态已产生交付数据,禁删(枚举见 models/requirement.py)
+    if requirement.status in ("approved", "in_progress", "done", "archived"):
+        raise BizError(ErrCode.NOT_IN_POLISHING, "需求已评审通过或已交付,不可删除", status_code=400)
+
+    # 守卫③:关联任务存在(含打磨任务;Task.req_id 无 DB FK,联查判定)即禁删
+    linked = (await db.execute(
+        select(Task.id).where(Task.req_id == requirement.req_id).limit(1)
+    )).scalar()
+    if linked is not None:
+        raise BizError(ErrCode.NOT_IN_POLISHING, "需求已关联任务,不可删除", status_code=400)
+
+    # 硬删本体:prototype_links / related_user_ids / 评审记录等从属字段随行清除
+    # (GitLab 需求分支与历史审计/通知不在清理范围,口径同取消:声明边界)
+    await db.delete(requirement)
+    await db.flush()
+    # R25 审计:requirement.delete(模式 C API 层;历史审计记录保留不删)
+    await audit_write(
+        db, current_user, "requirement.delete",
+        project_id=project.project_id, target_type="requirement", target_id=req_id,
+    )
+    return success(message="需求已删除")

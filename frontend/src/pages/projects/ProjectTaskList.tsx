@@ -12,9 +12,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useProjectTaskList, type TaskListItem, type TaskStatus } from '@/api/tasks'
-import { RequirementPickerDialog } from './RequirementPickerDialog'
-import { TaskCreateDialog } from '../tasks/TaskCreateDialog'
-import type { TaskType } from '@/api/tasks'
+import { TaskCreateDialog } from '../manage/TaskCreateDialog'
 
 interface ProjectTaskListProps {
   projectId: string
@@ -44,22 +42,8 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [expandedReqs, setExpandedReqs] = useState<Set<string>>(new Set())
 
-  // 创建任务流程:选需求 → 选类型 → 创建
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [selectedReq, setSelectedReq] = useState<{ id: string; title: string } | null>(null)
-  const [createType, setCreateType] = useState<Exclude<TaskType, 'requirement'> | null>(null)
-
-  const handleReqSelect = (reqId: string, reqTitle: string) => {
-    setPickerOpen(false)
-    setSelectedReq({ id: reqId, title: reqTitle })
-    setCreateType('dev') // 默认 dev 类型
-  }
-
-  const handleTaskCreated = (taskId: string) => {
-    setCreateType(null)
-    setSelectedReq(null)
-    navigate(`/tasks/${taskId}`)
-  }
+  // 创建任务流程：直接打开统一表单
+  const [createOpen, setCreateOpen] = useState(false)
 
   // 按需求分组
   const grouped = useMemo(() => {
@@ -140,7 +124,7 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
           </div>
         )}
         <div className="flex-1" />
-        <Button variant="primary" onClick={() => setPickerOpen(true)}>
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
           创建任务
         </Button>
@@ -228,24 +212,12 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
         </div>
       )}
 
-      {/* 需求选择对话框 */}
-      <RequirementPickerDialog
-        projectId={projectId}
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onSelect={handleReqSelect}
-      />
-
       {/* 任务创建对话框 */}
-      {selectedReq && createType && (
-        <TaskCreateDialog
-          reqId={selectedReq.id}
-          type={createType}
-          open={!!selectedReq}
-          onClose={() => { setSelectedReq(null); setCreateType(null) }}
-          onSuccess={handleTaskCreated}
-        />
-      )}
+      <TaskCreateDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        projectId={projectId}
+      />
     </div>
   )
 }

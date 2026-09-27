@@ -3,7 +3,7 @@
  * - 标题"MCP 配置" + "使用模板"按钮(secondary)
  * - 「系统级 MCP」只读列表(镜像内置,无写入口;未采集引导态)
  * - JSON 编辑器(全宽 Textarea,等宽字体 font-mono,rows=20,实时 JSON.parse 校验)
- * - 底部提示"配置将注入到任务容器的 `~/.claude/config.json`"
+ * - 底部提示"配置将注入到任务容器的 `/root/.claude.json`"
  * - 保存按钮(primary 右下角,viewer 隐藏)
  * - 使用模板对话框(模板卡片列表 → 动态参数表单 → 生成按钮填入编辑器)
  */
@@ -131,7 +131,7 @@ export function McpConfigManagement({ projectId }: McpConfigManagementProps) {
   }
 
   const hintParts = useMemo(() => {
-    const parts = '配置将注入到任务容器的 `~/.claude/config.json`'.split('`')
+    const parts = '配置将注入到任务容器的 `/root/.claude.json`'.split('`')
     return parts
   }, [])
 

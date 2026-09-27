@@ -190,6 +190,9 @@ export const adminSkillsApi = {
   update: (id: string, data: Partial<{ name: string; description: string; content: string }>) =>
     api.patch<Skill>(`/admin/skills/${id}`, data),
   delete: (id: string) => api.delete<{ message: string }>(`/admin/skills/${id}`),
+  // 市场搜索安装进平台库(R4.F1):{market,ref} → 只装 SKILL.md,extra_files 为支撑文件数
+  installRemote: (market: string, ref: string) =>
+    api.post<InstallRemoteResult>('/admin/skills/install-remote', { market, ref }),
 }
 
 // ---- React Query Hooks: MCP ----
@@ -328,6 +331,16 @@ export function useDeleteAdminSkill() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => adminSkillsApi.delete(id).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-skills'] }) },
+  })
+}
+
+// 市场一键安装进平台库(R4.F1;成功 invalidate 平台库列表——搜索行按 name 命中即标「已安装」)
+export function useAdminInstallRemote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { market: string; ref: string }) =>
+      adminSkillsApi.installRemote(v.market, v.ref).then(r => r.data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-skills'] }) },
   })
 }

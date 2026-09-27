@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
@@ -348,6 +348,66 @@ async def update_task(
         task.extended_attributes = ext  # 新 dict 对象,确保触发 UPDATE
     await db.flush()
     return success(data=await _task_detail_data(db, task), message="任务已更新")
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/tasks/{task_id} - 删除任务(R4.F2)
+# ---------------------------------------------------------------------------
+@router.delete("/tasks/{task_id}")
+async def delete_task(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除任务(owner/editor;严档:仅 pending 且无容器/消息行可删;release 已部署或有活跃路由须先下线)"""
+    from app.models.container import Container
+    from app.models.route import Route
+    from app.services.audit_service import audit_write
+
+    task = await task_service.get_task_or_404(db, task_id)
+    project = (await db.execute(
+        select(Project).where(Project.project_id == task.project_id)
+    )).scalars().first()
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+
+    # release 特判:「发布完成」= status='done' 且 extended_attributes.deploy_phase='deployed'
+    # (Task.status 枚举无 deployed 值,不得按状态值判断),或仍有活跃 Route(在线服务)→ 先下线再删
+    if task.type == "release":
+        deployed = task.status == "done" \
+            and (task.extended_attributes or {}).get("deploy_phase") == "deployed"
+        active_route = (await db.execute(
+            select(Route.id).where(Route.task_id == task.task_id, Route.status == "active").limit(1)
+        )).scalar()
+        if deployed or active_route is not None:
+            raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "发布已完成,请先下线部署", status_code=400)
+
+    # 严档守卫:仅 pending 可删;running/passed/done 等已开始任务已产生运行/交付数据,一律拒绝
+    if task.status != "pending":
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "任务已开始,不可删除", status_code=400)
+
+    # pending 但已有容器台账 / 对话消息行 → 已产生数据,同样拒绝(无 DB FK,exists 联查)
+    container_row = (await db.execute(
+        select(Container.id).where(Container.task_id == task.task_id).limit(1)
+    )).scalar()
+    message_row = (await db.execute(
+        select(TaskMessage.id).where(TaskMessage.task_id == task.task_id).limit(1)
+    )).scalar()
+    if container_row is not None or message_row is not None:
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "任务已开始,已产生数据,不可删除", status_code=400)
+
+    # 级联(仅可删分支):task_messages / task_uploaded_files 无 DB FK、无 ORM cascade → 显式删;
+    # Route 残留(活跃已被上方守卫拦截)一并摘除
+    await db.execute(delete(TaskMessage).where(TaskMessage.task_id == task.task_id))
+    await db.execute(delete(TaskUploadedFile).where(TaskUploadedFile.task_id == task.task_id))
+    await db.execute(delete(Route).where(Route.task_id == task.task_id))
+    await db.delete(task)
+    await db.flush()
+    # R25 审计:task.delete(模式 C API 层)
+    await audit_write(
+        db, current_user, "task.delete",
+        project_id=task.project_id, target_type="task", target_id=task_id,
+    )
+    return success(message="任务已删除")
 
 
 class _SimpleOp(BaseModel):

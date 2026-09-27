@@ -59,7 +59,8 @@ function renderOpenDialog() {
     </QueryClientProvider>,
   )
   fireEvent.click(screen.getByRole('button', { name: '新建任务' }))
-  return screen.findByText('新建任务 · 快速创建')
+  // R4 文案清单:对话框标题「新建任务」(heading 定位,与页头同名按钮区分)
+  return screen.findByRole('heading', { name: '新建任务' })
 }
 
 /** 定位任务类型选择器:含「请选择任务类型」占位或 开发/测试/发布 选项的原生 <select> */

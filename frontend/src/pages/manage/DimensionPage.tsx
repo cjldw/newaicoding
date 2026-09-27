@@ -17,13 +17,13 @@ import {
 import { useDimensionList, type DimensionItem } from '@/api/dashboard'
 import { useProjectList, useProjectMembers } from '@/api/projects'
 import {
-  requirementsApi, useBranchPreview, useRequirementDetail,
+  requirementsApi, useBranchPreview, useDeleteRequirement, useRequirementDetail,
   type UpdateRequirementRequest,
 } from '@/api/requirements'
 import type { RequirementPriority } from '@/api/requirements'
 import { useDebounce } from '@/hooks/useDebounce'
-import { useTaskDetail, useUpdateTask, type UpdateTaskPayload } from '@/api/tasks'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
+import { useDeleteTask, useTaskDetail, useUpdateTask, type UpdateTaskPayload } from '@/api/tasks'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/Dialog'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -63,6 +63,10 @@ const PRIORITY_BADGE: Record<string, { label: string; cls: string }> = {
   medium: { label: '中', cls: 'b-amber' },
   low: { label: '低', cls: 'b-zinc' },
 }
+
+// R4.F1:需求禁删状态集合 = 评审通过(approved)及之后的下游链路(已产生交付数据);
+// 关联任务前端列表无此数据,删除按钮不因此禁用,后端 400 兜底
+const REQ_NO_DELETE_STATUSES = ['approved', 'in_progress', 'done', 'archived']
 
 // 各维表头(照抄 vp conf.heads 一字不差;末列为 chevron 空表头)
 const HEADS: Record<DimensionPageProps['dimension'], string[]> = {
@@ -111,6 +115,9 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
   const [quickOpen, setQuickOpen] = useState(false)
   // R2.F1/R2.F2:行内编辑入口(requirements 全状态可编辑;任务维仅 pending,其余禁用兜底)
   const [editItem, setEditItem] = useState<DimensionItem | null>(null)
+  // R4.F1/R4.F2:行内删除入口(确认弹窗;失败后端 message 用 Alert 展示)
+  const [deleteItem, setDeleteItem] = useState<DimensionItem | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const pageSize = 20
 
   const { data, isLoading } = useDimensionList(dimension, {
@@ -120,6 +127,32 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
     page,
     page_size: pageSize,
   })
+
+  const deleteRequirementMutation = useDeleteRequirement()
+  const deleteTaskMutation = useDeleteTask()
+  const deleting = deleteRequirementMutation.isPending || deleteTaskMutation.isPending
+
+  const closeDelete = () => {
+    setDeleteItem(null)
+    setDeleteError(null)
+  }
+
+  const handleDelete = () => {
+    if (!deleteItem) return
+    setDeleteError(null)
+    const onError = (err: Error) => setDeleteError(err?.message || '删除失败')
+    if (dimension === 'requirements') {
+      deleteRequirementMutation.mutate(
+        { reqId: deleteItem.key },
+        { onSuccess: closeDelete, onError },
+      )
+    } else {
+      deleteTaskMutation.mutate(
+        { taskId: deleteItem.key },
+        { onSuccess: closeDelete, onError },
+      )
+    }
+  }
 
   const handleRowClick = (item: DimensionItem) => {
     // 根据维度跳转到对应详情页
@@ -226,6 +259,29 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
                         >
                           编辑
                         </button>
+                        {/* R4.F1/R4.F2:「删除」按钮(danger 态;需求维按禁删状态集合禁用,
+                            任务三维仅 pending 可删;关联任务前端不可知,后端 400 兜底) */}
+                        {(() => {
+                          const reqLocked = dimension === 'requirements'
+                            && REQ_NO_DELETE_STATUSES.includes(item.status)
+                          const taskLocked = dimension !== 'requirements' && item.status !== 'pending'
+                          return (
+                            <button
+                              className="btn btn-sm btn-danger"
+                              disabled={reqLocked || taskLocked}
+                              title={
+                                reqLocked
+                                  ? '评审通过的需求不可删除'
+                                  : taskLocked
+                                    ? '任务已开始,不可删除'
+                                    : '删除'
+                              }
+                              onClick={(e) => { e.stopPropagation(); setDeleteError(null); setDeleteItem(item) }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )
+                        })()}
                         <ChevronRight size={14} />
                       </div>
                     </td>
@@ -289,6 +345,27 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
       {editItem && dimension !== 'requirements' && (
         <TaskEditDialog item={editItem} onClose={() => setEditItem(null)} />
       )}
+
+      {/* R4.F1/R4.F2:删除确认弹窗(照 ModelConfigManagement 删除确认惯例:
+          标题 + 含名称正文 + 危险操作提示;失败 Alert 展示后端 message) */}
+      <Dialog open={!!deleteItem} onOpenChange={(o) => { if (!o) closeDelete() }}>
+        <DialogContent onClose={closeDelete}>
+          <DialogHeader>
+            <DialogTitle>删除{dimension === 'requirements' ? '需求' : '任务'}</DialogTitle>
+            <DialogDescription>
+              确定删除{dimension === 'requirements' ? '需求' : `${TYPE_BADGE[deleteItem?.type || '']?.label || '任务'}任务`}
+              「{deleteItem?.title}」吗?该操作不可恢复。
+            </DialogDescription>
+          </DialogHeader>
+          {deleteError && <Alert variant="error" onClose={() => setDeleteError(null)}>{deleteError}</Alert>}
+          <DialogFooter>
+            <Button variant="ghost" onClick={closeDelete}>取消</Button>
+            <Button variant="danger" disabled={deleting} onClick={handleDelete}>
+              {deleting ? '删除中…' : '确定'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

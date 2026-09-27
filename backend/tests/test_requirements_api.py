@@ -171,10 +171,19 @@ async def test_start_polish_success(client, auth_headers, db_session, registered
 
 @pytest.mark.asyncio
 async def test_start_polish_already_polishing(client, auth_headers, db_session, registered_user):
-    """已有打磨任务进行中:3001"""
+    """已有打磨任务进行中:3001(R35.F1 起 polish_task_id 指向已终态/不存在的任务会放行重打磨,
+    故此处落一个 active 任务行才能命中 3001 守卫)"""
     project = await _setup_project(db_session, registered_user)
     req = _mk_requirement(db_session, project, registered_user["user_id"], status="polishing")
     req.polish_task_id = "task-existing"
+    from app.models.task import Task
+
+    db_session.add(Task(
+        task_id="task-existing", req_id=req.req_id, project_id=project.project_id,
+        type="requirement", title="打磨", description="d",
+        base_branch="b", work_branch="b", status="pending",
+        conversation_id=str(uuid.uuid4()), created_by=registered_user["user_id"],
+    ))
     await db_session.flush()
 
     resp = await client.post(f"/api/requirements/{req.req_id}/polish", headers=auth_headers)
@@ -250,3 +259,60 @@ async def test_cancel_requirement(client, auth_headers, db_session, registered_u
     await db_session.refresh(req)
     assert req.status == "rejected"
     assert req.reject_reason == "优先级调整"
+
+
+async def _register_member_user(client):
+    """注册普通用户(非首位),返回 {headers, user_id}(BUG-009 用例造数用)"""
+    phone = f"136{str(uuid.uuid4().int)[:8]}"
+    resp = await client.post("/api/auth/register", json={"phone": phone, "password": "Test1234"})
+    assert resp.status_code == 200 and resp.json()["code"] == 0
+    user_id = resp.json()["data"]["user_id"]
+    resp = await client.post("/api/auth/login", json={"phone": phone, "password": "Test1234"})
+    assert resp.status_code == 200
+    headers = {"Authorization": f"Bearer {resp.json()['data']['access_token']}"}
+    return {"headers": headers, "user_id": user_id}
+
+
+@pytest.mark.filterwarnings("error::RuntimeWarning", "error::pytest.PytestUnraisableExceptionWarning")
+@pytest.mark.asyncio
+async def test_cancel_requirement_non_member_forbidden(client, db_session, registered_user):
+    """BUG-009:非项目成员取消需求 → 403(1901);权限 guard 真实执行,无未 await 协程"""
+    project = await _setup_project(db_session, registered_user)
+    req = _mk_requirement(db_session, project, registered_user["user_id"], status="approved")
+    outsider = await _register_member_user(client)
+
+    resp = await client.post(
+        f"/api/requirements/{req.req_id}/cancel",
+        headers=outsider["headers"],
+        json={"reason": "越权取消"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == 1901
+    await db_session.refresh(req)
+    assert req.status == "approved"
+
+
+@pytest.mark.filterwarnings("error::RuntimeWarning", "error::pytest.PytestUnraisableExceptionWarning")
+@pytest.mark.asyncio
+async def test_cancel_requirement_viewer_forbidden(client, db_session, registered_user):
+    """BUG-009:viewer 项目成员取消需求 → 403(仅 owner 可取消);guard 未被跳过"""
+    from app.models.project_member import ProjectMember
+
+    project = await _setup_project(db_session, registered_user)
+    req = _mk_requirement(db_session, project, registered_user["user_id"], status="approved")
+    viewer = await _register_member_user(client)
+    db_session.add(ProjectMember(
+        project_id=project.project_id, user_id=viewer["user_id"],
+        role="viewer", invited_by=registered_user["user_id"],
+    ))
+    await db_session.flush()
+
+    resp = await client.post(
+        f"/api/requirements/{req.req_id}/cancel",
+        headers=viewer["headers"],
+        json={"reason": "试试取消"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == 1901
+    await db_session.refresh(req)
+    assert req.status == "approved"

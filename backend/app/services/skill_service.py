@@ -70,11 +70,14 @@ async def _user_brief(db: AsyncSession, user_id: str) -> dict:
 
 
 async def _market_item(db: AsyncSession, skill: Skill) -> dict:
+    """市场/列表条目(R4.F1 补 source/source_url:来源列展示市场安装溯源)"""
     return {
         "skill_id": skill.skill_id,
         "name": skill.name,
         "description": skill.description,
         "scope": skill.scope,
+        "source": skill.source,
+        "source_url": skill.source_url,
         "created_by": await _user_brief(db, skill.created_by),
         "created_at": skill.created_at,
     }
@@ -243,6 +246,65 @@ async def install_skill_from_market(
         project.project_id, data["name"], operator.user_id, source_url,
     )
     return {**data, "source": "market", "source_url": source_url}
+
+
+async def admin_install_skill_from_market(
+    db: AsyncSession,
+    operator: User,
+    content: str,
+    source_url: str,
+) -> dict:
+    """
+    平台库市场安装(R4.F1):fetch_skill_md 拉取结果入库到平台官方库。
+    - parse_skill_markdown 校验(17003 带原因;重抛为 400,口径同 R3 项目侧)
+    - 入库 scope=platform、project_id=None、source="market"、source_url=实际外呼 URL、
+      created_by=操作超管;**不写 project_skills**(平台库与项目侧唯一差异点,
+      之后全项目再从平台库二级安装)
+    - 同名覆盖沿用 R3 upload 原地覆盖语义(不用 admin_create_skill 的 13002 拒绝分支):
+      按 (scope=platform, name) 查重 → update 行,skill_id 不变(项目侧二级安装引用不悬空),
+      description/content/source/source_url 同步翻转为本次安装值
+    返回 {skill_id, name, description, source, source_url}(extra_files 由调用方补充)。
+    """
+    try:
+        name, description, _body = parse_skill_markdown(content)
+    except BizError as e:
+        raise BizError(e.code, e.message, status_code=400) from e
+
+    result = await db.execute(
+        select(Skill).where(Skill.scope == "platform", Skill.name == name)
+    )
+    skill = result.scalar_one_or_none()
+    if skill is not None:
+        skill.description = description
+        skill.content = content
+        skill.source = "market"
+        skill.source_url = source_url
+        await db.flush()
+    else:
+        skill = Skill(
+            name=name,
+            description=description,
+            content=content,
+            scope="platform",
+            project_id=None,
+            created_by=operator.user_id,
+            source="market",
+            source_url=source_url,
+        )
+        db.add(skill)
+        await db.flush()
+
+    logger.info(
+        "平台库市场安装 Skill name=%s by=%s source_url=%s",
+        name, operator.user_id, source_url,
+    )
+    return {
+        "skill_id": skill.skill_id,
+        "name": name,
+        "description": description,
+        "source": "market",
+        "source_url": source_url,
+    }
 
 
 async def uninstall_skill(db: AsyncSession, project: Project, operator: User, skill_id: str) -> None:

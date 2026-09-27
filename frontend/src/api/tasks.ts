@@ -187,6 +187,11 @@ export async function stopTask(taskId: string): Promise<void> {
   await api.post(`/tasks/${taskId}/stop`)
 }
 
+/** R4.F2:删除任务(后端严档:仅 pending 且无容器/消息行可删;release 已部署须先下线) */
+export async function deleteTask(taskId: string): Promise<void> {
+  await api.delete(`/tasks/${taskId}`)
+}
+
 export async function retryTask(taskId: string): Promise<void> {
   await api.post(`/tasks/${taskId}/retry`)
 }
@@ -296,6 +301,18 @@ export function useUpdateTask() {
   return useMutation({
     mutationFn: ({ taskId, payload }: { taskId: string; payload: UpdateTaskPayload }) =>
       updateTask(taskId, payload),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['task', variables.taskId] })
+      qc.invalidateQueries({ queryKey: ['dimension'] })
+    },
+  })
+}
+
+// R4.F2:删除任务(成功后失效详情 + 四维列表缓存;后端 400/403 由调用方 Alert 展示)
+export function useDeleteTask() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId }: { taskId: string }) => deleteTask(taskId),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['task', variables.taskId] })
       qc.invalidateQueries({ queryKey: ['dimension'] })
