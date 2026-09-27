@@ -537,6 +537,28 @@ async def send_message(
     return success(data=data)
 
 
+@router.post("/tasks/{task_id}/messages/cancel")
+async def cancel_message(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """取消在途 AI 对话(R34.F1 真取消):按任务反查在途流式请求 → 下发 runner
+    exec_tool_cancel(容器内 pkill claude)+ 本地结算;终态广播 chat_done
+    ok:false(error=cancelled)。权限 owner/editor(viewer 403);无在途对话幂等"""
+    logger.info("取消对话接口入口 task=%s by=%s", task_id, current_user.user_id)
+    task = await task_service.get_task_or_404(db, task_id)
+    project = (await db.execute(
+        select(Project).where(Project.project_id == task.project_id)
+    )).scalars().first()
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+    data = await task_service.cancel_message_stream(db, task)
+    return success(
+        data=data,
+        message="已请求取消" if data.get("cancelled") else "当前无进行中的对话",
+    )
+
+
 # ---------------------------------------------------------------------------
 # 附件上传 / 列表 / 下载 / 删除
 # ---------------------------------------------------------------------------

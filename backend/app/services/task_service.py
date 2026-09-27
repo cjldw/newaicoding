@@ -700,6 +700,13 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
             if delta is not None:
                 await _broadcast_delta_smooth(task.task_id, delta["text"], delta_state)
         response = await finalize()
+    except claude_service.AICancelled:
+        # R34.F1:用户真取消(messages/cancel → runner pkill claude → 终态
+        # error="cancelled")—— 不写「执行失败」台账、不按失败回 POST;
+        # 广播 chat_done ok:false 供前端收尾「已停止」反馈条
+        await task_event_registry.broadcast(task.task_id, {"type": "chat_done", "ok": False, "error": "cancelled"})
+        logger.info("任务对话已被用户取消 task=%s", task.task_id)
+        return {"message_id": user_msg.message_id, "cancelled": True}
     except RuntimeError as e:
         err = TaskMessage(task_id=task.task_id, role="assistant", content=f"执行失败:{e}")
         db.add(err)
@@ -726,6 +733,37 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
     })
     logger.info("任务消息完成(流式) task=%s tokens=%d/%d", task.task_id, response["tokens_in"], response["tokens_out"])
     return {"message_id": user_msg.message_id}
+
+
+async def cancel_message_stream(db: AsyncSession, task: Task) -> dict:
+    """
+    R34.F1:取消在途 AI 对话(真取消):
+    按 task_id 反查 _stream_requests 在途 req_id → 经 Runner 下发 exec_tool_cancel
+    + 本地结算 done(ok=False)→ send_message_stream 捕获 AICancelled 广播
+    chat_done {ok:false, error:"cancelled"} 并正常收尾;runner 侧容器内 pkill
+    claude 真停执行(迟到终态因 req_id 已注销被丢弃)。
+    守卫与 send_message 同口径(容器在跑/Runner 在线),但按取消契约回 HTTP 400;
+    无在途对话幂等返回 cancelled=False(前端停止按钮与 POST 返回的竞态兜底)。
+    """
+    logger.info("取消对话请求 task=%s status=%s", task.task_id, task.status)
+    container = (await db.execute(
+        select(Container).where(
+            Container.task_id == task.task_id, Container.status == "running"
+        ).order_by(Container.id.desc()).limit(1)
+    )).scalars().first()
+    if container is None:
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "任务容器不在运行,不可取消", status_code=400)
+    runner_conn = runner_registry.get(container.runner_id)
+    if runner_conn is None:
+        raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "Runner offline,不可取消", status_code=400)
+
+    req_ids = runner_service.find_stream_requests(task.task_id)
+    if not req_ids:
+        logger.info("取消对话:无在途流式请求 task=%s", task.task_id)
+        return {"cancelled": False, "req_ids": []}
+    for rid in req_ids:
+        await runner_service.cancel_stream_request(runner_conn, rid)
+    return {"cancelled": True, "req_ids": req_ids}
 
 
 # ---------------------------------------------------------------------------

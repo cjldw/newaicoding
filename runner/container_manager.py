@@ -662,6 +662,20 @@ class ContainerManager:
         except _json.JSONDecodeError:
             return {"result": text, "tokens_in": 0, "tokens_out": 0}
 
+    def cancel_claude(self, container_id: str) -> bool:
+        """
+        R34.F1:对话真取消 —— 杀容器内 claude CLI 进程(对话取消)。
+        pkill -f 命中执行中的 `claude -p ...`;exec socket 随进程死亡 EOF,
+        读线程(claude_prompt/claude_prompt_stream)退出,终态由调用方按
+        cancelled 结算。模式用 [c]laude 方括号技巧:pkill 自身与其 bash -lc
+        父进程命令行含 "[c]laude" 字面量,正则 [c]laude 只匹配 "claude",
+        避免杀到自己所在 exec 会话。`|| true` 幂等:进程已自然结束(无匹配)
+        也算成功。容器已销毁时向上抛(调用方记日志兜底)。
+        """
+        code, out = self.exec_capture(container_id, 'pkill -f "[c]laude" || true')
+        logger.info("容器内 claude 已取消 container=%s exit=%s", container_id, code)
+        return code == 0
+
     def merge_branch(self, container_id: str, repo_path: str,
                      source_branch: str, target_branch: str) -> None:
         """

@@ -15,6 +15,21 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# R34.F1:取消终态约定值与异常类型(AICancelled ⊂ RuntimeError,
+# 既有 `except RuntimeError` 分支天然兼容)
+CANCELLED_ERROR = "cancelled"
+
+
+def is_cancelled_error(error: str) -> bool:
+    """取消终态识别:runner 侧迟到终态 error="cancelled" / cancel_stream_request
+    本地结算 error="已取消"(runner_service.CANCELLED_ERROR)"""
+    return error == CANCELLED_ERROR or "取消" in (error or "")
+
+
+class AICancelled(RuntimeError):
+    """对话被用户取消(exec_tool_cancel → 容器内 pkill claude → 终态取消)"""
+    pass
+
 
 async def run_prompt(
     runner_conn,
@@ -130,7 +145,11 @@ async def run_prompt_stream(
             if evt["type"] == "done":
                 final.update(evt)
         if not final.get("ok"):
-            raise RuntimeError(final.get("error") or "AI 执行失败")
+            error = final.get("error") or "AI 执行失败"
+            # R34.F1:用户取消 → 专用异常(调用方区分「执行失败」与「已停止」收尾)
+            if is_cancelled_error(error):
+                raise AICancelled(error)
+            raise RuntimeError(error)
         data = final.get("data") or {}
         return {
             "result": data.get("result", ""),

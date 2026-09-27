@@ -210,6 +210,16 @@ export async function sendTaskMessage(
   return res.data
 }
 
+/** R34.F1:取消在途 AI 对话(容器内 pkill claude 真停;无在途幂等 cancelled:false,非错误) */
+export async function cancelTaskMessage(
+  taskId: string,
+): Promise<{ cancelled: boolean }> {
+  const res = await api.post<{ cancelled: boolean }>(
+    `/tasks/${taskId}/messages/cancel`,
+  )
+  return res.data
+}
+
 /** 上传单个文件(multipart) */
 export async function uploadTaskFile(
   taskId: string,

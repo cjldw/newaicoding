@@ -215,6 +215,44 @@ def resolve_stream_request(req_id: str, ok: bool, data=None, error: str = "") ->
 
 
 # ---------------------------------------------------------------------------
+# R34.F1:对话真取消(复用 _stream_requests 的 req_id 追踪骨架)
+# ---------------------------------------------------------------------------
+# 取消终态 error 约定值(含「取消」字样,claude_service.is_cancelled_error 识别)
+CANCELLED_ERROR = "已取消"
+
+
+def find_stream_requests(task_id: str) -> list[str]:
+    """按 task_id 反查在途流式请求 req_id(同一任务并发对话至多个,通常 0/1)"""
+    return [rid for rid, entry in _stream_requests.items() if entry.get("task_id") == task_id]
+
+
+async def cancel_stream_request(conn: RunnerConnection, req_id: str) -> bool:
+    """
+    取消在途流式对话(真取消):
+    1. 下发 {"type":"exec_tool_cancel","req_id"}(火后不理,不占 pending Future):
+       runner 按 req_id 定位执行中容器 → docker exec pkill 容器内 claude → 执行
+       线程随 exec socket EOF 提前退出;其迟到终态 result 因 req_id 已注销被丢弃
+       (取消指令自身不回包,防与原请求终态撞 req_id)
+    2. 本地结算 done(ok=False, error=已取消)——等待方(POST 内联协程)立即
+       收尾,不等 runner 往返与 pkill 时延
+    返回是否存在匹配 req_id;未知/重复取消幂等返回 False 且不下发。
+    """
+    entry = _stream_requests.get(req_id)
+    if entry is None:
+        logger.warning("取消对话:无匹配在途请求 req_id=%s runner=%s", req_id, conn.runner_id)
+        return False
+    logger.info("下发对话取消 runner=%s req_id=%s task=%s", conn.runner_id, req_id, entry.get("task_id"))
+    try:
+        await send_to_runner(conn, {"type": "exec_tool_cancel", "req_id": req_id})
+    except Exception as e:
+        # 下发失败(连接死亡等)仍本地结算:等待方不悬挂;runner 侧执行由
+        # request_runner_stream 的超时 guard 兜底收敛
+        logger.warning("取消指令下发失败(仍本地结算) req_id=%s: %s", req_id, e)
+    resolve_stream_request(req_id, False, error=CANCELLED_ERROR)
+    return True
+
+
+# ---------------------------------------------------------------------------
 # R16:Runner 管理(超管)
 # ---------------------------------------------------------------------------
 def _generate_token() -> str:

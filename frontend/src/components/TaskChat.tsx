@@ -14,7 +14,8 @@
  *   补全下拉键盘导航(ArrowUp/Down 循环 + Enter 选中,skill 引用格式 @→/)
  * - R34:头像布局(20260927 头像布局.md)——头像+昵称行(.chat-head)移到消息上方,
  *   用户头像取 auth store 当前用户(占位,待后端 TaskMessage sender 字段做多用户逐人头像)
- * - R34.F1(BUG-UI-090):「停止生成」按钮整个发送 pending 期间常显(流式增量前也有停止入口)
+ * - R34.F1(BUG-UI-090):「停止生成」按钮整个发送 pending 期间常显(流式增量前也有停止入口);
+ *   点击接线后端真取消 POST /tasks/{id}/messages/cancel,stoppedRef 展示层中止保留为兜底
  * - R34.F2(BUG-UI-092):输入区模型切换下拉(项目启用中的模型配置,默认选 is_default;
  *   发送请求体携带 config_id——后端消费待契约,占位)
  */
@@ -32,7 +33,7 @@ import { OrangeMark } from './OrangeMark'
 import {
   useTaskMessages, useSendTaskMessage, useUploadTaskFile,
   useUploadedFiles, useDeleteTaskFile, downloadTaskFile,
-  getTaskErrorMessage, useTaskChatStream,
+  cancelTaskMessage, getTaskErrorMessage, useTaskChatStream,
 } from '@/api/tasks'
 import type { TaskMessage, UploadedFile } from '@/api/tasks'
 import { mcpApi, skillsApi, systemAssetsApi, type McpConfig, type Skill, type SystemAssetsData } from '@/api/skills'
@@ -452,12 +453,18 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
     }
   }
 
-  // R34:停止生成 —— 前端展示层中止:置停止闸阀(BUG-UI-086,onDelta 入口短路丢增量)
-  // + 清流式文本/加载态;服务端任务继续(占位,待后端取消能力)
+  // R34:停止生成 —— 展示层中止兜底:置停止闸阀(BUG-UI-086,onDelta 入口短路丢增量)
+  // + 清流式文本/加载态(同步先行,接口失败也保证生效)
+  // R34.F1:接线后端真取消 —— POST /tasks/{id}/messages/cancel(容器内 pkill claude,
+  // 幂等:无在途 cancelled=false 非错误);失败(网络/无容器 400 等)仅 toast 提示,不影响兜底
   const handleStopGeneration = () => {
     stoppedRef.current = true
     setStreamText('')
     setThinking(false)
+    cancelTaskMessage(taskId).catch((err) => {
+      const code = err instanceof ApiError ? err.code : 0
+      showToast('err', getTaskErrorMessage(code, '停止请求失败'))
+    })
   }
 
   const handleDownload = async (f: UploadedFile) => {
@@ -746,11 +753,12 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
       )}
 
       {/* 发送 pending 反馈(BUG-UI-065:后端同步执行最长 10 分钟,无反馈=像坏了)
-          R34:流式期间文案改「AI 正在输出…」并出「■ 停止生成」(前端展示层中止,占位待后端取消);
+          R34:流式期间文案改「AI 正在输出…」并出「■ 停止生成」;
           BUG-UI-086:停止后反馈条改「已停止(服务端仍在执行)」避免误解(点击停止本身触发重渲染,
           ref 读值即新值);
           R34.F1(BUG-UI-090):停止按钮从「有流式增量才出现」放宽为整个 sendMut.isPending 期间
-          常显——thinking/后端执行阶段(首个 chat_delta 前,最长 10 分钟)也有停止入口,点击行为不变 */}
+          常显——thinking/后端执行阶段(首个 chat_delta 前,最长 10 分钟)也有停止入口;
+          R34.F1:点击已接线后端真取消(messages/cancel),stoppedRef 展示层中止保留为兜底 */}
       {sendMut.isPending && (
         <div className="px-3 py-1 text-xs text-text-muted flex items-center gap-1.5 border-t border-border">
           <Loader2 className="w-3 h-3 animate-spin" />

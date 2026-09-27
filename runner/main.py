@@ -55,6 +55,12 @@ watchers = FileWatcher()
 # 运行中的 repo 清单(停止容器时强制 push 需要;容器 id → repos)
 running_repos: dict[str, list[dict]] = {}
 
+# R34.F1:对话真取消 —— 执行中 exec_tool 登记(req_id → container_id,供
+# exec_tool_cancel 定位容器)与已取消标记(终态回报按 error="cancelled" 结算);
+# 仅登记长耗时 AI 执行工具(claude_prompt / claude_prompt_stream)
+_active_execs: dict[str, str] = {}
+_cancelled_execs: set[str] = set()
+
 
 def _pty_output_callback(ws: Any):
     """pty 输出回调(读线程上下文)→ 线程安全投递主事件循环 → 转发平台"""
@@ -381,6 +387,14 @@ async def handle_message(ws: Any, msg: dict) -> None:
         req_id = msg.get("req_id", "")
         tool = msg.get("tool", "")
         args = msg.get("args") or {}
+        container_id = msg.get("container_id", "")
+        # R34.F1:长耗时 AI 执行登记在途(供 exec_tool_cancel 按 req_id 定位容器;
+        # claude_inject 秒级完成,不登记不可取消)
+        cancellable = tool in ("claude_prompt", "claude_prompt_stream")
+        if cancellable:
+            _active_execs[req_id] = container_id
+            _cancelled_execs.discard(req_id)
+            logger.info("exec_tool 在途登记 req_id=%s tool=%s container=%s", req_id, tool, container_id)
         try:
             if tool == "claude_prompt":
                 # 同步 docker exec 会 minute 级堵死事件循环 → websockets ping/pong
@@ -389,13 +403,18 @@ async def handle_message(ws: Any, msg: dict) -> None:
                 # R9.F1:透传 session_id/resume 参数(任务级 claude 会话共用)
                 data = await asyncio.to_thread(
                     manager.claude_prompt,
-                    msg.get("container_id", ""), args.get("prompt", ""),
+                    container_id, args.get("prompt", ""),
                     workdir=args.get("workdir", "/workspace/main"),
                     session_id=args.get("session_id"),
                     resume=args.get("resume", False),
                     model=args.get("model"),
                 )
-                await safe_send_result(ws, req_id, True, data)
+                # R34.F1:已取消 → 终态按 error="cancelled" 回报(平台广播 chat_done ok:false)
+                if req_id in _cancelled_execs:
+                    logger.info("exec_tool 已取消,按 cancelled 结算 req_id=%s", req_id)
+                    await safe_send_result(ws, req_id, False, error="cancelled")
+                else:
+                    await safe_send_result(ws, req_id, True, data)
             elif tool == "claude_inject":
                 # R32.F1:Skills/MCP 注入(同路线程池,防堵事件循环)
                 data = await asyncio.to_thread(
@@ -436,8 +455,9 @@ async def handle_message(ws: Any, msg: dict) -> None:
                 )
                 # BUG-060(R32.F8):--resume 的会话在新容器/被清理后不存在 → CLI 报错
                 # 走 stderr(被 2>/dev/null 吞),stdout 零行 → 空 result。识别「带会话
-                # 且零行」自动降级为无会话重跑(新会话);首趟零行,二次上泵无重复
-                if args.get("session_id") and data.get("lines") == 0:
+                # 且零行」自动降级为无会话重跑(新会话);首趟零行,二次上泵无重复。
+                # R34.F1:已取消(零行来自 pkill)不得重跑,直接按 cancelled 结算
+                if args.get("session_id") and data.get("lines") == 0 and req_id not in _cancelled_execs:
                     logger.warning(
                         "claude resume 无会话返回空,降级新会话重跑 container=%s session=%s",
                         msg.get("container_id", ""), args.get("session_id"),
@@ -451,11 +471,24 @@ async def handle_message(ws: Any, msg: dict) -> None:
                         model=args.get("model"),
                         on_line=_on_line_threadsafe,
                     )
-                await safe_send_result(ws, req_id, True, data)
+                # R34.F1:已取消 → 终态按 error="cancelled" 回报(部分行结果丢弃)
+                if req_id in _cancelled_execs:
+                    logger.info("claude_prompt_stream 已取消,按 cancelled 结算 req_id=%s lines=%s", req_id, data.get("lines"))
+                    await safe_send_result(ws, req_id, False, error="cancelled")
+                else:
+                    await safe_send_result(ws, req_id, True, data)
             else:
                 await safe_send_result(ws, req_id, False, error=f"未知工具: {tool}")
         except Exception as e:
-            await safe_send_result(ws, req_id, False, error=str(e))
+            # R34.F1:取消路径(pkill 连带 exec 会话退出抛错)统一按 cancelled 回报
+            error = "cancelled" if req_id in _cancelled_execs else str(e)
+            if req_id in _cancelled_execs:
+                logger.info("exec_tool 取消路径异常退出 req_id=%s: %s", req_id, e)
+            await safe_send_result(ws, req_id, False, error=error)
+        finally:
+            if cancellable:
+                _active_execs.pop(req_id, None)
+                _cancelled_execs.discard(req_id)
 
     elif mtype == "probe_claude":
         # R5 系统级采集:临时容器起→探→毁单次调用内完成(同路线程池,防堵事件循环);
@@ -508,6 +541,24 @@ async def handle_message(ws: Any, msg: dict) -> None:
         _SHUTDOWN_REQUESTED = True
         await safe_send_result(ws, req_id, True, {})
         logger.info("收到 runner_shutdown,回报后退出进程")
+
+    elif mtype == "exec_tool_cancel":
+        # R34.F1:对话真取消 —— 按 req_id 定位执行中容器,docker exec pkill 容器内
+        # claude → 执行线程随 exec socket EOF 退出 → exec_tool 终态按
+        # ok=False(error="cancelled")回报,平台据此广播 chat_done ok:false。
+        # 本指令火后不理(不回 result):终态经原 req_id 的 result 结算,若在此
+        # 抢先回包会与原请求终态撞 req_id,提前结算流式等待队列。
+        # pkill 走线程池(同步 docker exec,防堵事件循环,同 BUG-032 口径)
+        target = msg.get("req_id", "")
+        target_container = _active_execs.get(target)
+        logger.info("收到 exec_tool_cancel req_id=%s container=%s", target, target_container or "无在途执行")
+        if target_container is not None:
+            _cancelled_execs.add(target)
+            try:
+                await asyncio.to_thread(manager.cancel_claude, target_container)
+            except Exception:
+                # 容器已销毁等场景:pkill 失败仅记日志;执行线程仍由平台超时兜底收敛
+                logger.exception("exec_tool_cancel 执行失败 req_id=%s container=%s", target, target_container)
 
     else:
         logger.warning("未知指令 type=%s", mtype)
