@@ -731,6 +731,19 @@ select.input{cursor:pointer}
 .chat-bubble-user{background:var(--primary);color:var(--color-primary-fg,#fff)}
 .chat-bubble-ai{background:var(--surface-2);color:var(--text)}
 [data-theme="dark"] .chat-bubble-user{color:#0d1117}
+/* ===== R32.F9:对话气泡美化——大圆角+收音角(用户右下/AI 左下)+软阴影+细描边;
+   亮暗双主题可读;未分层样式天然压过组件上的 Tailwind rounded-lg ===== */
+.chat-bubble{border-radius:12px;line-height:1.6;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.chat-bubble-user{border-bottom-right-radius:4px;box-shadow:0 1px 3px rgba(24,24,27,.18)}
+.chat-bubble-ai{border:1px solid var(--border);border-bottom-left-radius:4px}
+[data-theme="dark"] .chat-bubble-ai{border-color:var(--border)}
+[data-theme="dark"] .chat-bubble-user{box-shadow:0 1px 3px rgba(0,0,0,.35)}
+/* ===== R32.F9:对话加载动效——三点弹跳 + 流式光标(纯 CSS,不依赖 Tailwind 色键;
+   bg-text-secondary 等类不存在会渲染成透明,BUG-UI-085 复发实证)===== */
+.chat-dot{display:inline-block;width:6px;height:6px;border-radius:999px;background:var(--muted);animation:chatBreathe 1.4s ease-in-out infinite}
+.chat-dot:nth-child(2){animation-delay:.2s}
+.chat-dot:nth-child(3){animation-delay:.4s}
+.chat-cursor{display:inline-block;width:7px;height:14px;margin-left:3px;vertical-align:bottom;background:var(--muted);animation:chatCursor 1s steps(2) infinite}
 /* ===== R33.F4:工作台三栏 title 条等高对齐(1px 差根治)=====
    三栏 title 条统一 34px 高、底线同一 y 坐标:
    - 中/右栏 .tabs(.wb 作用域):行高 33 + border-bottom 1
@@ -835,3 +848,17 @@ select.input{cursor:pointer}
   border-radius:4px;
 }
 .xterm-viewport::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.32)}
+
+/* ===== R32.F9:对话加载动效(未分层区;豁免两处压制)=====
+   ① 上面 @layer components 内同名规则:未分层优先级高于 layer,此处覆盖
+   ② prefers-reduced-motion 全局 *{animation:none!important}:功能性指示豁免——
+      正常/reduce 都有呼吸,reduce 用户为纯 opacity 闪烁(无位移,前庭安全)。
+      三点曾因 bg-text-secondary 类不存在(透明)+ 此处全局压制双重不可见/不动 */
+.chat-dot{animation:chatBreathe 1.4s ease-in-out infinite}
+@keyframes chatBreathe{0%,100%{opacity:.25;transform:scale(.82)}50%{opacity:1;transform:scale(1.08)}}
+@media (prefers-reduced-motion: reduce){
+  .chat-dot{animation:chatBreatheSoft 1.6s ease-in-out infinite!important;transform:none!important}
+  .chat-cursor{animation:chatCursor 1s steps(2) infinite!important}
+}
+@keyframes chatBreatheSoft{0%,100%{opacity:.3}50%{opacity:1}}
+@keyframes chatCursor{50%{opacity:0}}

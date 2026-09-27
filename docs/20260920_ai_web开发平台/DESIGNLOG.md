@@ -128,3 +128,15 @@ shell-topbar(影响全局,先做)→ manage-四页 → 项目内逐页(列表→
 ## 待开发支持清单
 
 (缺后端数据/接口时记 here,交 rd-plan/rd-dev)
+
+## 2026-09-27 对话交互优化(R32.F9 / BUG-UI-084,rd-ui)
+
+- **需求**:用户消息发送即上屏;AI 回应先出加载动效;内容到达后流式渲染
+- **改动**:frontend/src/components/TaskChat.tsx(乐观 UI:pendingUser 半透明上屏 / thinking 三点弹跳动效 / onDone 保留流式气泡至刷新收口 / POST 未返回禁止重复发送)
+- **验证**:tsc 0 错 + vite build 过;HMR 热更后浏览器即生效
+
+## 2026-09-27 对话气泡美化 + 自动滚动(R32.F9 续 / BUG-UI-085,rd-ui)
+
+- **需求**:发送后对话框自动滚到新内容(不再手动下滚);消息气泡美化
+- **改动**:① TaskChat.tsx 滚动监听补 pendingUser/thinking 源 + smooth 滚动;② globals.css 气泡样式(12px 大圆角、用户右下/AI 左下 4px 收音角、软阴影、AI 气泡细描边,亮暗双主题);③ 组件气泡留白统一 px-3.5 py-2.5、max-w 78%
+- **验证**:tsc 0 错 + vite build 过;HMR 即生效

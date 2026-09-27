@@ -131,7 +131,7 @@ def test_claude_prompt_stream_pumps_lines_and_extracts_result():
 
     out = mgr.claude_prompt_stream("c1", "打个招呼", on_line=pumped.append)
 
-    assert out == {"result": "你好", "tokens_in": 11, "tokens_out": 7}
+    assert out == {"result": "你好", "tokens_in": 11, "tokens_out": 7, "lines": 4}
     # system/init + 两条 assistant 上泵;result 事件不上泵
     assert len(pumped) == 3
     assert json.loads(pumped[1])["message"]["content"][0]["text"] == "你"
@@ -182,7 +182,7 @@ def test_claude_prompt_stream_demux_docker_frames():
 
     out = mgr.claude_prompt_stream("c1", "hi", on_line=pumped.append)
 
-    assert out == {"result": "你好", "tokens_in": 11, "tokens_out": 7}
+    assert out == {"result": "你好", "tokens_in": 11, "tokens_out": 7, "lines": 4}
     assert len(pumped) == 3
     assert b"\x01" not in pumped[0].encode() and "\x01" not in pumped[0]
 
@@ -200,3 +200,12 @@ def test_claude_prompt_stream_demux_stderr_frame_skipped():
     assert out["result"] == "你好"
     assert all("stderr noise" not in l for l in pumped) or True  # stderr 不入 stdout 行流
     assert len(pumped) == 3
+
+
+def test_claude_prompt_stream_empty_run_reports_zero_lines():
+    """BUG-060:resume miss 时 stdout 零行 → lines=0(调用方据此降级重跑)"""
+    client = FakeDockerClient(stdout=b"")
+    mgr = _manager(client)
+    out = mgr.claude_prompt_stream("c1", "hi", session_id="s-gone", resume=True)
+    assert out["result"] == ""
+    assert out["lines"] == 0

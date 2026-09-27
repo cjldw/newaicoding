@@ -227,6 +227,11 @@ async def handle_container_started(
         await db.execute(select(Task).where(Task.task_id == task_id).limit(1))
     ).scalar_one_or_none()
     if task_row is not None:
+        # R32.F8(BUG-060):新容器内无旧 claude 会话——残留 session_id 会让首条消息
+        # --resume 静默失败(stderr 被 runner 吞)→ 空回复落库;置空让下条消息重建会话
+        if task_row.claude_session_id is not None:
+            task_row.claude_session_id = None
+            await db.flush()
         try:
             await _task_service.inject_task_claude_assets(db, task_row, container)
         except Exception as e:  # 注入失败不阻塞容器就绪(降级为无技能/无 MCP)

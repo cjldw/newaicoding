@@ -432,6 +432,22 @@ async def handle_message(ws: Any, msg: dict) -> None:
                     resume=args.get("resume", False),
                     on_line=_on_line_threadsafe,
                 )
+                # BUG-060(R32.F8):--resume 的会话在新容器/被清理后不存在 → CLI 报错
+                # 走 stderr(被 2>/dev/null 吞),stdout 零行 → 空 result。识别「带会话
+                # 且零行」自动降级为无会话重跑(新会话);首趟零行,二次上泵无重复
+                if args.get("session_id") and data.get("lines") == 0:
+                    logger.warning(
+                        "claude resume 无会话返回空,降级新会话重跑 container=%s session=%s",
+                        msg.get("container_id", ""), args.get("session_id"),
+                    )
+                    data = await asyncio.to_thread(
+                        manager.claude_prompt_stream,
+                        msg.get("container_id", ""), args.get("prompt", ""),
+                        workdir=args.get("workdir", "/workspace/main"),
+                        session_id=None,
+                        resume=False,
+                        on_line=_on_line_threadsafe,
+                    )
                 await safe_send_result(ws, req_id, True, data)
             else:
                 await safe_send_result(ws, req_id, False, error=f"未知工具: {tool}")

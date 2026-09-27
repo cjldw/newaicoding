@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Download, Loader2, Maximize2, Minimize2, Paperclip, Plug, Send, Sparkles, X } from 'lucide-react'
 import { Button } from './ui/Button'
+import { OrangeMark } from './OrangeMark'
 import {
   useTaskMessages, useSendTaskMessage, useUploadTaskFile,
   useUploadedFiles, useDeleteTaskFile, downloadTaskFile,
@@ -96,6 +97,9 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
   const [sysAssets, setSysAssets] = useState<SystemAssetsData | null>(null)
   // R32.F3:流式增量(发送中的 AI 气泡文本;chat_done 或消息落库后清空)
   const [streamText, setStreamText] = useState('')
+  // R32.F9:乐观 UI——用户消息发送即上屏(pendingUser)+ AI 加载动效(thinking,首个增量前)
+  const [pendingUser, setPendingUser] = useState<string | null>(null)
+  const [thinking, setThinking] = useState(false)
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -123,17 +127,22 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
   }, [projectId])
 
   // R32.F3:订阅 chat_delta / chat_done(事件 WS;发送中逐字上屏)
+  // R32.F9:onDone 不再清 streamText——保留全文气泡直到 POST onSuccess 刷新消息后
+  // 统一清理,避免「流式气泡消失但真消息尚未刷新」的闪空
   useTaskChatStream(taskId, {
-    onDelta: (text) => setStreamText((prev) => prev + text),
-    onDone: () => setStreamText(''),
+    onDelta: (text) => {
+      setThinking(false)
+      setStreamText((prev) => prev + text)
+    },
+    onDone: () => setThinking(false),
   })
 
-  // 自动滚动到底部(新消息或流式增量都触发)
+  // R32.F9:自动滚动到底——新消息/乐观上屏/加载动效/流式增量任一变化都平滑滚到最新,
+  // 不再需要手动往下滚(原实现只盯 messages.length/streamText,乐观消息与动效不触发)
   useEffect(() => {
-    if (listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight
-    }
-  }, [messages.length, streamText])
+    const el = listRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [messages.length, pendingUser, thinking, streamText])
 
   // toast 自动消失
   useEffect(() => {
@@ -244,12 +253,25 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
     return m.name.toLowerCase().includes(mcpMatch[1].toLowerCase())
   })
 
+  // R32.F9:乐观发送——输入即清、用户消息秒上屏、AI 气泡先出加载动效;
+  // 增量到达后由流式气泡接管,POST 返回刷新消息后统一收口。POST 未返回前禁止重复发送
   const handleSend = () => {
     const trimmed = input.trim()
-    if (!trimmed) return
+    if (!trimmed || sendMut.isPending) return
+    setInput('')
+    setPendingUser(trimmed)
+    setThinking(true)
+    setStreamText('')
     sendMut.mutate(trimmed, {
-      onSuccess: () => setInput(''),
+      onSuccess: () => {
+        setPendingUser(null)
+        setThinking(false)
+        setStreamText('')
+      },
       onError: (err) => {
+        setPendingUser(null)
+        setThinking(false)
+        setStreamText('')
         const code = err instanceof ApiError ? err.code : 0
         showToast('err', getTaskErrorMessage(code, '发送失败'))
       },
@@ -336,10 +358,19 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
           return (
             <div
               key={msg.message_id}
-              className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+              className={`flex items-end gap-1.5 ${isUser ? 'justify-end' : 'justify-start'}`}
             >
+              {/* R32.F9:AI 消息带品牌橙子头像 */}
+              {!isUser && (
+                <span
+                  className="shrink-0 w-6 h-6 rounded-full bg-surface-strong border border-border flex items-center justify-center"
+                  title="旗橙 AI"
+                >
+                  <OrangeMark size={15} />
+                </span>
+              )}
               <div
-                className={`chat-bubble max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words ${
+                className={`chat-bubble max-w-[78%] px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words ${
                   isUser ? 'chat-bubble-user' : 'chat-bubble-ai'
                 }`}
               >
@@ -348,12 +379,44 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
             </div>
           )
         })}
+        {/* R32.F9:乐观用户消息(发送即上屏,半透明示「发送中」;刷新后由真消息替换) */}
+        {pendingUser && (
+          <div className="flex justify-end">
+            <div className="chat-bubble chat-bubble-user max-w-[78%] px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words opacity-80">
+              {pendingUser}
+            </div>
+          </div>
+        )}
+        {/* R32.F9:AI 加载动效(橙子头像 + 三点弹跳;首个增量到达后由流式气泡接管) */}
+        {thinking && !streamText && (
+          <div className="flex items-end gap-1.5 justify-start">
+            <span
+              className="shrink-0 w-6 h-6 rounded-full bg-surface-strong border border-border flex items-center justify-center"
+              title="旗橙 AI"
+            >
+              <OrangeMark size={15} />
+            </span>
+            <div className="chat-bubble chat-bubble-ai px-4 py-3">
+              <span className="flex items-center gap-1">
+                <span className="chat-dot" />
+                <span className="chat-dot" />
+                <span className="chat-dot" />
+              </span>
+            </div>
+          </div>
+        )}
         {/* R32.F3:流式增量气泡(AI 正在输出;chat_done/消息落库后消失) */}
         {streamText && (
-          <div className="flex justify-start">
-            <div className="chat-bubble chat-bubble-ai max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap break-words">
+          <div className="flex items-end gap-1.5 justify-start">
+            <span
+              className="shrink-0 w-6 h-6 rounded-full bg-surface-strong border border-border flex items-center justify-center"
+              title="旗橙 AI"
+            >
+              <OrangeMark size={15} />
+            </span>
+            <div className="chat-bubble chat-bubble-ai max-w-[78%] px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words">
               {streamText}
-              <span className="inline-block w-1.5 h-3.5 ml-0.5 align-text-bottom bg-foreground/60 animate-pulse" />
+              <span className="chat-cursor" />
             </div>
           </div>
         )}

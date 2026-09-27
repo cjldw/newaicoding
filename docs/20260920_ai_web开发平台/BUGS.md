@@ -939,3 +939,27 @@
 - pytest 8/8(平滑器拆分/保序/节奏铺开/慢到达直通 + 既有 registry/映射回归)
 - 真机探针:200 词回复 → **203 个 chat_delta 跨度 7.89s**(修复前 0.14s),2 秒桶分布 35-52 帧均匀(≈30ms/帧设计节奏),chat_done 正常收尾
 - 参数:CHAT_DELTA_SLICE=16 字符/帧,CHAT_DELTA_MIN_INTERVAL=30ms(≈530 字/秒,快于阅读速度);真流式网关接入时到达间隔大于下限,零额外延迟直通
+
+## BUG-060 | 容器重建后 claude_session_id 残留 → resume 静默失败空回复 | fixed
+
+- **现象**:AI 对话没有返回(content=''、tokens=0 落库;用户 08:07 两次复现)
+- **根因**:用户 08:05 重启任务容器(新容器 43680d34c09c),但 tasks.claude_session_id 残留旧容器会话(2d9c6e5e)→ 首条消息 `claude --resume <不存在>` → CLI 报 "No conversation found with session ID"(走 stderr 被 2>/dev/null 吞)→ stdout 零行 → 空 result 正常结算落库
+- **一手证据**:容器内手跑复现(`--resume <旧id>` → No conversation found,EXIT=0);DB 对比:02:55 旧容器回复 1226 字符正常,08:07 新容器两条空
+- **修复(R32.F8,双层)**:① 平台治本——handle_container_started 置空 tasks.claude_session_id(新容器必无旧会话);② runner 兜底——claude_prompt_stream 返回增 lines 计数,main.py 流式 handler 识别「带会话且零行」自动降级无会话重跑(新会话)
+- **验证**:runner 52/52(新增空跑 lines=0 用例 + 断言同步);真机端到端:会话重置后对话 8.5s 返 pong 落库;当前任务会话已手工重置解阻塞
+
+## BUG-UI-084 | 对话发送无即时反馈:用户消息与成功态等 AI 返回才出现 | fixed
+
+- **严重程度**:一般(体验问题)
+- **关联页面**:/tasks/:id(任务工作台 AI 对话,TaskChat.tsx)
+- **问题描述**:POST /messages 同步等 AI 执行完才返回(8-60s),期间用户消息不上屏、输入框不清空、无 AI 加载动效——「消息发送是等内容有回应后才发成功」(用户报障,2026-09-27)
+- **建议方案**:乐观 UI——发送即清输入框 + 用户消息半透明上屏 + AI 三点弹跳加载动效;首个 chat_delta 到达后由流式气泡接管;POST 返回刷新消息后统一收口;POST 未返回前禁止重复发送
+- **状态**:fixed(tsc 0 错 + build 过;用户浏览器复验后 verified)
+
+## BUG-UI-085 | 对话发送后不自动滚到新消息,需手动下滚 | fixed
+
+- **严重程度**:轻微(体验问题)
+- **关联页面**:/tasks/:id(TaskChat.tsx)
+- **问题描述**:自动滚动只监听 messages.length/streamText,乐观用户消息与 AI 加载动效上屏不触发;且为瞬时跳转无平滑
+- **建议方案**:监听源补 pendingUser/thinking,滚动改 smooth;配合气泡美化(12px 大圆角+收音角+软阴影+AI 气泡细描边,亮暗双主题)
+- **状态**:fixed(tsc 0 错+build 过;用户浏览器复验后 verified)

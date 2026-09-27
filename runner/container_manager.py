@@ -463,7 +463,10 @@ class ContainerManager:
                 result_text = last.get("result", "") if isinstance(last, dict) else ""
             except _json.JSONDecodeError:
                 result_text = lines[-1]
-        return {"result": result_text, "tokens_in": int(tokens_in or 0), "tokens_out": int(tokens_out or 0)}
+        # BUG-060(R32.F8):lines 计数供调用方识别「resume 会话不存在」的静默失败
+        # (CLI 报错走 stderr 被吞,stdout 零行;正常空回复也会有 assistant 行)
+        return {"result": result_text, "tokens_in": int(tokens_in or 0),
+                "tokens_out": int(tokens_out or 0), "lines": len(lines)}
 
     def _read_container_json(self, container_id: str, path: str) -> tuple[bool, Optional[dict]]:
         """读容器内 JSON 文件,统一 exit code gating(claude_inject R32.F1 / probe_claude R5 共用)。
