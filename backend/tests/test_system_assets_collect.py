@@ -459,3 +459,170 @@ class TestEmptyCollect:
 
         # 警告「镜像未内置」(R5.md 状态域;落 message/data 任意位置均可)
         assert _json_contains(body, "镜像未内置"), body
+
+
+# ---------------------------------------------------------------------------
+# 8. R4:plugin 条目落库(kind=skill + detail.source="plugin")与覆盖语义
+#    (docs/20260927_devbox默认skills与mcp/DEVPLAN/R4.md,QA TDD Red phase;
+#    2026-09-27 契约微调:probe 响应 plugin_skills/plugin_commands 独立字段承载
+#    plugin 条目(skills 保持平台存量语义),plugin commands 以 kind="skill" 落库)
+# ---------------------------------------------------------------------------
+PLUGIN_PROBE_DATA = {
+    "skills": ["skill-a"],
+    "plugin_skills": [],                       # R4 新增:plugin 提供的 skills 名
+    "plugin_commands": ["flow-status", "flow-run"],  # R4 新增:plugin 提供的 commands 名
+    "mcps": [
+        {"name": "fetch", "transport": "stdio", "command": "uvx mcp-server-fetch"},
+    ],
+    "failed_sides": [],
+    "warnings": [],
+    "image_tag": "platform/devbox:v2",
+}
+
+
+class TestR4PluginEntries:
+    @pytest.mark.asyncio
+    async def test_plugin_commands_persist_as_skill_rows_with_source(
+        self, client, superadmin_headers, asset_env, db_session
+    ):
+        """R4 落库形态(2026-09-27 用户确认):probe.plugin_commands 条目以 kind="skill" 落库,
+        detail 内 source="plugin"(+原始类型 command 标记);平台 skills 落库语义不变
+        (detail 不被误标 plugin);mcps 落库语义不变(detail=探测原文,不加 source);
+        响应 skills 计数含 commands(3 = 2 plugin commands + 1 平台 skill)"""
+        asset_env["ws"].probe_data = PLUGIN_PROBE_DATA
+
+        resp = await client.post(COLLECT_URL, headers=superadmin_headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["skills"] == 3, (
+            f"响应 skills 计数应含 plugin commands(2+1),实际: {data}"
+        )
+
+        rows = await _asset_rows(db_session)
+        skills = sorted(r["name"] for r in rows if r["kind"] == "skill")
+        assert skills == ["flow-run", "flow-status", "skill-a"], (
+            f"plugin commands 应以 kind=skill 落库,实际 skill 行: {skills}"
+        )
+        by_name = {r["name"]: r for r in rows}
+        for cmd in ("flow-status", "flow-run"):
+            detail = _as_detail(by_name[cmd]["detail"])
+            assert detail.get("source") == "plugin", (
+                f"{cmd} detail 应带 source=plugin,实际: {detail}"
+            )
+            assert "command" in json.dumps(detail, ensure_ascii=False), (
+                f"{cmd} detail 应保留原始类型 command 标记,实际: {detail}"
+            )
+        # 平台 skill / mcp 不被误标 plugin(落库语义不变)
+        assert _as_detail(by_name["skill-a"]["detail"]).get("source") != "plugin", (
+            f"平台 skill 不得被标 plugin: {by_name['skill-a']}"
+        )
+        assert "source" not in _as_detail(by_name["fetch"]["detail"]), (
+            f"mcp detail 应为探测原文(不加 source),实际: {by_name['fetch']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_recollect_with_plugin_entries_overwrites(
+        self, client, superadmin_headers, asset_env, db_session
+    ):
+        """R4 判据5(先清后插扩展到 plugin 条目):上一轮 plugin 旧行(含同名
+        flow-status 旧 plugin 行)与平台旧行整体被本轮覆盖;同名 plugin command
+        只留本轮一行;image_tag 更新"""
+        for name, kind in (("stale-skill", "skill"), ("flow-status", "skill"), ("stale-mcp", "mcp")):
+            await db_session.execute(text(
+                f"INSERT INTO {TABLE} (name, kind, detail, collected_at, image_tag) "
+                "VALUES (:n, :k, :d, NOW(), 'old-image:v0')"
+            ), {"n": name, "k": kind, "d": json.dumps({"from": "previous-collect"})})
+        await db_session.commit()
+        asset_env["ws"].probe_data = PLUGIN_PROBE_DATA
+
+        resp = await client.post(COLLECT_URL, headers=superadmin_headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["code"] == 0, resp.text
+
+        rows = await _asset_rows(db_session)
+        names = sorted(r["name"] for r in rows)
+        # 恰为本轮结果(2 plugin commands + 1 平台 skill + 1 mcp),stale 双双被清
+        assert names == ["fetch", "flow-run", "flow-status", "skill-a"], rows
+        assert sum(1 for r in rows if r["name"] == "flow-status") == 1, (
+            f"同名 plugin command 应只留本轮一行(先清后插),实际: {rows}"
+        )
+        assert "old-image:v0" not in {r["image_tag"] for r in rows}
+
+    @pytest.mark.asyncio
+    async def test_same_name_platform_and_plugin_skill_two_rows(
+        self, client, superadmin_headers, asset_env, db_session
+    ):
+        """R4 判据6:平台与 plugin 同名条目 → 落库两行并存(先清后插不去重)。
+        2026-09-27 契约微调同步改钉:同名并列由 skills(平台)+ plugin_skills 两字段
+        各一条承载(原「同一列表重复两次」形态随扁平 ∪ 契约一并作废),且两行来源可辨
+        (平台行无 plugin 标记,plugin 行 detail.source="plugin")"""
+        asset_env["ws"].probe_data = {
+            "skills": ["dup-skill"],
+            "plugin_skills": ["dup-skill"],
+            "plugin_commands": [],
+            "mcps": [{"name": "fetch", "transport": "stdio"}],
+            "image_tag": "platform/devbox:v2",
+        }
+
+        resp = await client.post(COLLECT_URL, headers=superadmin_headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["code"] == 0, resp.text
+        assert resp.json()["data"]["skills"] == 2, resp.json()["data"]
+
+        rows = await _asset_rows(db_session)
+        dup = [r for r in rows if r["name"] == "dup-skill" and r["kind"] == "skill"]
+        assert len(dup) == 2, f"同名条目应两行并存(如实并列不去重),实际: {rows}"
+        sources = sorted(_as_detail(r["detail"]).get("source", "platform") for r in dup)
+        assert sources == ["platform", "plugin"], (
+            f"同名两行应来源可辨(平台无标记 + plugin 标记),实际: {dup}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_plugin_skills_persist_with_source_and_original_kind(
+        self, client, superadmin_headers, asset_env, db_session
+    ):
+        """R4 契约微调(2026-09-27)补测:probe.plugin_skills 条目同样以 kind="skill" 落库,
+        detail.source="plugin" + original_kind="skill"(与 commands 的 original_kind="command"
+        区分原始类型);响应 skills 计数含 plugin skills(2 = 1 平台 + 1 plugin)"""
+        asset_env["ws"].probe_data = {
+            "skills": ["skill-a"],
+            "plugin_skills": ["rd-arch"],
+            "plugin_commands": [],
+            "mcps": [{"name": "fetch", "transport": "stdio"}],
+            "image_tag": "platform/devbox:v2",
+        }
+
+        resp = await client.post(COLLECT_URL, headers=superadmin_headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["skills"] == 2, resp.json()["data"]
+
+        rows = await _asset_rows(db_session)
+        skills = sorted(r["name"] for r in rows if r["kind"] == "skill")
+        assert skills == ["rd-arch", "skill-a"], (
+            f"plugin skills 应以 kind=skill 落库,实际 skill 行: {skills}"
+        )
+        by_name = {r["name"]: r for r in rows}
+        detail = _as_detail(by_name["rd-arch"]["detail"])
+        assert detail.get("source") == "plugin", (
+            f"rd-arch detail 应带 source=plugin,实际: {detail}"
+        )
+        assert detail.get("original_kind") == "skill", (
+            f"rd-arch detail 应保留原始类型 skill 标记,实际: {detail}"
+        )
+        assert _as_detail(by_name["skill-a"]["detail"]).get("source") != "plugin", (
+            f"平台 skill 不得被标 plugin: {by_name['skill-a']}"
+        )
+
+
+class TestR4Constants:
+    def test_default_probe_image_binding_v2(self):
+        """R4 要点4(tag 三层同步):DEFAULT_PROBE_IMAGE 绑定断言。R1 的 D5 批次已把
+        本常量升 v2(代码精查确认)→ 本用例为现状绿护栏(绑定当前值防回退);
+        Red 校验由其余 plugin/落库用例承担"""
+        try:
+            from app.services import system_asset_service as svc
+        except ImportError as e:
+            pytest.fail(f"app.services.system_asset_service 模块未创建: {e}")
+        assert svc.DEFAULT_PROBE_IMAGE == "platform/devbox:v2", (
+            f"DEFAULT_PROBE_IMAGE 应绑定 v2,实际: {svc.DEFAULT_PROBE_IMAGE}"
+        )

@@ -26,14 +26,14 @@ devbox 基础镜像构建期预装 rd-flow plugin(团队自建研发全流程)�
 
 ## 当前进度
 
-**当前进度: 2/4 (50%) - 下一个 R4(R1 代码完成待 docker 转正,R3 代码完成待端到端联调)**
+**当前进度: 4/4 (100%) - 全部需求点代码完成并提交;转正遗留:R1 构建冒烟 + R2/R3/R4 v2 镜像真机联调(待 docker/v2 镜像环境)→ 引导 /rd-check**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
 | R1 | devbox 镜像预装 rd-flow plugin(+平台 skills 目录修正 + tag v2 落地) | M1 镜像构建 | 🔄(代码完成,构建冒烟待 docker) | ./DEVPLAN/R1.md |
 | R2 | devbox 镜像预置 MCP 配置(3 新增 + 3 存量激活) | M1 镜像构建 | ✅(运行时联调判据 2–6 后置) | ./DEVPLAN/R2.md |
 | R3 | claude_inject 注入链合并逻辑 + 路径基准 /home/node | M2 runner 注入/采集 | ✅(端到端联调验收后置) | ./DEVPLAN/R3.md |
-| R4 | 系统级采集扩展(probe 覆盖 plugin + 路径校准) | M2 runner 注入/采集 | ⬜ | ./DEVPLAN/R4.md |
+| R4 | 系统级采集扩展(probe 覆盖 plugin + 路径校准) | M2 runner 注入/采集 | ✅(v2 镜像真机联调后置) | ./DEVPLAN/R4.md |
 
 (状态:⬜ 未开始 / 🔄 进行中 / ✅ 完成 / ⚠️ 有问题。这张表是**全流程唯一的续接入口**)
 
@@ -81,3 +81,4 @@ devbox 基础镜像构建期预装 rd-flow plugin(团队自建研发全流程)�
 | 2026-09-27 | R1 构建冒烟判据 1–4:开发机实测无 docker,按预案降级为 Dockerfile 静态核对(并入审计收口),留待有 docker 环境转正 | 环境约束(DEVPLAN 预案内) |
 | 2026-09-27 | R1 审计通过(有条件,0 阻塞):2 Low 已修——F7 四处失效 Red 注释修剪;F8 规格盲区扩入:README.md:54/:118 v1→v2(照抄会产出旧镜像)、frontend TaskDetail.tsx:651 展示标签 devbox:v1→v2(用户可见错标,该文件无其他会话占用;沿「前端文案一致性」技术约定先例)。✅ 状态转正条件:构建冒烟三场景待有 docker 环境补测 | 审计 Low 项处置(自主决策) |
 | 2026-09-27 | R3 完成。审计(code-review 双轴)5 发现 0 阻塞:F2/F3/F4/F5 修复;F1 部分采纳——cat 临时故障(readable=False)仅加告警仍按 {} 兜底,审查建议的「跳过写回」不采(会推翻判据 3 与 v1 存量容器并行期兼容两项已确认规格:runner 无法区分「文件不存在」与「临时通道故障」的 cat 失败)。另:R3 会话中 QA subagent 曾虚报测试结果(解释器用错未跑成),已作废并由主 agent 重跑纠正 | 审计 Low 项处置(自主决策) |
+| 2026-09-27 | R4 开发中契约微调:probe 响应 `skills` 字段保持「平台 skills」存量语义,新增 `plugin_skills`/`plugin_commands` 两字段承载 plugin 条目(替代分片「skills=平台∪plugin」表述),落库按字段来源打 detail.source="plugin",同名条目自然并列两行 | tdd Red 阶段 QA 发现契约缺口(扁平 ∪ list 无法区分同名条目归属,判据 6 与 source 标记需要来源信息),主 agent 自主决策 |

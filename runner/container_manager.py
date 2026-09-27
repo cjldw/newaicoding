@@ -675,17 +675,27 @@ class ContainerManager:
 
     def probe_claude(self, image: str = "platform/devbox:v2") -> dict:
         """
-        R5 系统级采集:拉起临时容器探测镜像内置的 Claude 资产,单次调用内完成:
+        R5 系统级采集(R4 扩展):拉起临时容器探测镜像内置的 Claude 资产,单次调用内完成:
         start_container(repos=[],task_id 哨兵,managed=False)→ exec 探测 → stop_container(用后即毁)。
-        探测面:skills 只取 /root/.claude/skills/ 一级**目录**(PRD「skill 目录名」)
-        + /root/.claude.json 的 mcpServers 段。
+        探测面(R4 路径校准:/root → /home/node,与镜像内安装用户 node 一致):
+        - skills:只取 /home/node/.claude/skills/ 一级**目录**(PRD「skill 目录名」)
+        - plugin skills/commands:遍历 /home/node/.claude/plugins/cache(布局已实测钉死:
+          cache/<marketplace>/<plugin>/<hash>/skills/<分类>/<skill>/SKILL.md,条目名取
+          SKILL.md 父目录名,分类层不混入;commands 同根 -path "*/commands/*.md" 取
+          文件名词干)。目录缺失/不可达(find 非零)→ 两段按空,info 级留痕,不报错、
+          不计入 failed_sides(R4 契约)
+        - mcps:/home/node/.claude.json 的 mcpServers 段
 
         部分结果语义(PRD R1):探测命令不掩盖 exit code(无 `|| true`)——单侧命令失败
         → 该侧按空并在 failed_sides/warnings 标记(平台侧据此不清该侧旧库);
         mcpServers 真值非 dict 一律按空(契约「非法按空」)。
         容器启动失败/exec 通道硬异常向上抛(平台侧转 502 可重试),容器销毁 finally 兜底。
-        返回 {"skills": [name...], "mcps": [{name, transport, ...原始配置}],
+        返回 {"skills": [平台 skill 目录名...], "plugin_skills": [plugin skill 名...],
+              "plugin_commands": [plugin command 名...],
+              "mcps": [{name, transport, ...原始配置}],
               "failed_sides": ["skills"...], "warnings": [...]}
+        (R4 契约微调 2026-09-27:skills 保持「平台 skills 目录名」存量语义,plugin 条目
+        走 plugin_skills/plugin_commands 独立字段,平台侧落库按字段来源打 detail.source 标记)
         """
         import time as _time
 
@@ -707,10 +717,10 @@ class ContainerManager:
             warnings: list[str] = []
 
             # 探测 1:skills 只取一级目录名(find -type d;exit code 不掩盖——
-            # 目录缺失/命令失败 → 该侧失败,保留原数据由平台侧处理)
+            # 目录缺失/命令失败 → 该侧失败,保留原数据由平台侧处理;R4 路径基准 /home/node)
             code, out = self.exec_capture(
                 cid,
-                "find /root/.claude/skills -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null",
+                "find /home/node/.claude/skills -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null",
             )
             if code == 0:
                 skills = [ln.strip() for ln in out.decode(errors="ignore").splitlines() if ln.strip()]
@@ -720,10 +730,44 @@ class ContainerManager:
                 warnings.append(f"skills 探测失败(exit {code}),该侧保留原有数据")
                 logger.warning("probe_claude skills 探测失败 code=%s", code)
 
+            # 探测 1.5(R4):plugin skills/commands——best-effort 段,两条独立 find
+            # (QA fake 路由按 SKILL.md / */commands/*.md 区分,勿合并成单条):
+            # skills 条目名 = SKILL.md 父目录名(deprecated/ 无 SKILL.md 由 -name 天然不采,
+            # 分类层不混入);commands 取文件名词干。目录缺失/不可达(find 非零)→ 按空 +
+            # info 留痕,不报错、不进 failed_sides(R4 契约「插件目录缺失不计入」)
+            plugin_skills: list[str] = []
+            plugin_commands: list[str] = []
+            code, out = self.exec_capture(
+                cid,
+                "find /home/node/.claude/plugins/cache -name SKILL.md 2>/dev/null",
+            )
+            if code == 0:
+                for ln in out.decode(errors="ignore").splitlines():
+                    parts = ln.strip().rstrip("/").split("/")
+                    if len(parts) >= 2 and parts[-1] == "SKILL.md" and parts[-2]:
+                        plugin_skills.append(parts[-2])
+            else:
+                logger.info(
+                    "probe_claude plugins/cache 目录缺失或不可达(code=%s),plugin skills 按空", code
+                )
+            code, out = self.exec_capture(
+                cid,
+                'find /home/node/.claude/plugins/cache -path "*/commands/*.md" 2>/dev/null',
+            )
+            if code == 0:
+                for ln in out.decode(errors="ignore").splitlines():
+                    fname = ln.strip().rstrip("/").rsplit("/", 1)[-1]
+                    if fname.endswith(".md") and len(fname) > 3:
+                        plugin_commands.append(fname[:-3])
+            else:
+                logger.info(
+                    "probe_claude plugins/cache 目录缺失或不可达(code=%s),plugin commands 按空", code
+                )
+
             # 探测 2:claude.json 的 mcpServers 段(_read_container_json 统一 exit code gating:
             # 读取失败=该侧失败;非法 JSON/顶层非 dict 按空;mcpServers 非 dict 一律按空)
             mcps: list[dict] = []
-            readable, cfg = self._read_container_json(cid, "/root/.claude.json")
+            readable, cfg = self._read_container_json(cid, "/home/node/.claude.json")
             if readable:
                 servers = cfg.get("mcpServers") if cfg else None
                 if not isinstance(servers, dict):
@@ -737,14 +781,23 @@ class ContainerManager:
                     mcps.append(entry)
             else:
                 failed_sides.append("mcps")
-                warnings.append("mcps 探测失败(/root/.claude.json 不可读),该侧保留原有数据")
-                logger.warning("probe_claude mcp 探测失败:/root/.claude.json 不可读")
+                warnings.append("mcps 探测失败(/home/node/.claude.json 不可读),该侧保留原有数据")
+                logger.warning("probe_claude mcp 探测失败:/home/node/.claude.json 不可读")
 
             logger.info(
-                "probe_claude 完成 image=%s skills=%d mcps=%d failed_sides=%s 耗时=%.1fs",
-                image, len(skills), len(mcps), failed_sides or "无", _time.monotonic() - t0,
+                "probe_claude 完成 image=%s skills=%d plugin_skills=%d plugin_commands=%d "
+                "mcps=%d failed_sides=%s 耗时=%.1fs",
+                image, len(skills), len(plugin_skills), len(plugin_commands),
+                len(mcps), failed_sides or "无", _time.monotonic() - t0,
             )
-            return {"skills": skills, "mcps": mcps, "failed_sides": failed_sides, "warnings": warnings}
+            return {
+                "skills": skills,
+                "plugin_skills": plugin_skills,
+                "plugin_commands": plugin_commands,
+                "mcps": mcps,
+                "failed_sides": failed_sides,
+                "warnings": warnings,
+            }
         finally:
             # 用后即毁(成功/exec 异常两条路径都销毁;启动失败无容器可销毁)
             if started is not None:

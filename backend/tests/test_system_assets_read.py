@@ -179,3 +179,38 @@ class TestMemberReadOnly:
         r_collect = await client.post(COLLECT_URL, headers=second_user_headers)
         assert r_collect.status_code == 403, r_collect.text
         assert r_collect.json()["code"] == 19002, r_collect.text
+
+
+# ---------------------------------------------------------------------------
+# 5. R4 回归:plugin 条目(kind=skill + detail.source="plugin")读侧零改动透出
+# ---------------------------------------------------------------------------
+class TestR4PluginRowsRead:
+    @pytest.mark.asyncio
+    async def test_plugin_sourced_skill_served_with_detail_passthrough(self, client, superadmin_headers, read_env):
+        """R4 回归(读侧零改动):plugin 条目以 kind=skill 落库后,GET /api/system-assets
+        的 skills 列表照常透出,detail.source="plugin" 原样透传
+        (系统级列表 / AI /skills 候选的内置徽标数据源;现状即满足 → 回归护栏)"""
+        db = read_env["db"]
+        rows = [
+            ("flow-status", "skill", {"name": "flow-status", "source": "plugin", "original_kind": "command"}),
+            ("skill-a", "skill", {"name": "skill-a"}),
+            ("fetch", "mcp", {"transport": "stdio", "command": "uvx mcp-server-fetch"}),
+        ]
+        for name, kind, detail in rows:
+            await db.execute(text(
+                f"INSERT INTO {TABLE} (name, kind, detail, collected_at, image_tag) "
+                "VALUES (:n, :k, :d, :ts, :img)"
+            ), {"n": name, "k": kind, "d": json.dumps(detail), "ts": SEED_COLLECTED_AT, "img": SEED_IMAGE_TAG})
+        await db.commit()
+
+        resp = await client.get(READ_URL, headers=superadmin_headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+
+        assert _names(data["skills"]) == ["flow-status", "skill-a"], data["skills"]
+        item = next(it for it in data["skills"] if it["name"] == "flow-status")
+        detail = item["detail"]
+        if isinstance(detail, str):
+            detail = json.loads(detail)
+        assert detail.get("source") == "plugin", f"plugin 条目 detail 应原样透传: {item}"
+        assert _names(data["mcps"]) == ["fetch"], data["mcps"]

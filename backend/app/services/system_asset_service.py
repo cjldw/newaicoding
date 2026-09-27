@@ -91,6 +91,8 @@ async def collect(db: AsyncSession, operator_user_id: str, image: str = DEFAULT_
     采集镜像内置 skills/MCP 并覆盖入库。返回响应契约:
     {skills: n, mcps: n, collected_at: str, image_tag: str[, warning: str]}
     探测失败/超时 → BizError 502(不写库,旧数据保留)。
+    R4:plugin skills/commands 一并以 kind="skill" 落库(detail.source="plugin"
+    来源标记),skills 计数含 plugin 条目。
     """
     arrival = time.monotonic()
     async with _COLLECT_LOCK:
@@ -160,24 +162,36 @@ async def collect(db: AsyncSession, operator_user_id: str, image: str = DEFAULT_
             )
 
         probe = result.get("data") or {}
-        # 部分结果语义(PRD R1):单侧探测命令失败 → 失败侧按空且不清该侧旧库,响应带警告
+        # 部分结果语义(PRD R1):单侧探测命令失败 → 失败侧按空且不清该侧旧库,响应带警告。
+        # plugin 段(R4)目录缺失不进 failed_sides(runner 侧已按空兜底),此处仅认存量两侧
         failed_sides = {s for s in (probe.get("failed_sides") or []) if s in ("skills", "mcps")}
         side_warnings = [str(w) for w in (probe.get("warnings") or []) if str(w)]
+        # R4 契约微调(2026-09-27):probe.skills=平台 skills 存量语义,plugin 条目走
+        # plugin_skills/plugin_commands 独立字段;旧 Runner 回报缺键按空兜底(.get or [])
         skills = [str(s).strip() for s in (probe.get("skills") or []) if str(s).strip()]
+        plugin_skills = [str(s).strip() for s in (probe.get("plugin_skills") or []) if str(s).strip()]
+        plugin_commands = [str(s).strip() for s in (probe.get("plugin_commands") or []) if str(s).strip()]
         # mcp name 非 str(int 等)→ str() coerce 走 502 之外的正常路径,不 500
         mcps = [
             m for m in (probe.get("mcps") or [])
             if isinstance(m, dict) and str(m.get("name") or "").strip()
         ]
         if "skills" in failed_sides:
+            # 失败侧整桶保留旧库:plugin 条目与平台 skills 同落 kind="skill" 桶,
+            # 桶级先清后插语义下 plugin 条目一并按空(不出现「不清旧库却混插新行」)
             skills = []
+            plugin_skills = []
+            plugin_commands = []
         if "mcps" in failed_sides:
             mcps = []
         image_tag = str(probe.get("image_tag") or image or DEFAULT_PROBE_IMAGE)
         collected_at = datetime.now()
 
         # 覆盖入库(探测后新事务承接):成功侧先清后插;失败侧不清该侧旧库(部分结果)。
-        # 插失败整体回滚 → 旧数据保留
+        # 插失败整体回滚 → 旧数据保留。
+        # R4 落库形态(2026-09-27 用户确认):plugin skills/commands 均以 kind="skill"
+        # 落库,detail 打 source="plugin" + original_kind=skill/command 来源标记
+        # (零迁移;同名条目与平台 skills 自然并列成两行,先清后插不去重)
         rows: list[ClaudeSystemAsset] = []
         if "skills" not in failed_sides:
             await db.execute(delete(ClaudeSystemAsset).where(ClaudeSystemAsset.kind == "skill"))
@@ -188,6 +202,20 @@ async def collect(db: AsyncSession, operator_user_id: str, image: str = DEFAULT_
                     collected_at=collected_at, image_tag=image_tag,
                 )
                 for name in skills
+            ] + [
+                ClaudeSystemAsset(
+                    name=name, kind="skill",
+                    detail={"name": name, "source": "plugin", "original_kind": "skill"},
+                    collected_at=collected_at, image_tag=image_tag,
+                )
+                for name in plugin_skills
+            ] + [
+                ClaudeSystemAsset(
+                    name=name, kind="skill",
+                    detail={"name": name, "source": "plugin", "original_kind": "command"},
+                    collected_at=collected_at, image_tag=image_tag,
+                )
+                for name in plugin_commands
             ]
             rows += skill_rows
             db.add_all(skill_rows)
@@ -206,7 +234,8 @@ async def collect(db: AsyncSession, operator_user_id: str, image: str = DEFAULT_
         await db.flush()
 
         out = {
-            "skills": len(skills),
+            # skills 计数含 plugin 条目(同落 kind="skill" 桶,列表/候选按行透出)
+            "skills": len(skills) + len(plugin_skills) + len(plugin_commands),
             "mcps": len(mcps),
             "collected_at": collected_at.isoformat(sep=" ", timespec="seconds"),
             "image_tag": image_tag,
@@ -222,7 +251,10 @@ async def collect(db: AsyncSession, operator_user_id: str, image: str = DEFAULT_
         _last_result["result"] = out
         _last_result["done_at"] = time.monotonic()
         logger.info(
-            "系统资产采集完成 skills=%d mcps=%d failed_sides=%s image=%s 耗时=%.1fs",
-            len(skills), len(mcps), sorted(failed_sides) or "无", image_tag, time.monotonic() - t0,
+            "系统资产采集完成 skills=%d(平台 %d + plugin skills %d + plugin commands %d) "
+            "mcps=%d failed_sides=%s image=%s 耗时=%.1fs",
+            len(skills) + len(plugin_skills) + len(plugin_commands),
+            len(skills), len(plugin_skills), len(plugin_commands),
+            len(mcps), sorted(failed_sides) or "无", image_tag, time.monotonic() - t0,
         )
         return out
