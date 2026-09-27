@@ -1,5 +1,7 @@
 """项目路由 - R2 项目管理(列表/创建/详情/更新/删除/归档/仓库绑定解绑)"""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,11 +47,12 @@ async def list_projects(
     status: str = Query(default="active"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    q: Optional[str] = Query(None, description="搜索关键字"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """项目列表(口径:我创建的项目;status=active 默认)"""
-    data = await project_service.list_projects(db, current_user, status, page, page_size)
+    """项目列表(口径:我创建的项目;status=active 默认;q 按名称模糊搜索)"""
+    data = await project_service.list_projects(db, current_user, status, page, page_size, q)
     return success(data=data)
 
 

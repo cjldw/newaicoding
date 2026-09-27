@@ -323,10 +323,14 @@ async def create_project(db: AsyncSession, user: User, req) -> dict:
 # ---------------------------------------------------------------------------
 # 列表
 # ---------------------------------------------------------------------------
-async def list_projects(db: AsyncSession, user: User, status: str, page: int, page_size: int) -> dict:
+async def list_projects(
+    db: AsyncSession, user: User, status: str, page: int, page_size: int,
+    q: Optional[str] = None,
+) -> dict:
     """
     项目列表(分页)。口径:我创建的项目(成员体系 R12 接入后扩展为成员项目)。
     status: active(默认)/archived/all(all 排除软删)。
+    q: 名称模糊搜索(R3.1,不区分大小写);为空不过滤。
     """
     conditions = [Project.owner_id == user.user_id]
     if status == "all":
@@ -335,6 +339,8 @@ async def list_projects(db: AsyncSession, user: User, status: str, page: int, pa
         conditions.append(Project.status == status)
     else:
         conditions.append(Project.status == "active")
+    if q:
+        conditions.append(Project.name.ilike(f"%{q}%"))
 
     total_result = await db.execute(select(func.count(Project.id)).where(*conditions))
     total = total_result.scalar() or 0

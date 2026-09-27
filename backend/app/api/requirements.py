@@ -1,5 +1,7 @@
 """需求路由 - R3(CRUD + 打磨/评审/取消状态机)"""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,10 +31,11 @@ async def list_requirements(
     status: str = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    q: Optional[str] = Query(None, description="搜索关键字"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """需求列表(项目成员;status 可选过滤)"""
+    """需求列表(项目成员;status 可选过滤;q 按标题/描述模糊搜索)"""
     from app.services.project_service import get_project_or_404
 
     project = await get_project_or_404(db, project_id)
@@ -41,6 +44,8 @@ async def list_requirements(
     conditions = [Requirement.project_id == project_id]
     if status:
         conditions.append(Requirement.status == status)
+    if q:  # R3.1:标题/描述模糊搜索(不区分大小写);为空不过滤
+        conditions.append(Requirement.title.ilike(f"%{q}%") | Requirement.description.ilike(f"%{q}%"))
 
     total = (await db.execute(
         select(func.count(Requirement.id)).where(*conditions)
