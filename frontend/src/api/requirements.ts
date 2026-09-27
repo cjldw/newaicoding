@@ -175,6 +175,20 @@ export function useRequirementList(
   })
 }
 
+/**
+ * R3.2:需求搜索(新建任务选择器用)
+ * - 走 GET /api/projects/{project_id}/requirements?q={keyword}(R3.1 后端口径:标题/描述模糊搜索)
+ * - q 为空串返回该项目默认前 20 条;调用方负责 debounce
+ */
+export async function searchRequirements(projectId: string, q: string): Promise<RequirementListItem[]> {
+  const query = new URLSearchParams({ page: '1', page_size: '20' })
+  if (q) query.set('q', q)
+  const res = await api.get<RequirementListResponse>(
+    `/projects/${projectId}/requirements?${query.toString()}`,
+  )
+  return res.data.items
+}
+
 export function useRequirementDetail(reqId: string) {
   return useQuery({
     queryKey: ['requirement', reqId],

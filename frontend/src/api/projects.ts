@@ -145,6 +145,18 @@ export function useProjectList(params: { status?: string; page?: number; page_si
   })
 }
 
+/**
+ * R3.2:项目搜索(新建任务选择器用)
+ * - 走 GET /api/projects?q={keyword}(R3.1 后端口径:按名称模糊搜索,我创建的项目)
+ * - q 为空串返回默认前 20 条;调用方负责 debounce
+ */
+export async function searchProjects(q: string): Promise<ProjectListItem[]> {
+  const query = new URLSearchParams({ page: '1', page_size: '20' })
+  if (q) query.set('q', q)
+  const res = await api.get<ProjectListResponse>(`/projects?${query.toString()}`)
+  return res.data.items
+}
+
 export function useProjectDetail(projectId: string) {
   return useQuery({
     queryKey: ['project', projectId],
