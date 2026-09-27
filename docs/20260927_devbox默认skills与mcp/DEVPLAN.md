@@ -26,12 +26,12 @@ devbox 基础镜像构建期预装 rd-flow plugin(团队自建研发全流程)�
 
 ## 当前进度
 
-**当前进度: 0/4 (0%) - R1 代码侧完成已提交(✅ 转正待 docker 构建冒烟),下一 R2**
+**当前进度: 1/4 (25%) - R2 完成,下一 R3(R1 代码完成待 docker 转正)**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
 | R1 | devbox 镜像预装 rd-flow plugin(+平台 skills 目录修正 + tag v2 落地) | M1 镜像构建 | 🔄(代码完成,构建冒烟待 docker) | ./DEVPLAN/R1.md |
-| R2 | devbox 镜像预置 MCP 配置(3 新增 + 3 存量激活) | M1 镜像构建 | ⬜ | ./DEVPLAN/R2.md |
+| R2 | devbox 镜像预置 MCP 配置(3 新增 + 3 存量激活) | M1 镜像构建 | ✅(运行时联调判据 2–6 后置) | ./DEVPLAN/R2.md |
 | R3 | claude_inject 注入链合并逻辑 + 路径基准 /home/node | M2 runner 注入/采集 | ⬜ | ./DEVPLAN/R3.md |
 | R4 | 系统级采集扩展(probe 覆盖 plugin + 路径校准) | M2 runner 注入/采集 | ⬜ | ./DEVPLAN/R4.md |
 

@@ -28,6 +28,13 @@ RUN npm install -g \
     @modelcontextprotocol/server-github \
     @modelcontextprotocol/server-brave-search
 
+# 预装 MCP server(R2 追加 2 个,bin 名已实测:@benborla29/mcp-server-mysql 2.0.9 → bin mcp-server-mysql;
+# figma-developer-mcp 0.13.2 → bin figma-developer-mcp,纯 stdio。离线直连 npm -g bin,不经 npx)
+# mysql 条目预置配置故意不设 ALLOW_INSERT/UPDATE/DELETE/DDL_OPERATION → 包默认 SELECT-only(只读第二道防线)
+RUN npm install -g \
+    @benborla29/mcp-server-mysql \
+    figma-developer-mcp
+
 # 预装平台官方 Skills(按 R17/R1;任务创建时项目级 Skills 覆盖同名)
 # 目录式 <name>/SKILL.md(与 claude CLI 加载约定及 probe -type d 探测口径一致)
 # 基础镜像默认用户为 node(uid 1000,HOME=/home/node;R8.F1 实测:非 vscode/codespace)
@@ -44,6 +51,64 @@ USER node
 RUN claude plugin marketplace add ${RD_FLOW_MARKETPLACE} \
     && claude plugin install rd-flow@rd-flow \
     && claude plugin list | grep -q rd-flow
+
+# 预置系统级 MCP 配置(R2):user-scope /home/node/.claude.json 顶层 mcpServers 恰 6 条,
+# 内容与 docs/20260927_devbox默认skills与mcp/DEVPLAN/R2.md「接口契约」交付物 JSON 逐字一致
+# 归属探明:基础镜像(devcontainers/typescript-node)无 .claude.json;该文件由上方 R1 plugin RUN
+# 以 node 身份首建(CLI 顶层状态,如 pluginUsage;marketplace/plugin 安装态在 ~/.claude/plugins/,不在此文件)
+# → 采用「合并写入」:仅整体替换顶层 mcpServers,其余顶层键保留(勿破坏既有层);以 node 身份写,归属 node:node,
+#    不动 /home/node/.claude/(skills 与 plugin 段)。文件内仅 ${VAR} 引用文本,凭据不进镜像(可 docker history 抽验)
+RUN printf '%s\n' \
+'  {' \
+'    "mcpServers": {' \
+'      "mysql_dev": {' \
+'        "type": "stdio",' \
+'        "command": "mcp-server-mysql",' \
+'        "env": {' \
+'          "MYSQL_HOST": "${ENV_MCP_MYSQL_DEV_HOST}",' \
+'          "MYSQL_PORT": "${ENV_MCP_MYSQL_PORT:-3306}",' \
+'          "MYSQL_USER": "${ENV_MCP_MYSQL_USER}",' \
+'          "MYSQL_PASS": "${ENV_MCP_MYSQL_PASSWORD}",' \
+'          "MYSQL_DB": "${ENV_MCP_MYSQL_DATABASE}"' \
+'        }' \
+'      },' \
+'      "mysql_beta": {' \
+'        "type": "stdio",' \
+'        "command": "mcp-server-mysql",' \
+'        "env": {' \
+'          "MYSQL_HOST": "${ENV_MCP_MYSQL_BETA_HOST}",' \
+'          "MYSQL_PORT": "${ENV_MCP_MYSQL_PORT:-3306}",' \
+'          "MYSQL_USER": "${ENV_MCP_MYSQL_USER}",' \
+'          "MYSQL_PASS": "${ENV_MCP_MYSQL_PASSWORD}",' \
+'          "MYSQL_DB": "${ENV_MCP_MYSQL_DATABASE}"' \
+'        }' \
+'      },' \
+'      "figma": {' \
+'        "type": "stdio",' \
+'        "command": "figma-developer-mcp",' \
+'        "args": ["--stdio"],' \
+'        "env": { "FIGMA_API_KEY": "${ENV_MCP_FIGMA_TOKEN}" }' \
+'      },' \
+'      "filesystem": {' \
+'        "type": "stdio",' \
+'        "command": "mcp-server-filesystem",' \
+'        "args": ["/workspace"]' \
+'      },' \
+'      "github": {' \
+'        "type": "stdio",' \
+'        "command": "mcp-server-github",' \
+'        "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${ENV_MCP_GITHUB_TOKEN}" }' \
+'      },' \
+'      "brave-search": {' \
+'        "type": "stdio",' \
+'        "command": "mcp-server-brave-search",' \
+'        "env": { "BRAVE_API_KEY": "${ENV_MCP_BRAVE_API_KEY}" }' \
+'      }' \
+'    }' \
+'  }' > /tmp/mcp-preset.json \
+    && node -e 'const fs=require("fs");const p="/home/node/.claude.json";const t=fs.readFileSync("/tmp/mcp-preset.json","utf8");const preset=JSON.parse(t);let cfg=null;try{cfg=JSON.parse(fs.readFileSync(p,"utf8"))}catch(e){}const has=cfg&&typeof cfg==="object"&&Object.keys(cfg).length>0;fs.writeFileSync(p,has?JSON.stringify(Object.assign({},cfg,{mcpServers:preset.mcpServers}),null,2)+"\n":t);' \
+    && rm -f /tmp/mcp-preset.json \
+    && node -e 'const c=JSON.parse(require("fs").readFileSync("/home/node/.claude.json","utf8"));const k=Object.keys(c.mcpServers||{}).sort().join(",");process.exit(k==="brave-search,figma,filesystem,github,mysql_beta,mysql_dev"?0:1)'
 
 WORKDIR /workspace
 # 任务容器需常驻前台进程(docker run -d 后 exec/clone 依赖容器存活;BUG-028:CMD bash 无 TTY 秒退)

@@ -33,23 +33,27 @@
 
 ## 2026-09-27 R2 运营配置:平台「自定义变量」新增 MCP 凭据变量
 
-> 说明:以下清单由 R2 轮次补充/最终确认(本 R1 轮仅占位保留,不随 R1 验收)。
+> 2026-09-27 R2 已落实(本节自 R1 占位转正式):预置 MCP 配置已随镜像构建期写入容器 `/home/node/.claude.json`(顶层 `mcpServers` 恰 6 条:mysql_dev / mysql_beta / figma / filesystem / github / brave-search,内容与 `DEVPLAN/R2.md`「接口契约」交付物 JSON 逐字一致;文件内仅 `${VAR}` 引用文本,凭据不进镜像)。本节为其配套运营动作,发布时需执行。
 
 - **类型**:配置(运营动作,零代码)
-- **具体内容**:超管在平台设置页「自定义变量」配置以下变量(键名/值规范沿用现有校验:值 ≤2048、不占 13 个保留键):
+- **具体内容**:超管在平台设置页「自定义变量」配置以下变量(键名/值规范沿用现有校验:键名 `^[A-Za-z_][A-Za-z0-9_]*$`、≤50 键、值 ≤2048、不占 13 个保留键):
 
   | 变量名 | 必填 | 说明 |
   |---|---|---|
   | ENV_MCP_MYSQL_DEV_HOST | 是 | dev 库主机 |
   | ENV_MCP_MYSQL_BETA_HOST | 是 | beta 库主机 |
-  | ENV_MCP_MYSQL_PORT | 是 | 端口(dev/beta 共用;未配时容器侧 :-3306 兜底) |
-  | ENV_MCP_MYSQL_USER | 是 | 账号(共用,**需 DBA 授予只读权限**) |
+  | ENV_MCP_MYSQL_PORT | 是 | 端口(dev/beta 共用;配置侧带 :-3306 兜底) |
+  | ENV_MCP_MYSQL_USER | 是 | 账号(共用,需只读权限) |
   | ENV_MCP_MYSQL_PASSWORD | 是 | 密码(共用) |
   | ENV_MCP_MYSQL_DATABASE | 是 | 默认库(共用) |
-  | ENV_MCP_FIGMA_TOKEN | 否 | Figma personal access token(未配则 figma MCP 不可用) |
-  | ENV_MCP_GITHUB_TOKEN | 否 | GitHub PAT(未配则 github MCP 不可用;2026-09-27 plan 补充确认) |
-  | ENV_MCP_BRAVE_API_KEY | 否 | Brave Search API key(未配则 brave MCP 不可用;2026-09-27 plan 补充确认) |
+  | ENV_MCP_FIGMA_TOKEN | 否 | Figma API token(未配则 figma MCP 不可用) |
+  | ENV_MCP_GITHUB_TOKEN | 否 | GitHub PAT(未配则 github MCP 静默降级) |
+  | ENV_MCP_BRAVE_API_KEY | 否 | Brave Search API key(未配则 brave MCP 静默降级) |
 
-- **前提(平台外运营)**:MySQL 账号需 DBA 侧授予只读权限(SELECT/SHOW)——只读第一道防线(D2)
-- **影响范围**:配置后所有新起任务容器自动注入;缺变量静默降级(容器创建/任务执行不受阻)
-- **回滚方案**:删除对应变量即可(下次创建容器不再注入)
+  - 末两行为 plan 阶段补充确认变量(2026-09-27 用户拍板)——存量 github/brave-search 激活必须有凭据源
+  - 注:预置配置内 MySQL 密码字段是 `MYSQL_PASS`(包约定),平台变量名是 `ENV_MCP_MYSQL_PASSWORD`,二者经 `${VAR}` 引用衔接,勿混
+
+- **前提(平台外运营,DBA)**:MySQL 账号(dev/beta 两库)需 DBA 侧授予只读权限(SELECT/SHOW)——只读第一道防线(D2);第二道防线=镜像预置条目故意不设 ALLOW_INSERT/UPDATE/DELETE/DDL_OPERATION(`@benborla29/mcp-server-mysql` 默认 SELECT-only),双保险缺一不可。Figma 取数需容器可达 api.figma.com
+- **静默降级**:任一变量未配置时,对应 MCP 条目仍保留在预置配置中(不裁剪),`${VAR}` 未设按字面透传+告警,该 server 启动/连接失败——**容器创建与任务执行不受阻**,仅对话中使用对应 MCP 时报连接失败(github/brave-search 未配 token 时可启动但调用报错)。补配变量后新起容器即生效
+- **影响范围**:配置后所有新起任务容器自动注入(custom_env_vars 铺底 → 容器 environment,预置配置加载拉起 server 时按当时容器 env 实时展开 `${VAR}`);存量 v1 容器不受影响(无预置配置)
+- **回滚方案**:删除对应变量即可(下次创建容器不再注入;预置配置条目不随之删除,转入静默降级态)
