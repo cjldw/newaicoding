@@ -26,7 +26,7 @@ from app.services.runner_service import runner_registry
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_IMAGE = "platform/devbox:v1"
+DEFAULT_IMAGE = "platform/devbox:v2"
 EXPOSED_PORTS = [5173, 8000]
 
 

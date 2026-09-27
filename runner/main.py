@@ -306,7 +306,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
         try:
             result = manager.start_container(
                 task_id=task_id,
-                image=msg.get("image", "platform/devbox:v1"),
+                image=msg.get("image", "platform/devbox:v2"),
                 env=msg.get("env") or {},
                 ports=msg.get("ports") or [5173, 8000],
                 repos=msg.get("repos") or [],
@@ -574,7 +574,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
             data = await asyncio.wait_for(
                 asyncio.to_thread(
                     manager.probe_claude,
-                    image=msg.get("image", "platform/devbox:v1"),
+                    image=msg.get("image", "platform/devbox:v2"),
                 ),
                 timeout=PROBE_CLAUDE_TIMEOUT,
             )

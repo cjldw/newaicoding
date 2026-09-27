@@ -635,7 +635,7 @@ class ContainerManager:
         logger.info("claude 资产注入 container=%s skills=%d mcp=%d", container_id, written, mcp_count)
         return {"skills": written, "mcp": mcp_count}
 
-    def probe_claude(self, image: str = "platform/devbox:v1") -> dict:
+    def probe_claude(self, image: str = "platform/devbox:v2") -> dict:
         """
         R5 系统级采集:拉起临时容器探测镜像内置的 Claude 资产,单次调用内完成:
         start_container(repos=[],task_id 哨兵,managed=False)→ exec 探测 → stop_container(用后即毁)。

@@ -32,7 +32,7 @@ from app.services import runner_service
 logger = logging.getLogger(__name__)
 
 COLLECT_TIMEOUT = 120.0                      # probe 回报超时(秒;R5.md 契约)
-DEFAULT_PROBE_IMAGE = "platform/devbox:v1"   # 与 Runner start_container 默认镜像一致
+DEFAULT_PROBE_IMAGE = "platform/devbox:v2"   # 与 Runner start_container 默认镜像一致
 
 # 进程级互斥:同一时刻只允许一次探测(临时容器起→探→毁不并发)
 _COLLECT_LOCK = asyncio.Lock()

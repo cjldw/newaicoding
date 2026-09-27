@@ -22,7 +22,7 @@ async def _insert_container(db_session, project_id, runner_id="r-1", status="run
         runner_id=runner_id,
         project_id=project_id,
         status=status,
-        image="platform/devbox:v1",
+        image="platform/devbox:v2",
         exposed_ports=[5173, 8000],
     )
     db_session.add(c)
@@ -214,6 +214,10 @@ class TestScheduleAndStart:
         msg = sent[0]
         assert msg["type"] == "start_container"
         assert msg["task_id"] == "task-xyz"
+        # R1:schedule_and_start 默认镜像应为 v2(钉住生产常量 container_service.DEFAULT_IMAGE
+        # 的 v2 默认);下发消息与 DB 登记行同源
+        assert msg["image"] == "platform/devbox:v2", f"下发镜像应为 v2,实际: {msg['image']}"
+        assert container.image == "platform/devbox:v2", f"登记镜像应为 v2,实际: {container.image}"
         assert msg["ports"] == [5173, 8000]
         assert msg["repos"][0]["branch"] == "req-1"
         await db_session.refresh(runner)

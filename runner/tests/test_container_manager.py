@@ -95,14 +95,14 @@ class TestStartContainer:
         mgr = ContainerManager(client_factory=lambda: fake)
         result = mgr.start_container(
             task_id="task-1",
-            image="platform/devbox:v1",
+            image="platform/devbox:v2",
             env={"GITLAB_TOKEN": "tok", "LLM_API_KEY": "sk-x"},
             ports=[5173, 8000],
             repos=[{"url": "https://gitlab.example.com/g/r.git", "path": "/workspace/r", "branch": "req-9"}],
         )
         # docker run 参数:detach/env/资源限制/labels
         kw = fake.containers.run_kwargs
-        assert kw["image"] == "platform/devbox:v1"
+        assert kw["image"] == "platform/devbox:v2"
         assert kw["detach"] is True
         assert kw["environment"]["GITLAB_TOKEN"] == "tok"
         assert kw["labels"]["qicheng.task_id"] == "task-1"
@@ -134,7 +134,7 @@ class TestStartContainer:
         mgr = ContainerManager(client_factory=lambda: fake)
         mgr.start_container(
             task_id="task-2",
-            image="platform/devbox:v1",
+            image="platform/devbox:v2",
             env={},
             ports=[5173],
             repos=[{"url": "https://gitlab.example.com/g/r.git", "path": "/workspace/r", "branch": "req-9"}],

@@ -648,7 +648,7 @@ export default function TaskDetail() {
               </div>
               {/* tree-foot(vp L1238-1243;字段映射真实任务) */}
               <div className="tree-foot">
-                <span><b>容器</b> {task.container_id ? `${task.container_id.slice(0, 7)} · devbox:v1` : '—'}</span>
+                <span><b>容器</b> {task.container_id ? `${task.container_id.slice(0, 7)} · devbox:v2` : '—'}</span>
                 <span><b>Runner</b> {task.runner_id ? task.runner_id.slice(0, 8) : '—'}</span>
                 <span><b>分支</b> {task.work_branch}(基础 = {task.base_branch})</span>
                 <span><b>变更</b> 相对 {task.base_branch} 基线全部差异(已 commit + 未 commit)</span>

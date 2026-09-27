@@ -34,7 +34,7 @@ COLLECT_URL = "/api/admin/system-assets/collect"
 TABLE = "claude_system_assets"
 
 # 一次采集快照:2 skill + 1 mcp(R6 验证规格)
-SEED_IMAGE_TAG = "platform/devbox:v1"
+SEED_IMAGE_TAG = "platform/devbox:v2"
 SEED_COLLECTED_AT = "2026-09-27 10:00:00"
 
 

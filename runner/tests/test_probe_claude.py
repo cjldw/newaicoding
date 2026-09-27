@@ -39,10 +39,11 @@ class FakeWS:
 
 
 class FakeProbeManager:
-    """接线测试用:记录 probe_claude 调用,返回预置结果/异常"""
+    """接线测试用:记录 probe_claude 调用(含 kwargs)与预置结果/异常"""
 
     def __init__(self, result=None, exc=None):
         self.calls = 0
+        self.last_kwargs: dict | None = None
         self.result = result or {
             "skills": ["skill-a"],
             "mcps": [{"name": "fetch", "transport": "stdio"}],
@@ -51,6 +52,7 @@ class FakeProbeManager:
 
     def probe_claude(self, *args, **kwargs):
         self.calls += 1
+        self.last_kwargs = kwargs
         if self.exc is not None:
             raise self.exc
         return self.result
@@ -125,11 +127,11 @@ def _make_manager(container=None, run_exc=None) -> tuple[ContainerManager, Probe
 
 
 def _call_probe(manager: ContainerManager):
-    """probe_claude 调用(image 必填签名直调;方法缺失显式 fail,
-    防 AttributeError 被 pytest.raises(Exception) 误吞成假通过)"""
+    """probe_claude 调用(R1:不传 image 直调,钉生产默认镜像应为 v2;
+    方法缺失显式 fail,防 AttributeError 被 pytest.raises(Exception) 误吞成假通过)"""
     if not hasattr(manager, "probe_claude"):
         pytest.fail("container_manager.probe_claude 方法未创建(R5 契约)")
-    return manager.probe_claude(image="platform/devbox:v1")
+    return manager.probe_claude()
 
 
 async def _dispatch_probe(ws: FakeWS, req_id: str):
@@ -153,6 +155,11 @@ async def test_handle_message_probe_claude_single_result():
         runner_main.manager = orig
 
     assert fake.calls == 1, f"probe_claude 应被调用一次,实际 {fake.calls}"
+    # R1:接线默认镜像应为 v2(指令不带 image 时由 main 提供默认;
+    # 钉住生产常量 runner/main.py 的 v2 默认)
+    assert (fake.last_kwargs or {}).get("image") == "platform/devbox:v2", (
+        f"probe_claude 应收到默认镜像 v2,实际 kwargs: {fake.last_kwargs}"
+    )
     results = [p for p in ws.sent if p.get("type") == "result" and p.get("req_id") == "r-p1"]
     assert len(results) == 1, f"应回一条 result,实际: {ws.sent}"
     assert results[0]["ok"] is True
@@ -204,6 +211,11 @@ def test_probe_happy_path_start_exec_stop():
     task_id = labels.get("qicheng.task_id", "")
     assert task_id, "task_id 哨兵缺失(labels)"
     assert labels.get("qicheng.managed") != "true", "一次性探测容器不得带 qicheng.managed 标签"
+    # R1:probe 默认镜像应为 v2(_call_probe 不传 image 直调,钉生产默认;
+    # 钉住生产常量 runner/container_manager.py 的 v2 默认)
+    assert api.run_kwargs.get("image") == "platform/devbox:v2", (
+        f"probe 默认镜像应为 v2,实际: {api.run_kwargs.get('image')}"
+    )
     # 探测命令:skills 只取一级目录(find -type d)+ 读 /root/.claude.json;
     # 命令不得掩盖 exit code(无 `|| true`——单侧失败须可检测,PRD R1 部分结果语义)
     skills_cmds = [c for c in container.exec_cmds if "/root/.claude/skills" in c]

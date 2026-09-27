@@ -51,7 +51,7 @@
 | `frontend/` | Vite6 · React18 · TS5.6 · Tailwind3 · zustand5 · react-query5 · react-hook-form/zod · monaco · xterm | dev `:5173`,生产静态托管 + 反代 `/api` `/ws` | 单页应用:37 页面文件 + 自研 shadcn 风格组件(无 Radix,手写);`src/api/client.ts` 原生 fetch 封装 |
 | `gateway/` | Python · FastAPI app(复用 `backend/app/core/gateway.py`) | `GATEWAY_PORT=80 python3 main.py` | 自研反向代理,Host 精确匹配、直查 `routes` 表即时生效、WS 透传、单 host 限流 |
 | `runner/` | Python · docker SDK · websockets | 容器 `platform/runner:v1` 或裸机 `python3 main.py` | 分布式执行代理:注册/心跳/对账、start/stop 容器指令、容器管理、pty 终端、文件监听 |
-| `docker/devbox` | devcontainers/typescript-node + python3 + Claude CLI + 3×MCP + skills | 任务容器镜像 `platform/devbox:v1` | 每个研发任务的隔离工作台(`sleep infinity` 常驻,端口映射宿主机 preview 区间) |
+| `docker/devbox` | devcontainers/typescript-node + python3 + Claude CLI + 3×MCP + skills | 任务容器镜像 `platform/devbox:v2` | 每个研发任务的隔离工作台(`sleep infinity` 常驻,端口映射宿主机 preview 区间) |
 | `docker/runner` | python:3.12-slim | Runner 镜像 `platform/runner:v1` | 薄代理镜像,`pip install docker websockets fastapi uvicorn` |
 
 ## 快速开始
@@ -115,7 +115,7 @@ python3 main.py
 ### 5. 构建镜像
 
 ```bash
-docker build -t platform/devbox:v1  -f docker/devbox/Dockerfile   .        # context=仓库根(COPY skills/)
+docker build -t platform/devbox:v2  -f docker/devbox/Dockerfile   .        # context=仓库根(COPY docker/devbox/skills/;可 --build-arg RD_FLOW_MARKETPLACE=<git 地址>)
 docker build -t platform/runner:v1 -f docker/runner/Dockerfile   runner/
 ```
 

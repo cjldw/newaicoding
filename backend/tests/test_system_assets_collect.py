@@ -57,9 +57,9 @@ PROBE_DATA = {
         {"name": "fetch", "transport": "stdio", "command": "uvx mcp-server-fetch"},
     ],
     # 镜像标识:实现可取自 probe 结果,也可取自平台下发镜像名;二者均非空即满足契约
-    "image_tag": "platform/devbox:v1",
+    "image_tag": "platform/devbox:v2",
 }
-EMPTY_PROBE_DATA = {"skills": [], "mcps": [], "image_tag": "platform/devbox:v1"}
+EMPTY_PROBE_DATA = {"skills": [], "mcps": [], "image_tag": "platform/devbox:v2"}
 
 
 # ---------------------------------------------------------------------------
@@ -174,10 +174,15 @@ def _json_contains(obj, needle: str) -> bool:
 
 
 def _assert_single_probe(ws: ProbeRunnerWS):
-    """平台只下发一次 probe_claude 指令(start→exec→stop 在 Runner 侧单次调用内完成)"""
+    """平台只下发一次 probe_claude 指令(start→exec→stop 在 Runner 侧单次调用内完成);
+    R1:指令默认镜像应为 v2(路由不传 image,collect 用 DEFAULT_PROBE_IMAGE——
+    钉住生产常量 system_asset_service.py 的 v2 默认)"""
     assert len(ws.probe_msgs) >= 1, f"未下发 probe_claude 指令,下发消息: {ws.sent}"
     assert len(ws.probe_msgs) == 1, (
         f"probe_claude 应单次调用完成,实际下发 {len(ws.probe_msgs)} 条: {ws.probe_msgs}"
+    )
+    assert ws.probe_msgs[0].get("image") == "platform/devbox:v2", (
+        f"probe 指令默认镜像应为 v2,实际: {ws.probe_msgs[0].get('image')}"
     )
 
 

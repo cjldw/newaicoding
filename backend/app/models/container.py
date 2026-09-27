@@ -39,7 +39,7 @@ class Container(Base):
         index=True,
         comment="状态",
     )
-    image = Column(String(255), nullable=False, default="platform/devbox:v1", server_default="platform/devbox:v1", comment="镜像")
+    image = Column(String(255), nullable=False, default="platform/devbox:v2", server_default="platform/devbox:v2", comment="镜像")
     cpu_limit = Column(String(16), nullable=False, default="2c", server_default="2c", comment="CPU 限制")
     mem_limit = Column(String(16), nullable=False, default="4g", server_default="4g", comment="内存限制")
     disk_limit = Column(String(16), nullable=False, default="10g", server_default="10g", comment="磁盘限制")
