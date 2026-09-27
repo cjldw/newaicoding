@@ -1,6 +1,7 @@
 """任务路由 - R4(生命周期/对话/附件/事件流)"""
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
@@ -617,6 +618,40 @@ async def cancel_message(
         data=data,
         message="已请求取消" if data.get("cancelled") else "当前无进行中的对话",
     )
+
+
+# ---------------------------------------------------------------------------
+# R34.F3:AI 权限确认应答
+# ---------------------------------------------------------------------------
+class ToolConfirmRequest(BaseModel):
+    """确认应答:confirm_id 一次性;choice 两档(规格拍板,不做「始终允许」)"""
+    confirm_id: str = Field(min_length=1)
+    choice: Literal["allow", "deny"]
+
+
+@router.post("/tasks/{task_id}/confirm")
+async def confirm_tool_use(
+    task_id: str,
+    req: ToolConfirmRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """应答 AI 权限确认(R34.F3):挂起 Future set_result 放行执行 + 应答下行 Runner
+    桥接。鉴权=任务成员(与 messages/cancel 同口径 owner/editor,viewer/非成员 403);
+    confirm_id 不存在/已应答 → 4001(HTTP 200 + 业务码,与 R28 头像 4001 同口径)"""
+    logger.info("确认应答入口 task=%s confirm=%s choice=%s by=%s",
+                task_id, req.confirm_id, req.choice, current_user.user_id)
+    task = await task_service.get_task_or_404(db, task_id)
+    project = (await db.execute(
+        select(Project).where(Project.project_id == task.project_id)
+    )).scalars().first()
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+
+    if not task_service.resolve_confirm(req.confirm_id, req.choice):
+        raise BizError(4001, "确认请求不存在或已应答")
+    # 应答下行 Runner 桥接(尽力而为:通道缺失/Runner 离线不回错,超时兜底在桥接层)
+    await task_service.deliver_confirm_choice(req.confirm_id, req.choice)
+    return success(data={"ok": True})
 
 
 # ---------------------------------------------------------------------------

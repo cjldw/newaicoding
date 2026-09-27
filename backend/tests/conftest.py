@@ -395,6 +395,26 @@ _original_mt_exit = httpx.MockTransport.__exit__
 
 
 @pytest.fixture(autouse=True)
+def _reset_in_memory_registries():
+    """
+    进程内存表测试隔离(R34.F3):task_service 确认挂起表为模块级 dict,跨测试
+    共享进程状态(DB 隔离由 db_session truncate 承担,内存表在此统一清)。
+    前清后清各一次:防前序用例残留挂起影响计数,也防本用例残留外泄。
+    """
+    from app.services import task_service as _ts
+
+    _ts.confirm_futures.clear()
+    _ts.confirm_owners.clear()
+    _ts._confirm_channels.clear()
+    _ts._confirm_resolved.clear()
+    yield
+    _ts.confirm_futures.clear()
+    _ts.confirm_owners.clear()
+    _ts._confirm_channels.clear()
+    _ts._confirm_resolved.clear()
+
+
+@pytest.fixture(autouse=True)
 def _patch_mock_transport_for_gitlab():
     """
     自动 patch httpx.MockTransport 的 __enter__/__exit__,

@@ -9,6 +9,7 @@
 - 事件:WS /ws/tasks/{tid}/events(tool_call/status_changed)
 """
 
+import asyncio
 import logging
 import re
 import time
@@ -591,6 +592,9 @@ def _stream_event_to_chat(evt: dict) -> dict | None:
     BUG-058:--include-partial-messages 下 stream_event/content_block_delta/text_delta
     为 token 级增量(逐字流式的真正来源);assistant 整块路径保留作回退。
     其余类型(system/init、user 工具结果等)忽略。result 不上泵(终态 finalize 承载)。
+    R34.F3(BUG-UI-091):permission/control 事件透传 —— control_request
+    {subtype:"can_use_tool"} → chat_confirm_request 增量(prompt 人类可读,
+    含工具名与关键参数);其余 control 子事件不过度捕获(维持忽略)。
     """
     if evt.get("type") == "stream_event":
         event = evt.get("event") or {}
@@ -599,6 +603,15 @@ def _stream_event_to_chat(evt: dict) -> dict | None:
             text = delta.get("text")
             if text:
                 return {"type": "chat_delta", "text": text}
+        return None
+    if evt.get("type") == "control_request":
+        request = evt.get("request") or {}
+        if request.get("subtype") == "can_use_tool":
+            return {
+                "type": "chat_confirm_request",
+                "prompt": build_confirm_prompt(request.get("tool_name", ""), request.get("input") or {}),
+                "options": ["allow", "deny"],
+            }
         return None
     if evt.get("type") == "assistant":
         msg = evt.get("message") or {}
@@ -697,8 +710,17 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
         delta_state: dict = {}  # R32.F7:打字机平滑节奏状态(同一轮对话共享)
         async for evt in stream_iter:
             delta = _stream_event_to_chat(evt)
-            if delta is not None:
-                await _broadcast_delta_smooth(task.task_id, delta["text"], delta_state)
+            if delta is None:
+                continue
+            if delta.get("type") == "chat_confirm_request":
+                # R34.F3:确认请求(流内 control 路径)→ 登记挂起 + 执行协程在此挂起等待
+                # 应答/5min 超时 deny;下行通道指向本容器 Runner(应答经 REST 下行放行)
+                cid = await register_confirm_request(task.task_id, delta)
+                _confirm_channels[cid] = {"runner_id": container.runner_id, "req_id": "", "task_id": task.task_id}
+                choice = await wait_confirm(cid)
+                logger.info("确认已收口(流内路径) task=%s confirm=%s choice=%s", task.task_id, cid, choice)
+                continue
+            await _broadcast_delta_smooth(task.task_id, delta["text"], delta_state)
         response = await finalize()
     except claude_service.AICancelled:
         # R34.F1:用户真取消(messages/cancel → runner pkill claude → 终态
@@ -713,6 +735,13 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
         await db.flush()
         await task_event_registry.broadcast(task.task_id, {"type": "chat_done", "ok": False, "error": str(e)})
         raise BizError(ErrCode.TERMINAL_UNAVAILABLE, f"AI 执行失败:{e}")
+    finally:
+        # R34.F3:对话收尾清理挂起确认(正常完成无挂起=零广播;取消/异常路径兜底 deny 收口,
+        # 与 cancel_message_stream 的 stop 优先收口重入安全:二次调用 no-op)
+        try:
+            await cleanup_task_confirms(task.task_id)
+        except Exception:
+            logger.exception("对话收尾清理挂起确认失败 task=%s", task.task_id)
 
     duration_ms = int((time.monotonic() - started) * 1000)
 
@@ -757,6 +786,9 @@ async def cancel_message_stream(db: AsyncSession, task: Task) -> dict:
     if runner_conn is None:
         raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "Runner offline,不可取消", status_code=400)
 
+    # R34.F3:确认挂起 × 停止 → stop 优先,挂起确认先按 deny 收口并广播 resolved
+    # (先于取消链;send_message_stream 收尾的兜底清理对本调用重入安全=no-op)
+    await cleanup_task_confirms(task.task_id)
     req_ids = runner_service.find_stream_requests(task.task_id)
     if not req_ids:
         logger.info("取消对话:无在途流式请求 task=%s", task.task_id)
@@ -764,6 +796,182 @@ async def cancel_message_stream(db: AsyncSession, task: Task) -> dict:
     for rid in req_ids:
         await runner_service.cancel_stream_request(runner_conn, rid)
     return {"cancelled": True, "req_ids": req_ids}
+
+
+# ---------------------------------------------------------------------------
+# R34.F3:AI 确认交互(BUG-UI-091)—— 挂起表 + 广播 + 应答下行
+# ---------------------------------------------------------------------------
+# 确认超时兜底:5min 无应答自动按 deny 收口(测试 monkeypatch 注入短时长,绝不真等)
+CONFIRM_TIMEOUT_SECONDS = 300
+# 内存挂起表(规格口径,不落库;进程重启=挂起全丢,由 runner 桥接层 5min 自兜底 deny)
+confirm_futures: dict[str, asyncio.Future] = {}  # confirm_id → Future(result ∈ {"allow","deny"})
+confirm_owners: dict[str, str] = {}              # confirm_id → task_id(任务结束/停止清理反查)
+_confirm_channels: dict[str, dict] = {}          # confirm_id → {runner_id, task_id}(应答下行路由)
+_confirm_resolved: dict[str, str] = {}           # 已结算结果备忘(应答与等待间的竞态窗口)
+_confirm_bg_tasks: set = set()                   # 超时收割任务强引用(防 GC)
+
+# 确认卡文案取参优先键(命令/路径类;取不到再取首个字符串值)
+_CONFIRM_PARAM_KEYS = ("command", "file_path", "path", "notebook_path", "url", "pattern", "query")
+
+
+def build_confirm_prompt(tool_name: str, tool_input: Optional[dict]) -> str:
+    """确认卡人类可读文案:含工具名与关键参数(R34.F3 契约;截断 120 防超长命令刷屏)"""
+    summary = ""
+    for key in _CONFIRM_PARAM_KEYS:
+        val = (tool_input or {}).get(key)
+        if isinstance(val, str) and val.strip():
+            summary = val.strip()
+            break
+    if not summary:
+        for val in (tool_input or {}).values():
+            if isinstance(val, str) and val.strip():
+                summary = val.strip()
+                break
+    if len(summary) > 120:
+        summary = summary[:117] + "..."
+    if summary:
+        return f"允许执行 {tool_name}({summary}) 吗?"
+    return f"允许执行 {tool_name} 吗?"
+
+
+async def register_confirm_request(task_id: str, delta: dict) -> str:
+    """
+    登记挂起确认 + 广播 chat_confirm_request(R34.F3):
+    delta 为透传增量({prompt, options?}),confirm_id 在此生成并回填广播帧,
+    前端据此弹确认卡并携 confirm_id 应答 POST /tasks/{id}/confirm。
+    """
+    confirm_id = uuid.uuid4().hex
+    confirm_futures[confirm_id] = asyncio.get_running_loop().create_future()
+    confirm_owners[confirm_id] = task_id
+    await task_event_registry.broadcast(task_id, {
+        "type": "chat_confirm_request",
+        "confirm_id": confirm_id,
+        "prompt": delta.get("prompt", ""),
+        "options": delta.get("options") or ["allow", "deny"],
+    })
+    logger.info("确认请求已登记并广播 task=%s confirm=%s prompt=%s", task_id, confirm_id, delta.get("prompt", ""))
+    return confirm_id
+
+
+def resolve_confirm(confirm_id: str, choice: str) -> bool:
+    """
+    应答挂起确认(一次性):set_result 放行执行协程 + 注销挂起表;
+    confirm_id 不存在/已应答/已收口 → False(调用方回 4001)。
+    """
+    fut = confirm_futures.get(confirm_id)
+    if fut is None or fut.done():
+        logger.info("确认应答拒绝(不存在/已应答) confirm=%s", confirm_id)
+        return False
+    _confirm_resolved[confirm_id] = choice  # 竞态备忘:等待方尚未 await 时补读
+    confirm_futures.pop(confirm_id, None)
+    confirm_owners.pop(confirm_id, None)
+    fut.set_result(choice)
+    logger.info("确认已应答 confirm=%s choice=%s", confirm_id, choice)
+    return True
+
+
+async def wait_confirm(confirm_id: str) -> str:
+    """
+    执行协程唯一等待点(R34.F3):应答 set_result 放行返回其选择;
+    CONFIRM_TIMEOUT_SECONDS 超时按 deny 收口 + 广播
+    chat_confirm_resolved {confirm_id, choice:"deny", reason:"timeout"} + 注销。
+    """
+    fut = confirm_futures.get(confirm_id)
+    if fut is None:
+        # 竞态窗口:应答发生在登记与等待之间(resolve 已弹出条目)→ 取备忘结果
+        memo = _confirm_resolved.pop(confirm_id, None)
+        if memo is not None:
+            logger.info("确认等待命中竞态备忘(应答先于等待) confirm=%s choice=%s", confirm_id, memo)
+            return memo
+        logger.warning("确认等待:未知 confirm_id=%s,按 deny 放行", confirm_id)
+        return "deny"
+    try:
+        choice = await asyncio.wait_for(fut, timeout=CONFIRM_TIMEOUT_SECONDS)
+        _confirm_resolved.pop(confirm_id, None)  # 结算备忘已消费
+        return choice if choice in ("allow", "deny") else "deny"
+    except asyncio.TimeoutError:
+        task_id = confirm_owners.pop(confirm_id, None)
+        confirm_futures.pop(confirm_id, None)
+        _confirm_channels.pop(confirm_id, None)
+        _confirm_resolved.pop(confirm_id, None)
+        await task_event_registry.broadcast(task_id or "", {
+            "type": "chat_confirm_resolved",
+            "confirm_id": confirm_id,
+            "choice": "deny",
+            "reason": "timeout",
+        })
+        logger.info("确认超时自动拒绝 confirm=%s task=%s", confirm_id, task_id)
+        return "deny"
+
+
+async def cleanup_task_confirms(task_id: str) -> int:
+    """
+    任务结束/停止清理:该任务全部挂起按 deny 收口并注销,逐条广播
+    chat_confirm_resolved {choice:"deny", reason:"stopped"};返回收口条数
+    (未知任务 no-op 返回 0)。负向探查:确认挂起 × 任务停止 → stop 优先。
+    """
+    ids = [cid for cid, owner in confirm_owners.items() if owner == task_id]
+    for confirm_id in ids:
+        fut = confirm_futures.pop(confirm_id, None)
+        confirm_owners.pop(confirm_id, None)
+        _confirm_channels.pop(confirm_id, None)
+        _confirm_resolved[confirm_id] = "deny"
+        if fut is not None and not fut.done():
+            fut.set_result("deny")
+        await task_event_registry.broadcast(task_id, {
+            "type": "chat_confirm_resolved",
+            "confirm_id": confirm_id,
+            "choice": "deny",
+            "reason": "stopped",
+        })
+    if ids:
+        logger.info("任务挂起确认已按 deny 收口 task=%s count=%d", task_id, len(ids))
+    return len(ids)
+
+
+async def deliver_confirm_choice(confirm_id: str, choice: str) -> None:
+    """
+    应答下行 Runner(尽力而为):桥接收到 exec_tool_confirm 写应答文件放行容器内
+    CLI;通道缺失(流内 control 路径无下行/Runner 已重启)仅记日志 —— 超时兜底
+    在桥接层,执行不悬挂。
+    """
+    channel = _confirm_channels.pop(confirm_id, None)
+    if channel is None:
+        logger.info("确认应答无下行通道 confirm=%s(非桥接路径或已清理)", confirm_id)
+        return
+    conn = runner_registry.get(channel.get("runner_id", ""))
+    if conn is None:
+        logger.warning("确认下行失败:Runner 不在线 confirm=%s runner=%s", confirm_id, channel.get("runner_id"))
+        return
+    try:
+        await runner_service.send_to_runner(conn, {
+            "type": "exec_tool_confirm",
+            "req_id": channel.get("req_id", ""),
+            "confirm_id": confirm_id,
+            "choice": choice,
+        })
+        logger.info("确认应答已下行 runner=%s confirm=%s choice=%s", conn.runner_id, confirm_id, choice)
+    except Exception as e:
+        logger.warning("确认下行发送失败 confirm=%s: %s", confirm_id, e)
+
+
+async def handle_runner_confirm_request(task_id: str, req_id: str, runner_id: str,
+                                        tool_name: str, tool_input: dict) -> str:
+    """
+    Runner 桥接权限请求上行(R34.F3 实证:确认请求的信号源是桥接侧 tools/call,
+    不是 CLI stdout)→ 登记挂起 + 广播 chat_confirm_request + 挂起下行通道 + 超时收割。
+    """
+    confirm_id = await register_confirm_request(task_id, {
+        "type": "chat_confirm_request",
+        "prompt": build_confirm_prompt(tool_name, tool_input),
+        "options": ["allow", "deny"],
+    })
+    _confirm_channels[confirm_id] = {"runner_id": runner_id, "req_id": req_id, "task_id": task_id}
+    # 超时收割:wait_confirm 5min 无应答内部自动 deny + 广播 resolved(reason=timeout)
+    reaper = asyncio.create_task(wait_confirm(confirm_id))
+    _confirm_bg_tasks.add(reaper)
+    reaper.add_done_callback(_confirm_bg_tasks.discard)
+    return confirm_id
 
 
 # ---------------------------------------------------------------------------
@@ -820,6 +1028,8 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
     if status == "cancelled":
         task.error_message = "用户手动停止"
     await db.flush()
+    # R34.F3:任务结束清理挂起确认(有挂起按 deny 收口 + 广播 resolved reason=stopped)
+    await cleanup_task_confirms(task.task_id)
     await task_event_registry.broadcast(task.task_id, {"type": "status_changed", "status": status})
     logger.info("任务结束 task=%s status=%s", task.task_id, status)
     # R25 审计:task.done / task.cancelled(其他状态值不映射审计,防枚举外泄)

@@ -18,6 +18,103 @@ PORT_RANGE_END = 29999
 MAX_RESTARTS = 3  # 崩溃自动 restart ≤ 3 次
 PROBE_TASK_SENTINEL = "__probe_claude__"  # R5:探测容器 task_id 哨兵(labels 可识别清理)
 
+# R34.F3:容器内权限确认桥接(claude --permission-prompt-tool 的 MCP stdio server)
+PERMGATE_DIR = "/tmp/permgate"
+PERMGATE_TOOL_REF = "mcp__permgate__approval"
+
+# 桥接脚本(write_file 注入容器;纯标准库):CLI 作为 MCP client 握手后,每个需确认
+# 的工具调用发 tools/call → 桥接把请求 JSON 行追加 req.log,轮询 ans-{n}.json 等平台
+# 应答(实证:CLI 无限阻塞等 MCP 应答,5min 超时兜底必须在本层,到点回 deny)。
+PERMGATE_BRIDGE_SCRIPT = r'''#!/usr/bin/env python3
+"""R34.F3 权限确认桥接(fake MCP stdio server,容器内运行)。
+协议:initialize → notifications/initialized → tools/list → tools/call(approval)。
+tools/call 到达即把请求行追加 req.log,等待 ans-{seq}.json(平台经 Runner 写入);
+PERMGATE_TIMEOUT 秒无应答自动 deny(CLI 不设应答超时,兜底在本层)。"""
+import json
+import os
+import sys
+import time
+
+DIR = os.path.dirname(os.path.abspath(__file__))
+REQ_LOG = os.path.join(DIR, "req.log")
+TIMEOUT = float(os.environ.get("PERMGATE_TIMEOUT", "300"))
+
+
+def reply(obj):
+    sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def wait_answer(seq):
+    ans_path = os.path.join(DIR, "ans-%d.json" % seq)
+    deadline = time.time() + TIMEOUT
+    while time.time() < deadline:
+        try:
+            with open(ans_path, "r", encoding="utf-8") as f:
+                decision = json.load(f)
+            if isinstance(decision, dict) and decision.get("behavior") in ("allow", "deny"):
+                return decision
+        except (OSError, ValueError):
+            pass  # 未生成/写入中(半行)→ 继续轮询
+        time.sleep(0.1)
+    return {"behavior": "deny", "message": "confirm timeout (%ds), auto denied" % int(TIMEOUT),
+            "interrupt": False}
+
+
+def main():
+    seq = 0
+    while True:
+        raw = sys.stdin.readline()
+        if not raw:
+            break  # CLI 退出/被杀 → stdin EOF,桥接随之退出
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            msg = json.loads(raw)
+        except ValueError:
+            continue
+        method = msg.get("method", "")
+        mid = msg.get("id")
+        if method == "initialize":
+            reply({"jsonrpc": "2.0", "id": mid, "result": {
+                "protocolVersion": "2024-11-05", "capabilities": {},
+                "serverInfo": {"name": "permgate", "version": "1.0.0"}}})
+        elif method == "tools/list":
+            reply({"jsonrpc": "2.0", "id": mid, "result": {"tools": [{
+                "name": "approval",
+                "description": "Human approval gate for tool use",
+                "inputSchema": {"type": "object", "properties": {
+                    "tool_name": {"type": "string"},
+                    "input": {"type": "object"},
+                    "tool_use_id": {"type": "string"}},
+                    "required": ["tool_name"]}}]}})
+        elif method == "tools/call":
+            args = ((msg.get("params") or {}).get("arguments") or {})
+            seq += 1
+            with open(REQ_LOG, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"n": seq, "tool_name": args.get("tool_name", ""),
+                                    "input": args.get("input") or {},
+                                    "tool_use_id": args.get("tool_use_id", "")},
+                                   ensure_ascii=False) + "\n")
+            decision = wait_answer(seq)
+            # 应答格式(实证):decision JSON 内嵌为 content[0].text 字符串
+            reply({"jsonrpc": "2.0", "id": mid, "result": {"content": [
+                {"type": "text", "text": json.dumps(decision, ensure_ascii=False)}]}})
+        elif mid is not None:
+            reply({"jsonrpc": "2.0", "id": mid,
+                   "error": {"code": -32601, "message": "unknown method: %s" % method}})
+
+
+main()
+'''
+
+PERMGATE_MCP_CONFIG = {
+    "mcpServers": {
+        "permgate": {"command": "python3", "args": [f"{PERMGATE_DIR}/bridge.py"]},
+    }
+}
+
 
 def allocate_ports(needed: list[int], rng: Optional[random.Random] = None,
                    taken: Optional[set[int]] = None) -> dict[int, int]:
@@ -363,6 +460,7 @@ class ContainerManager:
         session_id: str | None = None,
         resume: bool = False,
         model: str | None = None,
+        permission_bridge: bool = False,
         on_line: Callable[[str], None] | None = None,
     ) -> dict:
         """
@@ -374,6 +472,9 @@ class ContainerManager:
         recv/read 探测(SocketIO vs NpipeSocket)。on_line 为 None 时退化为一次性收集。
         R34.F2:model 非空时拼 --model(消息级模型切换;CLI flag 覆盖容器创建时
         固化的 ANTHROPIC_MODEL env——env 改不到运行中容器,只能走 flag)。
+        R34.F3:permission_bridge=True 时加 --permission-prompt-tool(mcp__permgate__approval,
+        经注入容器的 MCP stdio 桥接承接权限确认;不用 --strict-mcp-config,保留
+        claude_inject 注入的项目级 MCP 配置)。False 维持原命令(无确认通道,静默拒绝)。
         """
         import json as _json
         import shlex as _shlex
@@ -385,12 +486,16 @@ class ContainerManager:
             else:
                 session_flag = f" --session-id {_shlex.quote(session_id)}"
         model_flag = f" --model {_shlex.quote(model)}" if model else ""
+        perm_flag = (
+            f" --mcp-config {PERMGATE_DIR}/mcp.json"
+            f" --permission-prompt-tool {PERMGATE_TOOL_REF}"
+        ) if permission_bridge else ""
 
         cmd = (
             f"cd {workdir} 2>/dev/null; "
             # BUG-058:--include-partial-messages 输出 stream_event/text_delta 增量(逐字流式)
             f"claude -p {_shlex.quote(prompt)} --output-format stream-json --verbose "
-            f"--include-partial-messages{session_flag}{model_flag} 2>/dev/null"
+            f"--include-partial-messages{session_flag}{model_flag}{perm_flag} 2>/dev/null"
         )
         api = self.client.api
         exec_id = api.exec_create(container_id, ["bash", "-lc", cmd], tty=False, stdin=False)
@@ -675,6 +780,78 @@ class ContainerManager:
         code, out = self.exec_capture(container_id, 'pkill -f "[c]laude" || true')
         logger.info("容器内 claude 已取消 container=%s exit=%s", container_id, code)
         return code == 0
+
+    # -----------------------------------------------------------------
+    # R34.F3:权限确认桥接(--permission-prompt-tool 的 MCP stdio 桥)
+    # -----------------------------------------------------------------
+    def setup_permission_bridge(self, container_id: str) -> bool:
+        """
+        注入权限确认桥接(每次 claude_prompt_stream 执行前调用):
+        写 bridge.py + mcp.json,清空上次请求/应答残留。
+        失败(容器异常等)返回 False —— 调用方降级不加权限参数(维持静默拒绝现状,
+        验收③:无确认能力时不回归)。
+        """
+        import json as _json
+
+        try:
+            self.write_file(container_id, f"{PERMGATE_DIR}/bridge.py", PERMGATE_BRIDGE_SCRIPT)
+            self.write_file(container_id, f"{PERMGATE_DIR}/mcp.json",
+                            _json.dumps(PERMGATE_MCP_CONFIG, ensure_ascii=False))
+            self.exec_capture(container_id,
+                              f"rm -f {PERMGATE_DIR}/req.log {PERMGATE_DIR}/ans-*.json 2>/dev/null")
+            logger.info("权限确认桥接已注入 container=%s dir=%s", container_id, PERMGATE_DIR)
+            return True
+        except Exception:
+            logger.exception("权限桥接初始化失败 container=%s(本次执行降级为无确认通道)", container_id)
+            return False
+
+    def read_new_confirm_requests(self, container_id: str, cursor: int) -> tuple[int, list[dict]]:
+        """
+        读桥接请求日志(req.log)cursor 行之后的新权限请求(轮询通道:容器内桥接与
+        Runner 之间无直连,经 docker exec cat 中转)。
+        返回 (新 cursor, 请求列表 [{n, tool_name, input, tool_use_id}]);无日志/读失败
+        返回 (cursor, []) 由调用方继续轮询。
+        """
+        import json as _json
+
+        code, out = self.exec_capture(container_id, f"cat {PERMGATE_DIR}/req.log 2>/dev/null")
+        if code != 0:
+            return cursor, []
+        lines = out.decode(errors="ignore").splitlines()
+        requests: list[dict] = []
+        for line in lines[cursor:]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict) and obj.get("n") is not None:
+                requests.append(obj)
+        return len(lines), requests
+
+    def write_confirm_answer(self, container_id: str, seq: int, decision: dict) -> None:
+        """
+        写确认应答文件(ans-{seq}.json,桥接轮询读取后回 MCP 应答放行/拒绝 CLI)。
+        decision 形如 {"behavior": "allow", "updatedInput": {...}} /
+        {"behavior": "deny", "message": "...", "interrupt": false}(实证格式)。
+        """
+        import base64 as _base64
+        import json as _json
+
+        payload = _json.dumps(decision, ensure_ascii=False).encode("utf-8")
+        b64 = _base64.b64encode(payload).decode("ascii")
+        code, out = self.exec_capture(
+            container_id, f"echo {b64} | base64 -d > {PERMGATE_DIR}/ans-{int(seq)}.json")
+        if code != 0:
+            raise RuntimeError(
+                f"确认应答写入失败({code}): ans-{int(seq)}.json "
+                f"{out.decode(errors='ignore')[:200]}")
+
+    def cleanup_permission_bridge(self, container_id: str) -> None:
+        """清理桥接目录(执行收尾调用;孤儿桥接进程按自身 5min 超时自灭,尽力而为)"""
+        self.exec_capture(container_id, f"rm -rf {PERMGATE_DIR} 2>/dev/null")
 
     def merge_branch(self, container_id: str, repo_path: str,
                      source_branch: str, target_branch: str) -> None:

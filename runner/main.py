@@ -26,6 +26,7 @@ import socket
 import sys
 import threading
 import time
+import uuid
 from typing import Any
 
 import websockets
@@ -60,6 +61,57 @@ running_repos: dict[str, list[dict]] = {}
 # 仅登记长耗时 AI 执行工具(claude_prompt / claude_prompt_stream)
 _active_execs: dict[str, str] = {}
 _cancelled_execs: set[str] = set()
+
+# R34.F3:AI 权限确认 —— 挂起确认表(confirm_id → 容器/seq/input,应答下行
+# exec_tool_confirm 据此写桥接应答文件)与流式执行的确认轮询任务登记
+_pending_confirms: dict[str, dict] = {}
+_stream_pollers: dict[str, tuple[Any, str]] = {}  # req_id → (poller task, container_id)
+
+
+async def _confirm_poller(ws: Any, req_id: str, task_id: str, container_id: str) -> None:
+    """
+    R34.F3:轮询容器内桥接请求日志(req.log)→ 上行 claude_confirm_request 给平台。
+    通道语义:容器内桥接与 Runner 无直连,经 docker exec cat 中转(0.5s 轮询;
+    实证:CLI 等待期间 stdout 静默,确认请求的唯一上行信号源就是桥接侧)。
+    持续读失败(容器已销毁等)自动退出,清理由 exec_tool finally 兜底。
+    """
+    cursor = 0
+    seen: set[int] = set()
+    failures = 0
+    while True:
+        await asyncio.sleep(0.5)
+        try:
+            cursor, requests = await asyncio.to_thread(
+                manager.read_new_confirm_requests, container_id, cursor)
+            failures = 0
+        except Exception:
+            failures += 1
+            if failures >= 4:
+                logger.warning("确认请求轮询持续失败,退出 req_id=%s container=%s", req_id, container_id)
+                return
+            continue
+        for req in requests:
+            seq = req.get("n")
+            if seq is None or seq in seen:
+                continue  # 幂等护栏:cursor 推进与桥接追加竞态下不重复上行
+            seen.add(seq)
+            confirm_id = uuid.uuid4().hex
+            _pending_confirms[confirm_id] = {
+                "req_id": req_id,
+                "container_id": container_id,
+                "seq": seq,
+                "input": req.get("input") or {},
+            }
+            logger.info("权限确认请求上行 req_id=%s confirm=%s tool=%s",
+                        req_id, confirm_id, req.get("tool_name", ""))
+            await send(ws, {
+                "type": "claude_confirm_request",
+                "req_id": req_id,
+                "task_id": task_id,
+                "confirm_id": confirm_id,
+                "tool_name": req.get("tool_name", ""),
+                "input": req.get("input") or {},
+            })
 
 
 def _pty_output_callback(ws: Any):
@@ -444,6 +496,16 @@ async def handle_message(ws: Any, msg: dict) -> None:
                         except Exception:
                             pass  # 推送失败不阻断执行(终态 result 仍兜底)
 
+                # R34.F3:权限确认桥接注入 + 请求轮询(注入失败 → 降级不加权限参数,
+                # 维持无确认通道静默拒绝现状,不回归)
+                stream_container = msg.get("container_id", "")
+                perm_ok = await asyncio.to_thread(manager.setup_permission_bridge, stream_container)
+                if perm_ok:
+                    poller_task = asyncio.create_task(
+                        _confirm_poller(ws, req_id, msg.get("task_id", ""), stream_container))
+                    _stream_pollers[req_id] = (poller_task, stream_container)
+                    logger.info("权限确认通道已开启 req_id=%s container=%s", req_id, stream_container)
+
                 data = await asyncio.to_thread(
                     manager.claude_prompt_stream,
                     msg.get("container_id", ""), args.get("prompt", ""),
@@ -451,6 +513,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
                     session_id=args.get("session_id"),
                     resume=args.get("resume", False),
                     model=args.get("model"),
+                    permission_bridge=perm_ok,
                     on_line=_on_line_threadsafe,
                 )
                 # BUG-060(R32.F8):--resume 的会话在新容器/被清理后不存在 → CLI 报错
@@ -469,6 +532,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
                         session_id=None,
                         resume=False,
                         model=args.get("model"),
+                        permission_bridge=perm_ok,
                         on_line=_on_line_threadsafe,
                     )
                 # R34.F1:已取消 → 终态按 error="cancelled" 回报(部分行结果丢弃)
@@ -489,6 +553,17 @@ async def handle_message(ws: Any, msg: dict) -> None:
             if cancellable:
                 _active_execs.pop(req_id, None)
                 _cancelled_execs.discard(req_id)
+            # R34.F3:停止确认轮询 + 清理桥接残留(仅流式路径登记;未应答挂起一并注销,
+            # 平台侧由其自身超时/停止收口兜底)
+            poller_entry = _stream_pollers.pop(req_id, None)
+            if poller_entry is not None:
+                poller_entry[0].cancel()
+                for cid in [c for c, v in _pending_confirms.items() if v.get("req_id") == req_id]:
+                    _pending_confirms.pop(cid, None)
+                try:
+                    await asyncio.to_thread(manager.cleanup_permission_bridge, poller_entry[1])
+                except Exception:
+                    logger.warning("权限桥接清理失败 container=%s", poller_entry[1])
 
     elif mtype == "probe_claude":
         # R5 系统级采集:临时容器起→探→毁单次调用内完成(同路线程池,防堵事件循环);
@@ -559,6 +634,28 @@ async def handle_message(ws: Any, msg: dict) -> None:
             except Exception:
                 # 容器已销毁等场景:pkill 失败仅记日志;执行线程仍由平台超时兜底收敛
                 logger.exception("exec_tool_cancel 执行失败 req_id=%s container=%s", target, target_container)
+
+    elif mtype == "exec_tool_confirm":
+        # R34.F3:平台确认应答下行(用户允许/拒绝)→ 写桥接应答文件 ans-{seq}.json,
+        # 桥接轮询读到后回 MCP 应答放行/拒绝,容器内 claude 继续执行。
+        # 未知 confirm_id(桥接已超时自拒/Runner 重启丢表)仅告警,不回包。
+        confirm_id = msg.get("confirm_id", "")
+        choice = msg.get("choice", "deny")
+        info = _pending_confirms.pop(confirm_id, None)
+        logger.info("收到确认应答 confirm=%s choice=%s 命中挂起=%s", confirm_id, choice, info is not None)
+        if info is not None:
+            if choice == "allow":
+                # allow 必须回传 updatedInput(实证:CLI 用它实际执行),原样回传请求 input
+                decision = {"behavior": "allow", "updatedInput": info.get("input") or {}}
+            else:
+                decision = {"behavior": "deny", "message": "用户拒绝了本次工具调用", "interrupt": False}
+            try:
+                await asyncio.to_thread(
+                    manager.write_confirm_answer,
+                    info.get("container_id", ""), info.get("seq"), decision)
+            except Exception:
+                logger.exception("确认应答写入失败 confirm=%s container=%s",
+                                 confirm_id, info.get("container_id"))
 
     else:
         logger.warning("未知指令 type=%s", mtype)

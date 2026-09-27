@@ -225,6 +225,22 @@ export async function cancelTaskMessage(
   return res.data
 }
 
+/** R34.F3:应答 AI 权限确认(两档 allow/deny,不做「始终允许」)
+ *  成功 data={ok:true};confirm_id 不存在/已应答/已超时/已随停止收口 → ApiError 4001
+ *  (HTTP 200 + 业务码,后端 R28 头像同口径)。注意:该 4001 与 getTaskErrorMessage
+ *  映射表的 4001(需求状态)语义不同,调用方须自行给文案,勿走共享映射 */
+export async function confirmTaskToolUse(
+  taskId: string,
+  confirmId: string,
+  choice: 'allow' | 'deny',
+): Promise<{ ok: boolean }> {
+  const res = await api.post<{ ok: boolean }>(`/tasks/${taskId}/confirm`, {
+    confirm_id: confirmId,
+    choice,
+  })
+  return res.data
+}
+
 /** 上传单个文件(multipart) */
 export async function uploadTaskFile(
   taskId: string,
@@ -367,10 +383,30 @@ export function useSendTaskMessage(taskId: string) {
 // ---------------------------------------------------------------------------
 // R32.F3:对话流式事件(复用任务事件 WS /ws/tasks/:id/events)
 // ---------------------------------------------------------------------------
-/** 订阅 chat_delta / chat_done 实时事件;组件卸载自动断连 */
+/** R34.F3:确认请求帧(chat_confirm_request;options 恒 ["allow","deny"],拍板两档) */
+export interface ChatConfirmRequestEvent {
+  confirm_id: string
+  prompt: string
+  options: string[]
+}
+/** R34.F3:确认收口帧(chat_confirm_resolved;仅超时/停止广播,用户应答不广播) */
+export interface ChatConfirmResolvedEvent {
+  confirm_id: string
+  choice: 'allow' | 'deny'
+  reason?: 'timeout' | 'stopped' | string
+}
+
+/** 订阅 chat_delta / chat_done 实时事件;组件卸载自动断连
+ *  R34.F3:增补 chat_confirm_request(弹确认卡)/ chat_confirm_resolved(灰态收口)
+ *  两分支 —— 回调可选,未接线方不收影响 */
 export function useTaskChatStream(
   taskId: string,
-  handlers: { onDelta: (text: string) => void; onDone: () => void },
+  handlers: {
+    onDelta: (text: string) => void
+    onDone: () => void
+    onConfirmRequest?: (evt: ChatConfirmRequestEvent) => void
+    onConfirmResolved?: (evt: ChatConfirmResolvedEvent) => void
+  },
 ) {
   const cbRef = useRef(handlers)
   cbRef.current = handlers
@@ -384,6 +420,19 @@ export function useTaskChatStream(
         const evt = JSON.parse(e.data)
         if (evt.type === 'chat_delta' && typeof evt.text === 'string') cbRef.current.onDelta(evt.text)
         else if (evt.type === 'chat_done') cbRef.current.onDone()
+        else if (evt.type === 'chat_confirm_request' && typeof evt.confirm_id === 'string') {
+          cbRef.current.onConfirmRequest?.({
+            confirm_id: evt.confirm_id,
+            prompt: typeof evt.prompt === 'string' ? evt.prompt : '',
+            options: Array.isArray(evt.options) ? evt.options : ['allow', 'deny'],
+          })
+        } else if (evt.type === 'chat_confirm_resolved' && typeof evt.confirm_id === 'string') {
+          cbRef.current.onConfirmResolved?.({
+            confirm_id: evt.confirm_id,
+            choice: evt.choice === 'allow' ? 'allow' : 'deny',
+            reason: typeof evt.reason === 'string' ? evt.reason : undefined,
+          })
+        }
       } catch {
         /* 忽略非法消息 */
       }

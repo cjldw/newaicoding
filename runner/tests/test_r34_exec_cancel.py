@@ -52,6 +52,14 @@ class FakeManager:
         self.killed.append(container_id)
         return True
 
+    # R34.F3:权限确认桥接(本套用例不覆盖确认协议,test_r34_confirm_bridge.py 专测;
+    # 这里补 no-op 使流式分支的桥接注入/清理可直驱)
+    def setup_permission_bridge(self, container_id):
+        return True
+
+    def cleanup_permission_bridge(self, container_id):
+        pass
+
 
 @pytest.fixture()
 def fake_manager(monkeypatch):

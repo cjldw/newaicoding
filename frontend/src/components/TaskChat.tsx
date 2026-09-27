@@ -18,6 +18,10 @@
  *   点击接线后端真取消 POST /tasks/{id}/messages/cancel,stoppedRef 展示层中止保留为兜底
  * - R34.F2(BUG-UI-092):输入区模型切换下拉(项目启用中的模型配置,默认选 is_default;
  *   发送请求体携带 config_id——后端消费待契约,占位)
+ * - R34.F3(BUG-UI-091):AI 权限确认卡 —— WS chat_confirm_request 在消息列表尾部
+ *   插入确认区块(prompt + 允许/拒绝),应答 POST /tasks/{id}/confirm 后转
+ *   「已允许/已拒绝/已超时拒绝」灰态;chat_confirm_resolved(超时/停止收口)同步灰态;
+ *   挂起期间停止按钮仍可点(stop 优先,确认随收口转「已拒绝」)
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -34,8 +38,12 @@ import {
   useTaskMessages, useSendTaskMessage, useUploadTaskFile,
   useUploadedFiles, useDeleteTaskFile, downloadTaskFile,
   cancelTaskMessage, getTaskErrorMessage, useTaskChatStream,
+  confirmTaskToolUse,
 } from '@/api/tasks'
-import type { TaskMessage, UploadedFile } from '@/api/tasks'
+import type {
+  TaskMessage, UploadedFile,
+  ChatConfirmRequestEvent, ChatConfirmResolvedEvent,
+} from '@/api/tasks'
 import { mcpApi, skillsApi, systemAssetsApi, type McpConfig, type Skill, type SystemAssetsData } from '@/api/skills'
 import { modelConfigsApi, type ModelConfig } from '@/api/projects'
 import { ApiError } from '@/api/client'
@@ -147,6 +155,14 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
   const [thinking, setThinking] = useState(false)
   // R34:发送失败的用户消息乐观保留(红描边气泡 + 「发送失败 · 点击重试」)
   const [failedUser, setFailedUser] = useState<string | null>(null)
+  // R34.F3(BUG-UI-091):AI 权限确认卡 —— null=无;status 状态机:
+  // pending(挂起,按钮可点)→ allow/deny(用户应答,乐观灰态)/ timeout(超时收口灰态);
+  // 服务端保证单任务同一时刻至多 1 个待确认,新请求直接覆盖旧卡
+  const [confirmCard, setConfirmCard] = useState<{
+    confirmId: string
+    prompt: string
+    status: 'pending' | 'allow' | 'deny' | 'timeout'
+  } | null>(null)
   // R34.F2(BUG-UI-092):模型切换 —— 项目启用中的模型配置 + 当前选中(组件级会话记忆,
   // 刷新回默认);无 projectId / 无启用配置时两者皆空,切换器不渲染
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
@@ -224,14 +240,29 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
       setStreamText((prev) => prev + text)
     },
     onDone: () => setThinking(false),
+    // R34.F3:确认请求 → 尾部确认卡(挂起);服务端单任务串行执行保证同时至多 1 个待确认
+    onConfirmRequest: (evt: ChatConfirmRequestEvent) => {
+      setConfirmCard({ confirmId: evt.confirm_id, prompt: evt.prompt, status: 'pending' })
+    },
+    // R34.F3:超时/停止收口 → 灰态(timeout=「已超时拒绝」,stopped=「已拒绝」)。
+    // 用户自己应答后端不广播 resolved(本地乐观灰态已覆盖);超时与应答竞态时
+    // resolved 后到,以此帧为准覆盖乐观态
+    onConfirmResolved: (evt: ChatConfirmResolvedEvent) => {
+      setConfirmCard((prev) =>
+        prev && prev.confirmId === evt.confirmId
+          ? { ...prev, status: evt.reason === 'timeout' ? 'timeout' : 'deny' }
+          : prev,
+      )
+    },
   })
 
   // R32.F9:自动滚动到底——新消息/乐观上屏/加载动效/流式增量任一变化都平滑滚到最新,
   // 不再需要手动往下滚(原实现只盯 messages.length/streamText,乐观消息与动效不触发)
+  // R34.F3:确认卡出现/转灰态同样滚到底(卡在列表尾部,不滚则首屏外不可见)
   useEffect(() => {
     const el = listRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages.length, pendingUser, thinking, streamText, failedUser])
+  }, [messages.length, pendingUser, thinking, streamText, failedUser, confirmCard])
 
   // toast 自动消失
   useEffect(() => {
@@ -392,6 +423,7 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
     setPendingUser(trimmed)
     setThinking(true)
     setStreamText('')
+    setConfirmCard(null) // R34.F3:上一轮确认卡(灰态)随新一轮发送移出列表尾部
     // R34.F2:携带当前选中的模型配置 configId(未选/无配置时为 undefined,请求体省略 config_id;
     // config_id 后端消费待契约(占位))
     sendMut.mutate(
@@ -465,6 +497,28 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
       const code = err instanceof ApiError ? err.code : 0
       showToast('err', getTaskErrorMessage(code, '停止请求失败'))
     })
+  }
+
+  // R34.F3:确认卡应答 —— 点击即乐观转灰态(按钮同帧禁用,天然防重复提交),
+  // POST /tasks/{id}/confirm 放行执行。4001(已超时/已随停止收口/重复)→ 转
+  // 「已超时拒绝」灰态兜底(WS resolved 帧若后到会以精确 reason 覆盖);其余失败
+  // (网络/403)→ 回到 pending 允许重试。注意 4001 文案自带,不走共享错误映射
+  // (该码在映射表里是需求状态语义)。挂起期间停止按钮不受影响(stop 优先,
+  // 后端 cleanup 先广播 resolved{stopped} 再 chat_done,卡片照常收口)
+  const handleConfirm = (choice: 'allow' | 'deny') => {
+    if (!confirmCard || confirmCard.status !== 'pending') return
+    const { confirmId } = confirmCard
+    setConfirmCard((prev) => (prev && prev.confirmId === confirmId ? { ...prev, status: choice } : prev))
+    confirmTaskToolUse(taskId, confirmId, choice)
+      .then(() => showToast('ok', choice === 'allow' ? '已允许,继续执行' : '已拒绝'))
+      .catch((err) => {
+        const code = err instanceof ApiError ? err.code : 0
+        setConfirmCard((prev) => {
+          if (!prev || prev.confirmId !== confirmId || prev.status !== choice) return prev
+          return code === 4001 ? { ...prev, status: 'timeout' } : { ...prev, status: 'pending' }
+        })
+        showToast('err', code === 4001 ? '确认请求已失效(超时或已收口)' : '确认失败,请重试')
+      })
   }
 
   const handleDownload = async (f: UploadedFile) => {
@@ -722,6 +776,42 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
             </div>
           </div>
         )}
+        {/* R34.F3:AI 权限确认卡(消息列表尾部)—— 挂起:prompt + 允许/拒绝按钮;
+            应答/收口后转「已允许 / 已拒绝 / 已超时拒绝」灰态(opacity-60,按钮移除)。
+            复用 AI 气泡容器(.chat-bubble-ai)+ Button 组件 + 既有图标,零新视觉 */}
+        {confirmCard && (
+          <div>
+            <div className="chat-head justify-start">{aiHead}</div>
+            <div className="flex justify-start">
+              <div
+                className={`chat-bubble chat-bubble-ai max-w-[92%] px-4 py-3 text-sm break-words${
+                  confirmCard.status === 'pending' ? '' : ' opacity-60'
+                }`}
+              >
+                <div className="whitespace-pre-wrap">{confirmCard.prompt || 'AI 请求执行工具,请确认'}</div>
+                {confirmCard.status === 'pending' ? (
+                  <div className="flex items-center gap-2 mt-3">
+                    <Button type="button" variant="primary" size="sm" onClick={() => handleConfirm('allow')}>
+                      <Check className="w-3.5 h-3.5 mr-1" />
+                      允许
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => handleConfirm('deny')}>
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      拒绝
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 mt-3 text-xs text-text-secondary">
+                    {confirmCard.status === 'allow'
+                      ? <Check className="w-3.5 h-3.5 shrink-0" />
+                      : <X className="w-3.5 h-3.5 shrink-0" />}
+                    {confirmCard.status === 'allow' ? '已允许' : confirmCard.status === 'deny' ? '已拒绝' : '已超时拒绝'}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 附件列表 */}
@@ -758,15 +848,19 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
           ref 读值即新值);
           R34.F1(BUG-UI-090):停止按钮从「有流式增量才出现」放宽为整个 sendMut.isPending 期间
           常显——thinking/后端执行阶段(首个 chat_delta 前,最长 10 分钟)也有停止入口;
-          R34.F1:点击已接线后端真取消(messages/cancel),stoppedRef 展示层中止保留为兜底 */}
+          R34.F1:点击已接线后端真取消(messages/cancel),stoppedRef 展示层中止保留为兜底;
+          R34.F3:确认挂起期间按钮仍可点(stop 优先,挂起确认由后端按 deny 收口并广播
+          resolved{stopped}),反馈条文案给「等待确认」变体引导到列表底部确认卡 */}
       {sendMut.isPending && (
         <div className="px-3 py-1 text-xs text-text-muted flex items-center gap-1.5 border-t border-border">
           <Loader2 className="w-3 h-3 animate-spin" />
           {stoppedRef.current
             ? '已停止(服务端仍在执行)…'
-            : streamText
-              ? 'AI 正在输出…'
-              : 'AI 处理中,请稍候(长任务可能需要数分钟)…'}
+            : confirmCard?.status === 'pending'
+              ? '等待确认:请处理消息列表底部的权限确认卡…'
+              : streamText
+                ? 'AI 正在输出…'
+                : 'AI 处理中,请稍候(长任务可能需要数分钟)…'}
           <button type="button" className="chat-stop" onClick={handleStopGeneration}>
             <Square className="w-3 h-3" />
             停止生成

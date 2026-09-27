@@ -168,6 +168,20 @@ async def runner_ws(websocket: WebSocket):
                 # R32.F3:流式对话事件 → 按 req_id 路由到等待中的对话队列
                 runner_service.route_stream_event(msg.get("req_id", ""), msg.get("line", ""))
 
+            elif mtype == "claude_confirm_request":
+                # R34.F3:桥接权限请求上行(CLI --permission-prompt-tool 经 MCP 桥接,
+                # 确认请求的信号源是桥接侧 tools/call 而非 CLI stdout)→ 登记挂起确认
+                # + 广播 chat_confirm_request;应答经 REST /confirm 下行 exec_tool_confirm
+                from app.services import task_service
+
+                await task_service.handle_runner_confirm_request(
+                    task_id=msg.get("task_id", ""),
+                    req_id=msg.get("req_id", ""),
+                    runner_id=runner.runner_id,
+                    tool_name=msg.get("tool_name", ""),
+                    tool_input=msg.get("input") or {},
+                )
+
             elif mtype in ("file_changed", "file_deleted"):
                 # R11 文件 watcher → 前端任务频道
                 from app.services.file_service import file_watcher_registry
