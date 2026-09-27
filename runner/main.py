@@ -393,6 +393,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
                     workdir=args.get("workdir", "/workspace/main"),
                     session_id=args.get("session_id"),
                     resume=args.get("resume", False),
+                    model=args.get("model"),
                 )
                 await safe_send_result(ws, req_id, True, data)
             elif tool == "claude_inject":
@@ -430,6 +431,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
                     workdir=args.get("workdir", "/workspace/main"),
                     session_id=args.get("session_id"),
                     resume=args.get("resume", False),
+                    model=args.get("model"),
                     on_line=_on_line_threadsafe,
                 )
                 # BUG-060(R32.F8):--resume 的会话在新容器/被清理后不存在 → CLI 报错
@@ -446,6 +448,7 @@ async def handle_message(ws: Any, msg: dict) -> None:
                         workdir=args.get("workdir", "/workspace/main"),
                         session_id=None,
                         resume=False,
+                        model=args.get("model"),
                         on_line=_on_line_threadsafe,
                     )
                 await safe_send_result(ws, req_id, True, data)

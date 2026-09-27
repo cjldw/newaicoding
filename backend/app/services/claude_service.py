@@ -24,6 +24,7 @@ async def run_prompt(
     timeout: float = 600.0,
     session_id: str | None = None,
     resume: bool = False,
+    model: str | None = None,
 ) -> dict:
     """
     发送一轮 AI 请求(当前 CLI 兜底实现):
@@ -32,6 +33,8 @@ async def run_prompt(
     R9.F1 会话参数:
     - session_id: 任务级 claude CLI 会话 ID(可选,不传时维持原行为)
     - resume: True=续接已有会话(--resume),False=首次建会话(--session-id)
+    R34.F2 模型参数:
+    - model: 会话级模型覆盖(--model CLI flag,优先于容器 env ANTHROPIC_MODEL;不传维持原行为)
     """
     from app.services import runner_service
 
@@ -42,6 +45,9 @@ async def run_prompt(
         args["session_id"] = session_id
         if resume:
             args["resume"] = True
+    # R34.F2:模型覆盖透传(不传时维持容器 env 固化模型)
+    if model:
+        args["model"] = model
 
     message = {
         "type": "exec_tool",
@@ -73,6 +79,7 @@ async def run_prompt_stream(
     workdir: str = "/workspace/main",
     session_id: str | None = None,
     resume: bool = False,
+    model: str | None = None,
 ):
     """
     R32.F3:流式发送一轮 AI 请求(exec_tool=claude_prompt_stream)。
@@ -80,6 +87,7 @@ async def run_prompt_stream(
     - stream_iter:async generator,逐条产出 Runner 上泵的 stream-json 行(dict 事件)
     - finalize():等待终态,返回 {"result", "tokens_in", "tokens_out"}(失败抛 RuntimeError)
     调用方(task_service)边迭代边广播,结束后 await finalize() 落库。
+    R34.F2:model 会话级模型覆盖(--model,透传 Runner;不传维持容器 env 行为)。
     """
     import json as _json
 
@@ -97,6 +105,7 @@ async def run_prompt_stream(
                 "workdir": workdir,
                 **({"session_id": session_id} if session_id is not None else {}),
                 **({"resume": True} if (session_id is not None and resume) else {}),
+                **({"model": model} if model else {}),
             },
         },
     )

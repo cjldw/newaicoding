@@ -479,10 +479,38 @@ async def ensure_claude_session(db: AsyncSession, task: Task) -> tuple[str, bool
     return new_sid, True
 
 
-async def send_message(db: AsyncSession, task: Task, operator: User, content: str) -> dict:
+async def _resolve_task_model(db: AsyncSession, task: Task, config_id: Optional[str]) -> Optional[str]:
+    """
+    R34.F2:会话级模型解析(对话框切换)。
+    - config_id 存在但归属其他项目 → 越权拒绝(1901;resolve_config 只按 config_id
+      全局查、不校验归属,归属校验在此补齐,防跨项目盗用配置)
+    - 其余(含 config_id 失效)→ resolve_config 三级回退链(项目 default → 平台默认)
+    返回 model 名(经 --model 下发,覆盖容器创建时固化的 ANTHROPIC_MODEL)。
+    """
+    from app.models.model_config import ModelConfig
+    from app.services import llm_service
+
+    if config_id is not None:
+        row = (await db.execute(
+            select(ModelConfig).where(ModelConfig.config_id == config_id)
+        )).scalars().first()
+        if row is not None and row.project_id != task.project_id:
+            logger.warning(
+                "跨项目模型配置被拒绝 task=%s config=%s belong=%s expect=%s",
+                task.task_id, config_id, row.project_id, task.project_id,
+            )
+            raise BizError(ErrCode.NO_PROJECT_PERMISSION, "模型配置不属于该项目,禁止使用")
+
+    llm_config = await llm_service.resolve_config(db, task.project_id, config_id)
+    return llm_config["model"]
+
+
+async def send_message(db: AsyncSession, task: Task, operator: User, content: str,
+                       config_id: Optional[str] = None) -> dict:
     """
     发送消息:保存 user 消息(@file 注入)→ Claude CLI 兜底执行 → 保存 assistant
     消息 → 广播活动流。返回 user message_id。
+    R34.F2:config_id 会话级模型切换(越权校验 + 回退链见 _resolve_task_model)。
     """
     from app.services import file_upload_service
 
@@ -512,6 +540,9 @@ async def send_message(db: AsyncSession, task: Task, operator: User, content: st
     if runner_conn is None:
         raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "Runner offline,AI 会话暂不可用")
 
+    # R34.F2:越权校验 + 模型解析(先校验后落库,同 BUG-032 口径)
+    model = await _resolve_task_model(db, task, config_id)
+
     user_msg = TaskMessage(
         task_id=task.task_id, role="user", content=content, file_refs=file_refs or None,
     )
@@ -524,7 +555,7 @@ async def send_message(db: AsyncSession, task: Task, operator: User, content: st
     try:
         response = await claude_service.run_prompt(
             runner_conn, container.container_id, enhanced_prompt,
-            session_id=sid, resume=not created_now,
+            session_id=sid, resume=not created_now, model=model,
         )
     except RuntimeError as e:
         # 执行失败:assistant 错误消息 + 事件
@@ -606,12 +637,14 @@ async def _broadcast_delta_smooth(task_id: str, text: str, state: dict) -> None:
         state["last"] = loop.time()
 
 
-async def send_message_stream(db: AsyncSession, task: Task, operator: User, content: str) -> dict:
+async def send_message_stream(db: AsyncSession, task: Task, operator: User, content: str,
+                              config_id: Optional[str] = None) -> dict:
     """
     R32.F3:流式发送消息 —— 同步段(校验+user 落库)同 send_message;
     AI 执行段走 claude_prompt_stream,assistant 文本增量经 task_event_registry
     实时广播({"type":"chat_delta"}),终态落库后广播 {"type":"chat_done"}。
     返回值同 send_message(POST 立即返回,不等 AI 跑完)。
+    R34.F2:config_id 会话级模型切换(越权校验 + 回退链见 _resolve_task_model)。
     """
     from app.services import file_upload_service
 
@@ -637,6 +670,9 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
     if runner_conn is None:
         raise BizError(ErrCode.TERMINAL_UNAVAILABLE, "Runner offline,AI 会话暂不可用")
 
+    # R34.F2:越权校验 + 模型解析(先校验后落库,同 BUG-032 口径)
+    model = await _resolve_task_model(db, task, config_id)
+
     user_msg = TaskMessage(
         task_id=task.task_id, role="user", content=content, file_refs=file_refs or None,
     )
@@ -648,7 +684,7 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
     try:
         stream_iter, finalize = await claude_service.run_prompt_stream(
             runner_conn, container.container_id, enhanced_prompt, task.task_id,
-            session_id=sid, resume=not created_now,
+            session_id=sid, resume=not created_now, model=model,
         )
     except (RuntimeError, TimeoutError) as e:
         err = TaskMessage(task_id=task.task_id, role="assistant", content=f"执行失败:{e}")

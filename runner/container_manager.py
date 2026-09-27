@@ -362,6 +362,7 @@ class ContainerManager:
         workdir: str = "/workspace/main",
         session_id: str | None = None,
         resume: bool = False,
+        model: str | None = None,
         on_line: Callable[[str], None] | None = None,
     ) -> dict:
         """
@@ -371,6 +372,8 @@ class ContainerManager:
 
         实现:docker low-level exec(socket=True,非 tty)按行读;BUG-050 同款
         recv/read 探测(SocketIO vs NpipeSocket)。on_line 为 None 时退化为一次性收集。
+        R34.F2:model 非空时拼 --model(消息级模型切换;CLI flag 覆盖容器创建时
+        固化的 ANTHROPIC_MODEL env——env 改不到运行中容器,只能走 flag)。
         """
         import json as _json
         import shlex as _shlex
@@ -381,12 +384,13 @@ class ContainerManager:
                 session_flag = f" --resume {_shlex.quote(session_id)}"
             else:
                 session_flag = f" --session-id {_shlex.quote(session_id)}"
+        model_flag = f" --model {_shlex.quote(model)}" if model else ""
 
         cmd = (
             f"cd {workdir} 2>/dev/null; "
             # BUG-058:--include-partial-messages 输出 stream_event/text_delta 增量(逐字流式)
             f"claude -p {_shlex.quote(prompt)} --output-format stream-json --verbose "
-            f"--include-partial-messages{session_flag} 2>/dev/null"
+            f"--include-partial-messages{session_flag}{model_flag} 2>/dev/null"
         )
         api = self.client.api
         exec_id = api.exec_create(container_id, ["bash", "-lc", cmd], tty=False, stdin=False)
@@ -616,6 +620,7 @@ class ContainerManager:
         workdir: str = "/workspace/main",
         session_id: str | None = None,
         resume: bool = False,
+        model: str | None = None,
     ) -> dict:
         """
         R4 AI 执行(CLI 兜底):容器内 claude -p <prompt> --output-format json
@@ -625,6 +630,7 @@ class ContainerManager:
         - session_id + resume=False → --session-id <sid>(首次建会话)
         - session_id + resume=True  → --resume <sid>(续接已有会话)
         - 都不传 → 维持原 cmd(兼容旧行为)
+        R34.F2 模型参数:model 非空 → --model(消息级切换,覆盖 ANTHROPIC_MODEL env)。
         """
         import json as _json
         import shlex as _shlex
@@ -636,10 +642,11 @@ class ContainerManager:
                 session_flag = f" --resume {_shlex.quote(session_id)}"
             else:
                 session_flag = f" --session-id {_shlex.quote(session_id)}"
+        model_flag = f" --model {_shlex.quote(model)}" if model else ""
 
         cmd = (
             f"cd {workdir} 2>/dev/null; "
-            f"claude -p {_shlex.quote(prompt)} --output-format json{session_flag} 2>/dev/null"
+            f"claude -p {_shlex.quote(prompt)} --output-format json{session_flag}{model_flag} 2>/dev/null"
         )
         code, out = self.exec_capture(container_id, cmd)
         text = out.decode(errors="ignore").strip()

@@ -244,7 +244,13 @@ async def get_task(
 ):
     """任务详情(项目成员)"""
     task = await task_service.get_task_or_404(db, task_id)
-    data = {
+    return success(data=await _task_detail_data(db, task))
+
+
+async def _task_detail_data(db: AsyncSession, task: Task) -> dict:
+    """任务详情响应体(GET 详情 / PATCH 更新共用;R2.F2 抽取)"""
+    ext = task.extended_attributes or {}
+    return {
         "task_id": task.task_id,
         # R4.F4:任务工作台面包屑需要 完整上级链(项目 / {项目名} / {需求} / 任务),补两个归属字段
         "project_id": task.project_id,
@@ -255,6 +261,10 @@ async def get_task(
         "status": task.status,
         "base_branch": task.base_branch,
         "work_branch": task.work_branch,
+        # R2.F2:发布维部署字段(编辑弹窗回填;非 release 行为空)
+        "deploy_host": ext.get("deploy_host"),
+        "deploy_port": ext.get("deploy_port"),
+        "deploy_script": ext.get("deploy_script"),
         "container_id": task.container_id,
         "runner_id": task.runner_id,
         "created_by": await task_service._creator_brief(db, task.created_by),
@@ -265,7 +275,79 @@ async def get_task(
         "error_message": task.error_message,
         "last_commit_sha": task.last_commit_sha,
     }
-    return success(data=data)
+
+
+class UpdateTaskRequest(BaseModel):
+    """R2.F2 任务字段编辑:缺省 = 不动(无"缺省置 NULL"语义);type/req_id/status 不在 schema,天然不可改"""
+    title: str = Field(default=None, min_length=1, max_length=128)
+    description: str = Field(default=None, max_length=2000)
+    base_branch: str = Field(default=None, max_length=64)
+    work_branch: str = Field(default=None, max_length=64)
+    # R7 发布任务扩展字段(存 extended_attributes;deploy_port 复用全平台唯一校验)
+    deploy_host: str = Field(default=None, max_length=253)
+    deploy_port: int = Field(default=None)
+    deploy_script: str = Field(default=None)
+
+
+@router.patch("/tasks/{task_id}")
+async def update_task(
+    task_id: str,
+    req: UpdateTaskRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """编辑任务字段(owner/editor;仅 pending 可编辑,任务已开始字段变动影响执行语义)"""
+    task = await task_service.get_task_or_404(db, task_id)
+    project = (await db.execute(
+        select(Project).where(Project.project_id == task.project_id)
+    )).scalars().first()
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+
+    if task.status != "pending":
+        raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "任务已开始,不可编辑", status_code=400)
+
+    # release 维 deploy_port 变更:复用创建/check-port 的校验口径(范围 + 全平台唯一,排除自身)
+    if task.type == "release" and req.deploy_port is not None \
+            and req.deploy_port != (task.extended_attributes or {}).get("deploy_port"):
+        from sqlalchemy import func as _func
+
+        lo, hi = task_service.DEPLOY_PORT_RANGE
+        if not (lo <= req.deploy_port <= hi):
+            raise BizError(ErrCode.DEPLOY_PORT_CONFLICT, "端口已被占用", status_code=400)
+        dup = (await db.execute(
+            select(Task.task_id).where(
+                Task.task_id != task.task_id,
+                Task.type == "release",
+                Task.status.notin_(["cancelled", "failed", "timeout"]),
+                _func.json_unquote(
+                    _func.json_extract(Task.extended_attributes, "$.deploy_port")
+                ) == str(req.deploy_port),
+            ).limit(1)
+        )).scalar()
+        if dup:
+            raise BizError(ErrCode.DEPLOY_PORT_CONFLICT, "端口已被占用", status_code=400)
+
+    if req.title is not None:
+        task.title = req.title
+    if req.description is not None:
+        task.description = req.description
+    # dev 维分支字段仅 dev 类型接受(其它类型静默忽略,与未知字段同口径)
+    if task.type == "dev":
+        if req.base_branch is not None:
+            task.base_branch = req.base_branch
+        if req.work_branch is not None:
+            task.work_branch = req.work_branch
+    if req.deploy_host is not None or req.deploy_port is not None or req.deploy_script is not None:
+        ext = dict(task.extended_attributes or {})
+        if req.deploy_host is not None:
+            ext["deploy_host"] = req.deploy_host
+        if req.deploy_port is not None:
+            ext["deploy_port"] = req.deploy_port
+        if req.deploy_script is not None:
+            ext["deploy_script"] = req.deploy_script
+        task.extended_attributes = ext  # 新 dict 对象,确保触发 UPDATE
+    await db.flush()
+    return success(data=await _task_detail_data(db, task), message="任务已更新")
 
 
 class _SimpleOp(BaseModel):
@@ -436,6 +518,8 @@ async def list_messages(
 
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1)
+    # R34.F2:会话级模型配置(对话框切换;None=走项目默认回退链)
+    config_id: str | None = None
 
 
 @router.post("/tasks/{task_id}/messages")
@@ -447,7 +531,9 @@ async def send_message(
 ):
     """发送消息(@filename 引用;R32.F3 流式执行:增量经 /ws/tasks/:id/events 实时下发)"""
     task = await task_service.get_task_or_404(db, task_id)
-    data = await task_service.send_message_stream(db, task, current_user, req.content)
+    data = await task_service.send_message_stream(
+        db, task, current_user, req.content, config_id=req.config_id,
+    )
     return success(data=data)
 
 

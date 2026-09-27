@@ -259,14 +259,23 @@ async def test_send_message_with_file_ref(client, auth_headers, db_session, regi
 
     captured: list = []
 
-    # R9.F1:run_prompt 新增 session_id/resume 参数,替身同步接受
-    async def fake_run_prompt(runner_conn, container_id, prompt, workdir="/workspace/main", timeout=600.0, session_id=None, resume=False):
+    # R32.F3 起 POST /messages 走 run_prompt_stream(经 Runner 流式);替身喂一条
+    # assistant 文本事件 + finalize 终态(事件形态与 test_r32_chat_stream_inject 同构)。
+    # 旧 run_prompt 替身在流式架构下永等 Runner 回报(600s 超时),已不可用
+    async def fake_run_prompt_stream(runner_conn, container_id, prompt, task_id, workdir="/workspace/main", session_id=None, resume=False, model=None):
         captured.append(prompt)
-        return {"result": "已处理", "tokens_in": 10, "tokens_out": 5}
+
+        async def stream_iter():
+            yield {"type": "assistant", "message": {"content": [{"type": "text", "text": "已处理"}]}}
+
+        async def finalize():
+            return {"result": "已处理", "tokens_in": 10, "tokens_out": 5}
+
+        return stream_iter(), finalize
 
     from app.services import claude_service
 
-    monkeypatch.setattr(claude_service, "run_prompt", fake_run_prompt)
+    monkeypatch.setattr(claude_service, "run_prompt_stream", fake_run_prompt_stream)
 
     resp = await client.post(
         f"/api/tasks/{task_id}/messages",

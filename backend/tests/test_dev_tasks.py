@@ -95,12 +95,20 @@ async def test_reject_to_dev_success(client, auth_headers, db_session, registere
 
     captured: list = []
 
-    # R9.F1:run_prompt 新增 session_id/resume 参数,替身同步接受
-    async def fake_run_prompt(runner_conn, container_id, prompt, workdir="/workspace/main", timeout=600.0, session_id=None, resume=False):
+    # R32.F3 起 POST /messages 走 run_prompt_stream(经 Runner 流式);替身喂一条
+    # assistant 文本事件 + finalize 终态(同 test_tasks_api 的流式替身口径)
+    async def fake_run_prompt_stream(runner_conn, container_id, prompt, task_id, workdir="/workspace/main", session_id=None, resume=False, model=None):
         captured.append(prompt)
-        return {"result": "ok", "tokens_in": 1, "tokens_out": 1}
 
-    monkeypatch.setattr(claude_service, "run_prompt", fake_run_prompt)
+        async def stream_iter():
+            yield {"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}]}}
+
+        async def finalize():
+            return {"result": "ok", "tokens_in": 1, "tokens_out": 1}
+
+        return stream_iter(), finalize
+
+    monkeypatch.setattr(claude_service, "run_prompt_stream", fake_run_prompt_stream)
 
     # fake WS 无回报:容器手动置 running(send_message 前置)
     container_row = (await db_session.execute(
