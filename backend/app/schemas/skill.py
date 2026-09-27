@@ -41,6 +41,13 @@ class InstallSkillRequest(BaseModel):
     skill_id: str = Field(min_length=1, max_length=36)
 
 
+class InstallRemoteSkillRequest(BaseModel):
+    """POST /api/projects/{pid}/skills/install-remote 请求体(R3 市场一键安装)。
+    market/ref 不设 min_length:空串走服务层 BizError 400(而非 FastAPI 422)"""
+    market: str
+    ref: str
+
+
 class SkillCreator(BaseModel):
     user_id: str
     username: str

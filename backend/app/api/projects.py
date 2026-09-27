@@ -23,13 +23,14 @@ from app.schemas.model_config import (
     TestModelConfigRequest,
     UpdateModelConfigRequest,
 )
-from app.schemas.skill import InstallSkillRequest
+from app.schemas.skill import InstallRemoteSkillRequest, InstallSkillRequest
 from app.services import (
     llm_service,
     mcp_service,
     model_config_service,
     project_member_service,
     project_service,
+    skill_market_service,
     skill_service,
 )
 
@@ -507,6 +508,38 @@ async def upload_project_skill(
         raise BizError(ErrCode.SKILL_FORMAT_INVALID, "文件格式错误:必须为 UTF-8 编码的 .md 文件")
     data = await skill_service.upload_skill(db, project, current_user, file.filename or "", content)
     return success(data=data, message="上传成功")
+
+
+# -------------------------------------------------------------------
+# POST /api/projects/{project_id}/skills/install-remote - 市场一键安装(R3)
+# -------------------------------------------------------------------
+@router.post("/{project_id}/skills/install-remote")
+async def install_remote_project_skill(
+    project_id: str,
+    req: InstallRemoteSkillRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """owner/editor 从市场一键安装 {market, ref}:拉取 SKILL.md(502 市场暂不可用)
+    → frontmatter 校验(400 17003 带原因)→ 同名覆盖入库(source=market)+ 关联;
+    响应 data:{skill_id,name,source,source_url,extra_files}"""
+    project = await project_service.get_project_or_404(db, project_id)
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+    fetched = await skill_market_service.fetch_skill_md(db, req.market, req.ref)
+    data = await skill_service.install_skill_from_market(
+        db, project, current_user, fetched["content"], fetched["source_url"]
+    )
+    data["extra_files"] = fetched["extra_files"]
+
+    from app.services.audit_service import audit_write
+
+    await audit_write(
+        db, current_user, "skill.install_remote",
+        project_id=project.project_id, target_type="skill", target_id=data["skill_id"],
+        detail={"market": req.market, "ref": req.ref, "source_url": fetched["source_url"],
+                "extra_files": fetched["extra_files"]},
+    )
+    return success(data=data, message="安装成功")
 
 
 # -------------------------------------------------------------------

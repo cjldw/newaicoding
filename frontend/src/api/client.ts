@@ -17,6 +17,8 @@ export class ApiError extends Error {
   constructor(
     public code: number,
     message: string,
+    /** 业务错误附带数据(如 R2 批量邀请 400 的 {errors:[{user_id, reason}]}) */
+    public data?: unknown,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -58,7 +60,7 @@ async function request<T>(
   const json: ApiResponse<T> = await response.json()
 
   if (json.code !== 0) {
-    throw new ApiError(json.code, json.message)
+    throw new ApiError(json.code, json.message, json.data)
   }
 
   return json

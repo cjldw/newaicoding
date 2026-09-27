@@ -26,7 +26,7 @@ import {
 } from '@/api/admin/runners'
 import { ApiError } from '@/api/client'
 import { createRunnerShellSession, closeTerminalSession, type TerminalSession } from '@/api/terminal'
-import type { Runner, TagValue } from '@/api/admin/runners'
+import type { Runner } from '@/api/admin/runners'
 
 const ROLE_OPTIONS = [
   { label: '工作节点(跑任务容器)', value: 'worker' },
@@ -280,7 +280,8 @@ export function RunnerManagement() {
     }
   }
 
-  // R32:打开编辑弹窗(回填当前行数据)
+  // R32:打开编辑弹窗(回填当前行数据;两按钮内联展开后本函数暂未被调用,保留语义备用)
+  // @ts-expect-error TS6133 保留函数(按钮内联展开,后续收口时恢复调用)
   function openEdit(r: Runner) {
     setEditTarget(r)
     setEditForm({

@@ -84,6 +84,11 @@ class ErrCode:
     SKILL_ALREADY_INSTALLED = 17002  # 已安装过该 Skill
     SKILL_FORMAT_INVALID = 17003   # Skill .md 格式错误(缺 frontmatter name/description)
 
+    # R2 skills 市场安装(17xxx 段顺延)
+    SKILL_MARKET_PARAM_INVALID = 17004  # 市场搜索参数非法(q 为空/limit 越界/market 不在源列表)
+    SKILL_MARKET_UNAVAILABLE = 17005    # 市场暂不可用(上游超时/非 200,降级 502)
+    SYSTEM_ASSET_PROBE_FAILED = 17006   # 系统级采集失败(Runner 探测超时/回报失败;502 可重试)
+
     # R8 容器
     USER_CONTAINER_LIMIT = 8001     # 单用户同时运行容器超限(≤5)
     PLATFORM_CONTAINER_LIMIT = 8002 # 平台总容器数超限

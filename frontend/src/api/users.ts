@@ -42,16 +42,4 @@ export const usersApi = {
 
   unbindGitLabToken: () =>
     api.delete<{ message: string }>('/users/me/gitlab-token'),
-
-  /** 按手机号精确搜索用户(邀请成员用) */
-  searchUserByPhone: (phone: string) =>
-    api.get<SearchedUser | null>(`/users/search?phone=${encodeURIComponent(phone)}`),
-}
-
-/** 手机号搜索结果 */
-export interface SearchedUser {
-  user_id: string
-  phone_masked: string
-  nickname: string
-  avatar_url: string
 }

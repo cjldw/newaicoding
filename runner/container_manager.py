@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 PORT_RANGE_START = 20000
 PORT_RANGE_END = 29999
 MAX_RESTARTS = 3  # 崩溃自动 restart ≤ 3 次
+PROBE_TASK_SENTINEL = "__probe_claude__"  # R5:探测容器 task_id 哨兵(labels 可识别清理)
 
 
 def allocate_ports(needed: list[int], rng: Optional[random.Random] = None,
@@ -72,6 +73,7 @@ class ContainerManager:
         cpu_limit: str = "2c",
         mem_limit: str = "4g",
         disk_limit: str = "10g",
+        managed: bool = True,
     ) -> dict:
         """
         拉起容器:
@@ -79,6 +81,9 @@ class ContainerManager:
         2. docker run(-p 直接映射宿主机;env 注入;资源限制)
         3. 容器内逐 repo 执行 git clone + checkout(+ 建工作分支)
         返回 {"container_id": docker_id, "ports": {"5173": 20001, ...}}
+
+        managed=False(R5 一次性探测容器):不打 qicheng.managed 标签——die 自动重启
+        与对账清扫均按该标签过滤,一次性容器不得参与(消除竞态与重启计数泄漏)。
         """
         port_map = allocate_ports(ports)
         port_args: list[str] = []
@@ -86,11 +91,14 @@ class ContainerManager:
             port_args += ["-p", f"{hport}:{cport}"]
 
         # docker run(用 SDK;labels 标记平台容器便于清理与事件过滤)
+        labels: dict[str, str] = {"qicheng.task_id": task_id}
+        if managed:
+            labels["qicheng.managed"] = "true"
         run_kwargs: dict[str, Any] = {
             "image": image,
             "detach": True,
             "environment": env,
-            "labels": {"qicheng.task_id": task_id, "qicheng.managed": "true"},
+            "labels": labels,
             "nano_cpus": _cpu_limit_to_nano_cpus(cpu_limit),
             "mem_limit": mem_limit,
         }
@@ -457,6 +465,23 @@ class ContainerManager:
                 result_text = lines[-1]
         return {"result": result_text, "tokens_in": int(tokens_in or 0), "tokens_out": int(tokens_out or 0)}
 
+    def _read_container_json(self, container_id: str, path: str) -> tuple[bool, Optional[dict]]:
+        """读容器内 JSON 文件,统一 exit code gating(claude_inject R32.F1 / probe_claude R5 共用)。
+        返回 (可读, 解析结果):
+        - 命令失败(path 不存在/cat 失败,exit != 0)→ (False, None):调用方按「读取失败」处理
+        - 可读但非法 JSON / 顶层非 dict → (True, None):调用方按「空配置」处理(R5 契约:非法按空)
+        """
+        import json as _json
+
+        code, out = self.exec_capture(container_id, f"cat {path} 2>/dev/null")
+        if code != 0:
+            return False, None
+        try:
+            data = _json.loads(out.decode(errors="ignore") or "{}")
+        except _json.JSONDecodeError:
+            return True, None
+        return True, (data if isinstance(data, dict) else None)
+
     def claude_inject(
         self,
         container_id: str,
@@ -487,22 +512,99 @@ class ContainerManager:
 
         mcp_count = 0
         if mcp_config and mcp_config.get("mcpServers"):
-            # 读既有配置(不存在/非法 JSON 按空对象),合并 mcpServers 段后回写
-            code, out = self.exec_capture(container_id, "cat /root/.claude.json 2>/dev/null || true")
-            existing: dict = {}
-            if code == 0:
-                try:
-                    existing = _json.loads(out.decode(errors="ignore") or "{}")
-                    if not isinstance(existing, dict):
-                        existing = {}
-                except _json.JSONDecodeError:
-                    existing = {}
+            # 读既有配置(共享 _read_container_json:读取失败/非法 JSON/顶层非 dict 一律按
+            # 空对象——既有行为不变),合并 mcpServers 段后回写
+            _, existing_cfg = self._read_container_json(container_id, "/root/.claude.json")
+            existing: dict = existing_cfg or {}
             existing["mcpServers"] = mcp_config["mcpServers"]
             self.write_file(container_id, "/root/.claude.json", _json.dumps(existing, ensure_ascii=False, indent=2))
             mcp_count = len(mcp_config["mcpServers"])
 
         logger.info("claude 资产注入 container=%s skills=%d mcp=%d", container_id, written, mcp_count)
         return {"skills": written, "mcp": mcp_count}
+
+    def probe_claude(self, image: str = "platform/devbox:v1") -> dict:
+        """
+        R5 系统级采集:拉起临时容器探测镜像内置的 Claude 资产,单次调用内完成:
+        start_container(repos=[],task_id 哨兵,managed=False)→ exec 探测 → stop_container(用后即毁)。
+        探测面:skills 只取 /root/.claude/skills/ 一级**目录**(PRD「skill 目录名」)
+        + /root/.claude.json 的 mcpServers 段。
+
+        部分结果语义(PRD R1):探测命令不掩盖 exit code(无 `|| true`)——单侧命令失败
+        → 该侧按空并在 failed_sides/warnings 标记(平台侧据此不清该侧旧库);
+        mcpServers 真值非 dict 一律按空(契约「非法按空」)。
+        容器启动失败/exec 通道硬异常向上抛(平台侧转 502 可重试),容器销毁 finally 兜底。
+        返回 {"skills": [name...], "mcps": [{name, transport, ...原始配置}],
+              "failed_sides": ["skills"...], "warnings": [...]}
+        """
+        import time as _time
+
+        t0 = _time.monotonic()
+        started: dict | None = None
+        try:
+            started = self.start_container(
+                task_id=PROBE_TASK_SENTINEL,  # 哨兵:探测容器不挂任务,task_id 仍可识别清理
+                image=image,
+                env={},
+                ports=[],
+                repos=[],  # 空仓库:不 git clone
+                managed=False,  # 一次性容器:不打 qicheng.managed(die 自动重启/清扫不接管)
+            )
+            cid = started["container_id"]
+            logger.info("probe_claude 临时容器已起 container=%s image=%s", cid, image)
+
+            failed_sides: list[str] = []
+            warnings: list[str] = []
+
+            # 探测 1:skills 只取一级目录名(find -type d;exit code 不掩盖——
+            # 目录缺失/命令失败 → 该侧失败,保留原数据由平台侧处理)
+            code, out = self.exec_capture(
+                cid,
+                "find /root/.claude/skills -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null",
+            )
+            if code == 0:
+                skills = [ln.strip() for ln in out.decode(errors="ignore").splitlines() if ln.strip()]
+            else:
+                skills = []
+                failed_sides.append("skills")
+                warnings.append(f"skills 探测失败(exit {code}),该侧保留原有数据")
+                logger.warning("probe_claude skills 探测失败 code=%s", code)
+
+            # 探测 2:claude.json 的 mcpServers 段(_read_container_json 统一 exit code gating:
+            # 读取失败=该侧失败;非法 JSON/顶层非 dict 按空;mcpServers 非 dict 一律按空)
+            mcps: list[dict] = []
+            readable, cfg = self._read_container_json(cid, "/root/.claude.json")
+            if readable:
+                servers = cfg.get("mcpServers") if cfg else None
+                if not isinstance(servers, dict):
+                    servers = {}  # 契约「非法按空」:mcpServers 为 list/str 等真值非 dict 时不炸
+                for name, mcfg in servers.items():
+                    if not isinstance(mcfg, dict):
+                        mcfg = {}
+                    entry = {"name": name}
+                    entry.update(mcfg)  # 原始配置保留(detail 存探测原文)
+                    entry["transport"] = mcfg.get("transport") or mcfg.get("type") or ""
+                    mcps.append(entry)
+            else:
+                failed_sides.append("mcps")
+                warnings.append("mcps 探测失败(/root/.claude.json 不可读),该侧保留原有数据")
+                logger.warning("probe_claude mcp 探测失败:/root/.claude.json 不可读")
+
+            logger.info(
+                "probe_claude 完成 image=%s skills=%d mcps=%d failed_sides=%s 耗时=%.1fs",
+                image, len(skills), len(mcps), failed_sides or "无", _time.monotonic() - t0,
+            )
+            return {"skills": skills, "mcps": mcps, "failed_sides": failed_sides, "warnings": warnings}
+        finally:
+            # 用后即毁(成功/exec 异常两条路径都销毁;启动失败无容器可销毁)
+            if started is not None:
+                try:
+                    self.stop_container(started["container_id"], force_push=False)
+                except Exception:
+                    logger.exception(
+                        "probe_claude 容器销毁失败 container=%s(需人工清理)",
+                        started.get("container_id"),
+                    )
 
     def claude_prompt(
         self,

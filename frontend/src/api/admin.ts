@@ -7,6 +7,7 @@
  */
 
 import { api } from './client'
+import type { SkillMarketSource } from './skills'
 
 // ========== 平台设置 ==========
 
@@ -21,6 +22,7 @@ export interface PlatformSettings {
   deploy_base_domain: string | null
   // 全局参数
   max_containers_total: number | null
+  max_containers_per_user: number | null  // 单用户运行中容器配额(8001 校验)
   kb_max_pages_per_kb: number | null
   kb_max_file_mb: number | null
   // 模型默认配置(R23 → R1 多模型)
@@ -31,6 +33,8 @@ export interface PlatformSettings {
   llm_default_model: string | null  // R1 默认模型(必须 ∈ llm_models)
   // 自定义容器环境变量(R8.F4;原样回显不打码)
   custom_env_vars: Record<string, string> | null
+  // Skills 市场源(R1;未配置时后端返回默认两源种子)
+  skill_market_sources: SkillMarketSource[] | null
 }
 
 // ========== 用户管理 ==========

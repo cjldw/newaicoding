@@ -78,6 +78,8 @@ from app.api.dashboard import router as dashboard_router
 from app.api.dashboard_views import router as dashboard_views_router
 from app.api.notifications import router as notifications_router
 from app.api.admin.users_admin import router as users_admin_router
+from app.api.admin.system_assets import router as admin_system_assets_router
+from app.api.system_assets import router as system_assets_router
 
 # 配置日志
 logging.basicConfig(
@@ -237,6 +239,9 @@ app.include_router(dashboard_router)
 app.include_router(dashboard_views_router)
 app.include_router(notifications_router)
 app.include_router(users_admin_router)
+app.include_router(admin_system_assets_router)
+# R6:系统级资产只读展示(JWT 即可,前缀 /api/system-assets)
+app.include_router(system_assets_router)
 
 
 # -------------------------------------------------------------------

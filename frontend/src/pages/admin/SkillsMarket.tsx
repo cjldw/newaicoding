@@ -1,13 +1,15 @@
 /**
- * SkillsMarket — 平台 Skills 管理(超管,R17)
+ * SkillsMarket — 平台 Skills 管理(超管,R17;R6 系统级已安装区块)
  * - 标题"Skills 市场" + "新建 Skill"按钮
  * - Table:名称(chip+plug icon)/描述/创建人/创建时间/操作[编辑/删除]
+ * - 「系统级已安装」区块(R6):镜像内置 skills/MCP 两列只读列表 + 采集时间/image_tag
+ *   + 采集按钮(超管动作钮 Icon+文字次级,非 Plus 新建语义;loading 态,成功刷新列表)
  * - 新建/编辑对话框(名称 Input + 描述 Input + 内容 Textarea)
  * - 删除确认对话框
  */
 
 import { useState } from 'react'
-import { Plus, Pencil, Trash2, Plug, Blocks } from 'lucide-react'
+import { Plus, Pencil, Trash2, Plug, Blocks, Server, RefreshCw, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -22,15 +24,20 @@ import {
 } from '@/components/ui/Dialog'
 import {
   useAdminSkills, useCreateAdminSkill, useUpdateAdminSkill,
-  useDeleteAdminSkill, getSkillErrorMessage,
+  useDeleteAdminSkill, useSystemAssets, useCollectSystemAssets,
+  getSkillErrorMessage,
 } from '@/api/skills'
 import type { Skill } from '@/api/skills'
+import { ApiError } from '@/api/client'
 
 export function SkillsMarket() {
   const { data: skills, isLoading } = useAdminSkills()
   const createSkill = useCreateAdminSkill()
   const updateSkill = useUpdateAdminSkill()
   const deleteSkill = useDeleteAdminSkill()
+  // ---- R6:系统级已安装(镜像内置快照只读;采集=超管动作,成功 invalidate 自动刷新列表)----
+  const { data: systemAssets } = useSystemAssets()
+  const collectAssets = useCollectSystemAssets()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Skill | null>(null)
@@ -96,6 +103,25 @@ export function SkillsMarket() {
     } catch (e) {
       setMessage({ type: 'error', text: getSkillErrorMessage(e) })
     }
+  }
+
+  /** R6:触发系统级采集(临时容器探测,耗时可达 120s;成功后列表经 invalidate 自动刷新) */
+  function handleCollect() {
+    collectAssets.mutate(undefined, {
+      onSuccess: (data) => {
+        setMessage({
+          type: 'success',
+          text: `采集成功:Skills ${data.skills} 个、MCP ${data.mcps} 个`
+            + (data.warning ? `(${data.warning})` : ''),
+        })
+      },
+      onError: (err) => {
+        setMessage({
+          type: 'error',
+          text: err instanceof ApiError ? err.message : '采集失败',
+        })
+      },
+    })
   }
 
   function formatDate(dateStr: string): string {
@@ -189,6 +215,70 @@ export function SkillsMarket() {
         </div>
         </div>
       )}
+
+      {/* R6:系统级已安装(镜像内置快照,只读;采集按钮为超管动作钮 Icon+文字次级) */}
+      <div className="mt-6">
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title"><Server size={15} /> 系统级已安装</span>
+            <div className="right">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCollect}
+                disabled={collectAssets.isPending}
+              >
+                {collectAssets.isPending
+                  ? <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  : <RefreshCw className="w-4 h-4 mr-1" />}
+                {collectAssets.isPending ? '采集中...' : '采集'}
+              </Button>
+            </div>
+          </div>
+          <div className="card-body">
+            {systemAssets?.collected ? (
+              <>
+                <p className="text-sm text-text-muted flex items-center gap-2 flex-wrap">
+                  <span>
+                    采集于 {systemAssets.collected_at ? formatDate(systemAssets.collected_at) : '-'}
+                  </span>
+                  {systemAssets.image_tag && (
+                    <code className="font-mono text-xs bg-surface-strong px-1 py-0.5 rounded">
+                      {systemAssets.image_tag}
+                    </code>
+                  )}
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-3">
+                  <div>
+                    <span className="bdg b-zinc">Skills({(systemAssets.skills ?? []).length})</span>
+                    <div className="chip-row mt-2">
+                      {(systemAssets.skills ?? []).map(s => (
+                        <span key={s.name} className="chip">{s.name}</span>
+                      ))}
+                      {(systemAssets.skills ?? []).length === 0 && (
+                        <span className="text-sm text-text-muted">镜像未内置 Skills</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="bdg b-zinc">MCP({(systemAssets.mcps ?? []).length})</span>
+                    <div className="chip-row mt-2">
+                      {(systemAssets.mcps ?? []).map(m => (
+                        <span key={m.name} className="chip">{m.name}</span>
+                      ))}
+                      {(systemAssets.mcps ?? []).length === 0 && (
+                        <span className="text-sm text-text-muted">镜像未内置 MCP</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-center text-text-muted py-6">暂未采集</p>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* 新建/编辑对话框 */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

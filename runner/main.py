@@ -46,6 +46,7 @@ RUNNER_ID = os.environ.get("RUNNER_ID", "runner-local")       # 仅日志标识;
 RUNNER_ROLE = os.environ.get("RUNNER_ROLE", "worker")
 RUNNER_HOST = os.environ.get("RUNNER_HOST", "")
 HEARTBEAT_INTERVAL = 30  # 秒(D13:30s 心跳;平台 60s 未收到判 offline)
+PROBE_CLAUDE_TIMEOUT = 120.0  # R5 probe_claude 整体 wait_for 上限(与平台侧 COLLECT_TIMEOUT 对齐)
 
 manager = ContainerManager()
 terminals = TerminalManager()
@@ -435,6 +436,24 @@ async def handle_message(ws: Any, msg: dict) -> None:
             else:
                 await safe_send_result(ws, req_id, False, error=f"未知工具: {tool}")
         except Exception as e:
+            await safe_send_result(ws, req_id, False, error=str(e))
+
+    elif mtype == "probe_claude":
+        # R5 系统级采集:临时容器起→探→毁单次调用内完成(同路线程池,防堵事件循环);
+        # 整体 wait_for 上限 120s(与平台 COLLECT_TIMEOUT 对齐):卡死的探测及时回
+        # ok=False,不让平台等满双倍窗口;线程不可强杀,probe 内部 finally 仍会销毁容器
+        req_id = msg.get("req_id", "")
+        try:
+            data = await asyncio.wait_for(
+                asyncio.to_thread(
+                    manager.probe_claude,
+                    image=msg.get("image", "platform/devbox:v1"),
+                ),
+                timeout=PROBE_CLAUDE_TIMEOUT,
+            )
+            await safe_send_result(ws, req_id, True, data)
+        except Exception as e:
+            logger.exception("probe_claude 失败(容器启动/exec 异常/超时)")
             await safe_send_result(ws, req_id, False, error=str(e))
 
     elif mtype == "write_file_b64":

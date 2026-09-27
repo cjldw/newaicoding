@@ -105,6 +105,7 @@ async def _fallback_create_all():
     from app.models.knowledge_base import KnowledgeBase, KnowledgeDoc  # noqa: F401
     from app.models.notification import Notification, UserNotificationSettings  # noqa: F401
     from app.models.audit_log import AuditLog, Invitation  # noqa: F401
+    from app.models.system_asset import ClaudeSystemAsset  # noqa: F401 — R5 表注册
 
     async with app_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -183,6 +184,7 @@ async def engine():
     from app.models.knowledge_base import KnowledgeBase, KnowledgeDoc  # noqa: F401 — R20 表注册
     from app.models.notification import Notification, UserNotificationSettings  # noqa: F401 — R18 表注册
     from app.models.audit_log import AuditLog, Invitation  # noqa: F401 — R19 表注册
+    from app.models.system_asset import ClaudeSystemAsset  # noqa: F401 — R5 表注册
 
     # 确保表存在(create_all 是幂等的,已存在则跳过)
     async with app_engine.begin() as conn:

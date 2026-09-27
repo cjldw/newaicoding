@@ -1,11 +1,11 @@
 /**
- * MemberManagement — 成员管理 Tab(R12)
+ * MemberManagement — 成员管理 Tab(R12;R3 邀请 Dialog 重构为选择式)
  * - 操作栏:右侧"邀请成员"按钮
  * - 成员 Table:头像+用户名(昵称副标题)/角色徽章/邀请人/加入时间/操作
- * - 三个对话框:邀请成员/改角色/移除确认 + 转让 owner
+ * - 对话框:邀请成员(搜索+分页候选多选+统一角色)/改角色/移除确认 + 转让 owner
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -14,6 +14,8 @@ import { Label } from '@/components/ui/Label'
 import { Select } from '@/components/ui/Select'
 import { Avatar } from '@/components/ui/Avatar'
 import { Alert } from '@/components/ui/Alert'
+import { Checkbox } from '@/components/ui/Checkbox'
+import { RadioGroup } from '@/components/ui/RadioGroup'
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from '@/components/ui/Table'
@@ -22,23 +24,18 @@ import {
   DialogFooter,
 } from '@/components/ui/Dialog'
 import {
-  useProjectMembers, useInviteMember, useRemoveMember,
-  useChangeMemberRole, useTransferOwnership,
-  getMemberErrorMessage,
+  useProjectMembers, useBatchInviteMember, useCandidateUsers,
+  useRemoveMember, useChangeMemberRole, useTransferOwnership,
+  getMemberErrorMessage, getBatchInviteErrors,
 } from '@/api/projects'
-import type { ProjectMember } from '@/api/projects'
-import { usersApi } from '@/api/users'
-import type { SearchedUser } from '@/api/users'
+import type { ProjectMember, CandidateUser, BatchInviteErrorItem } from '@/api/projects'
+import { useDebounce } from '@/hooks/useDebounce'
+import { useToast } from '@/hooks/useToast'
 
 const roleBadgeMap: Record<string, { label: string; variant: 'primary' | 'secondary' | 'outline' }> = {
   owner: { label: '所有者', variant: 'primary' },
   editor: { label: '编辑者', variant: 'secondary' },
   viewer: { label: '观察者', variant: 'outline' },
-}
-
-const roleDescMap: Record<string, string> = {
-  editor: '编辑者(可编辑需求/任务/代码)',
-  viewer: '观察者(只读)',
 }
 
 const roleSelectOptions = [
@@ -47,21 +44,31 @@ const roleSelectOptions = [
   { value: 'viewer', label: '观察者' },
 ]
 
+/** R3 文案清单:角色组 editor=「编辑」viewer=「查看」 */
 const inviteRoleOptions = [
-  { value: 'editor', label: roleDescMap.editor },
-  { value: 'viewer', label: roleDescMap.viewer },
+  { value: 'editor', label: '编辑' },
+  { value: 'viewer', label: '查看' },
 ]
+
+/** 候选列表每页条数(与后端 candidate-users 默认一致) */
+const CANDIDATE_PAGE_SIZE = 20
 
 interface MemberManagementProps {
   projectId: string
 }
 
+/** 可勾选 = 非成员且未停用(is_member/status 由候选接口标记) */
+function isSelectable(c: CandidateUser): boolean {
+  return !c.is_member && c.status !== 'disabled'
+}
+
 export function MemberManagement({ projectId }: MemberManagementProps) {
   const { data, isLoading } = useProjectMembers(projectId)
-  const inviteMember = useInviteMember()
+  const batchInvite = useBatchInviteMember()
   const removeMember = useRemoveMember()
   const changeRole = useChangeMemberRole()
   const transferOwnership = useTransferOwnership()
+  const [, showToast, ToastEl] = useToast()
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [changeTarget, setChangeTarget] = useState<ProjectMember | null>(null)
@@ -70,12 +77,18 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // 邀请对话框状态
-  const [phone, setPhone] = useState('')
-  const [searchedUser, setSearchedUser] = useState<SearchedUser | null>(null)
-  const [searching, setSearching] = useState(false)
-  const [searchNoResult, setSearchNoResult] = useState(false)
-  const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor')
+  // 邀请对话框状态(R3 选择式)
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  /** 已选 user_id 集合(跨页保留) */
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  /** user_id → 昵称(整批失败 Alert 渲染「{昵称}:{原因}」用;随各页加载累积) */
+  const [candidateNames, setCandidateNames] = useState<Record<string, string>>({})
+  const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('viewer')
+  /** 整批 400 的逐条原因(Dialog 内 Alert,不关窗) */
+  const [batchErrors, setBatchErrors] = useState<BatchInviteErrorItem[] | null>(null)
+  /** 非逐条形态的错误(403/网络等) */
+  const [inviteError, setInviteError] = useState<string | null>(null)
 
   // 改角色对话框状态
   const [newRole, setNewRole] = useState<'owner' | 'editor' | 'viewer'>('editor')
@@ -83,45 +96,77 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
   const members = data?.items ?? []
   const ownerCount = members.filter(m => m.role === 'owner').length
 
-  // 防抖搜索(300ms)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  // 搜索 300ms 防抖;关键词变化回第一页
+  const debouncedSearch = useDebounce(search, 300)
+  useEffect(() => { setPage(1) }, [debouncedSearch])
+
+  const candidates = useCandidateUsers(
+    projectId,
+    { q: debouncedSearch.trim(), page, page_size: CANDIDATE_PAGE_SIZE },
+    inviteOpen,
+  )
+
+  const candidateItems = candidates.data?.items ?? []
+  const candidateTotal = candidates.data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(candidateTotal / CANDIDATE_PAGE_SIZE))
+  const pageSelectable = candidateItems.filter(isSelectable)
+  const pageAllSelected = pageSelectable.length > 0
+    && pageSelectable.every(c => selectedIds.has(c.user_id))
+
+  // 累积记录候选昵称(跨页已选用户在失败 Alert 中能显示昵称)
   useEffect(() => {
-    if (!inviteOpen) return
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!phone.trim()) {
-      setSearchedUser(null); setSearchNoResult(false); setSearching(false)
-      return
-    }
-    setSearching(true)
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await usersApi.searchUserByPhone(phone.trim())
-        const user = res.data
-        if (user) { setSearchedUser(user); setSearchNoResult(false) }
-        else { setSearchedUser(null); setSearchNoResult(true) }
-      } catch {
-        setSearchedUser(null); setSearchNoResult(true)
-      } finally { setSearching(false) }
-    }, 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [phone, inviteOpen])
+    if (candidateItems.length === 0) return
+    setCandidateNames((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const it of candidateItems) {
+        if (next[it.user_id] !== it.nickname) { next[it.user_id] = it.nickname; changed = true }
+      }
+      return changed ? next : prev
+    })
+  }, [candidates.data])
+
+  function toggleCandidate(c: CandidateUser, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(c.user_id)
+      else next.delete(c.user_id)
+      return next
+    })
+  }
+
+  /** 全选当前页:只勾选可选项(已是成员/已停用不动) */
+  function togglePageAll(checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      for (const c of pageSelectable) {
+        if (checked) next.add(c.user_id)
+        else next.delete(c.user_id)
+      }
+      return next
+    })
+  }
 
   function resetInviteDialog() {
-    setPhone(''); setSearchedUser(null); setSearchNoResult(false)
-    setInviteRole('editor'); setError(null)
+    setSearch(''); setPage(1); setSelectedIds(new Set())
+    setInviteRole('viewer'); setInviteError(null); setBatchErrors(null)
   }
 
   async function handleInvite() {
-    if (!searchedUser) return
-    setError(null)
+    if (selectedIds.size === 0) return
+    setInviteError(null); setBatchErrors(null)
     try {
-      await inviteMember.mutateAsync({
-        projectId, data: { phone: phone.trim(), role: inviteRole },
+      const res = await batchInvite.mutateAsync({
+        projectId,
+        data: { user_ids: [...selectedIds], role: inviteRole },
       })
-      setSuccess('邀请成功')
+      showToast('ok', `已添加 ${res.added} 名成员`)
       setInviteOpen(false); resetInviteDialog()
     } catch (e) {
-      setError(getMemberErrorMessage(e))
+      // 整批失败:Dialog 内 Alert 逐条原因,不关窗(列表不刷新)
+      const errors = getBatchInviteErrors(e)
+      if (errors) setBatchErrors(errors)
+      else setInviteError(getMemberErrorMessage(e))
     }
   }
 
@@ -262,51 +307,145 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
       {members.length === 0 && <div className="empty">暂无成员</div>}
       </div>
 
-      {/* 邀请成员对话框 */}
+      {/* 邀请成员对话框(R3 选择式:搜索+分页候选多选+统一角色) */}
       <Dialog open={inviteOpen} onOpenChange={(o) => { setInviteOpen(o); if (!o) resetInviteDialog() }}>
-        <DialogContent className="w-[500px]">
+        <DialogContent className="w-[520px]">
           <DialogHeader>
             <DialogTitle>邀请成员</DialogTitle>
-            <DialogDescription>通过手机号搜索并邀请用户加入项目</DialogDescription>
+            <DialogDescription>搜索平台用户,勾选后以统一角色批量加入项目</DialogDescription>
           </DialogHeader>
-          <div className="dlg-form">
-            <div className="field">
-              <Label>手机号</Label>
-              <Input
-                placeholder="输入手机号搜索"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-              {searching && <div className="text-xs text-text-muted">搜索中...</div>}
-              {searchNoResult && !searching && (
-                <div className="text-xs text-red-fg">该手机号未注册</div>
-              )}
-              {searchedUser && (
-                <div className="flex items-center gap-2 p-2 border border-border rounded-md">
-                  <Avatar src={searchedUser.avatar_url} alt={searchedUser.nickname} size={28} />
-                  <div className="text-sm">
-                    <div className="font-medium">{searchedUser.nickname}</div>
-                    <div className="text-xs text-text-muted">{searchedUser.phone_masked}</div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="field">
+
+          {/* 整批失败:逐条「{昵称}:{原因}」,不关窗 */}
+          {batchErrors && (
+            <Alert variant="error" className="mt-4">
+              <div className="font-medium">添加失败</div>
+              <ul className="mt-1 space-y-0.5">
+                {batchErrors.map((it) => (
+                  <li key={it.user_id}>
+                    {candidateNames[it.user_id] ?? it.user_id}:{it.reason}
+                  </li>
+                ))}
+              </ul>
+            </Alert>
+          )}
+          {inviteError && (
+            <Alert variant="error" className="mt-4">{inviteError}</Alert>
+          )}
+
+          <div className="mt-4">
+            <Input
+              placeholder="搜索昵称或手机号"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          {/* 候选列表(Checkbox+头像+昵称+打码手机号;禁选置灰标原因) */}
+          <div className="mt-3 max-h-[320px] overflow-y-auto rounded-md border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={pageAllSelected}
+                      disabled={pageSelectable.length === 0}
+                      onChange={togglePageAll}
+                      aria-label="全选当前页"
+                    />
+                  </TableHead>
+                  <TableHead>用户</TableHead>
+                  <TableHead>手机号</TableHead>
+                  <TableHead>状态</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {candidateItems.map((c) => {
+                  const selectable = isSelectable(c)
+                  return (
+                    <TableRow key={c.user_id} className={selectable ? '' : 'opacity-60'}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(c.user_id)}
+                          disabled={!selectable}
+                          onChange={(checked) => toggleCandidate(c, checked)}
+                          aria-label={`选择 ${c.nickname}`}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Avatar src={c.avatar_url} alt={c.nickname} size={28} />
+                          <span className={`text-sm truncate ${selectable ? 'text-text' : 'text-text-muted'}`}>
+                            {c.nickname}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-text-muted whitespace-nowrap">{c.phone}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {c.is_member ? (
+                          <span className="text-xs text-text-muted">已是成员</span>
+                        ) : c.status === 'disabled' ? (
+                          <span className="text-xs text-text-muted">已停用</span>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+            {candidates.isLoading && (
+              <div className="px-3 py-6 text-center text-sm text-text-muted">加载中...</div>
+            )}
+            {!candidates.isLoading && candidateItems.length === 0 && (
+              <div className="px-3 py-6 text-center text-sm text-text-muted">未找到匹配用户</div>
+            )}
+          </div>
+
+          {/* 分页器 */}
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs text-text-muted">共 {candidateTotal} 人</span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  className="btn btn-sm"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  上一页
+                </button>
+                <span className="text-xs text-text-muted">{page} / {totalPages}</span>
+                <button
+                  className="btn btn-sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  下一页
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 统一角色 + 已选计数 */}
+          <div className="mt-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
               <Label>角色</Label>
-              <Select
+              <RadioGroup
+                name="invite-role"
                 options={inviteRoleOptions}
                 value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as 'editor' | 'viewer')}
+                onChange={(v) => setInviteRole(v as 'editor' | 'viewer')}
               />
             </div>
+            <span className="text-sm text-text-muted">已选 {selectedIds.size} 人</span>
           </div>
+
           <DialogFooter>
             <Button variant="ghost" onClick={() => { setInviteOpen(false); resetInviteDialog() }}>
               取消
             </Button>
             <Button
               variant="primary"
-              disabled={!searchedUser || inviteMember.isPending}
+              disabled={selectedIds.size === 0 || batchInvite.isPending}
+              title={selectedIds.size === 0 ? '请先选择成员' : undefined}
               onClick={handleInvite}
             >
               邀请
@@ -396,6 +535,8 @@ export function MemberManagement({ projectId }: MemberManagementProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {ToastEl}
     </div>
   )
 }
