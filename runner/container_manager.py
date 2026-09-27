@@ -22,6 +22,10 @@ PROBE_TASK_SENTINEL = "__probe_claude__"  # R5:探测容器 task_id 哨兵(label
 PERMGATE_DIR = "/tmp/permgate"
 PERMGATE_TOOL_REF = "mcp__permgate__approval"
 
+# R3:容器内 claude CLI 资产路径基准(D4,claude_inject 读-合-写)
+CLAUDE_JSON_PATH = "/home/node/.claude.json"
+CLAUDE_SKILLS_DIR = "/home/node/.claude/skills"
+
 # 桥接脚本(write_file 注入容器;纯标准库):CLI 作为 MCP client 握手后,每个需确认
 # 的工具调用发 tools/call → 桥接把请求 JSON 行追加 req.log,轮询 ans-{n}.json 等平台
 # 应答(实证:CLI 无限阻塞等 MCP 应答,5min 超时兜底必须在本层,到点回 deny)。
@@ -601,38 +605,72 @@ class ContainerManager:
         mcp_config: dict | None = None,
     ) -> dict:
         """
-        R32.F1:把平台 Skills/MCP 写入容器 claude CLI 配置:
-        - skills:[{name, content}] → /root/.claude/skills/{name}.md(逐个 write_file,自动建目录)
-        - mcp_config:{mcpServers:{...}} → 与容器既有 /root/.claude.json 合并(只覆盖 mcpServers 段)
-        返回 {"skills": n, "mcp": m};幂等(重跑覆盖同名文件/mcpServers 段)。
+        R32.F1 / R3 合并语义改造:把平台 Skills/MCP 写入容器 claude CLI 配置:
+        - skills:[{name, content}] → /home/node/.claude/skills/{name}.md(逐个 write_file,自动建目录)
+        - mcp_config:{mcpServers:{...}} → 与容器既有 /home/node/.claude.json 按 server 名合并:
+          项目级覆盖同名,镜像预置项保留,文件其余键原样保留(整文件读-合-写;R3,路径基准 D4 /home/node)
+        返回 {"skills": n, "mcp": m},mcp=合并后文件内 mcpServers 总条数(R3 语义变更);
+        幂等(重跑合并结果稳定)。
         """
         import json as _json
 
         skills = skills or []
-        written = 0
-        for s in skills:
-            name = (s.get("name") or "").strip()
-            content = s.get("content") or ""
-            if not name or not content:
-                continue
-            # 防路径穿越:skill 名只允许文件名安全字符
-            safe = "".join(c for c in name if c.isalnum() or c in "-_")
-            if not safe:
-                continue
-            self.write_file(container_id, f"/root/.claude/skills/{safe}.md", content)
-            written += 1
+        project_servers = (mcp_config or {}).get("mcpServers") or {}
+        if not isinstance(project_servers, dict):
+            project_servers = {}  # 上游畸形 args 防护(与既有 mcpServers 非 dict 按 {} 对称)
+        logger.info(
+            "claude_inject 入口 container=%s skills=%d project_mcp=%d",
+            container_id, len(skills), len(project_servers),
+        )
 
-        mcp_count = 0
-        if mcp_config and mcp_config.get("mcpServers"):
-            # 读既有配置(共享 _read_container_json:读取失败/非法 JSON/顶层非 dict 一律按
-            # 空对象——既有行为不变),合并 mcpServers 段后回写
-            _, existing_cfg = self._read_container_json(container_id, "/root/.claude.json")
-            existing: dict = existing_cfg or {}
-            existing["mcpServers"] = mcp_config["mcpServers"]
-            self.write_file(container_id, "/root/.claude.json", _json.dumps(existing, ensure_ascii=False, indent=2))
-            mcp_count = len(mcp_config["mcpServers"])
+        try:
+            written = 0
+            for s in skills:
+                name = (s.get("name") or "").strip()
+                content = s.get("content") or ""
+                if not name or not content:
+                    continue
+                # 防路径穿越:skill 名只允许文件名安全字符
+                safe = "".join(c for c in name if c.isalnum() or c in "-_")
+                if not safe:
+                    continue
+                self.write_file(container_id, f"{CLAUDE_SKILLS_DIR}/{safe}.md", content)
+                written += 1
 
-        logger.info("claude 资产注入 container=%s skills=%d mcp=%d", container_id, written, mcp_count)
+            mcp_count = 0
+            if project_servers:
+                # 读既有配置(共享 _read_container_json:读取失败/非法 JSON/顶层非 dict 一律按
+                # 空对象——既有兜底行为不变),按 server 名合并 mcpServers 段后回写(R3 合并语义)
+                readable, existing_cfg = self._read_container_json(container_id, CLAUDE_JSON_PATH)
+                if not readable:
+                    # cat 失败可能为临时执行通道故障,已按空配置兜底;若容器内存在预置
+                    # mcpServers 会被本次写入覆盖(兜底语义不变,仅告警留痕)
+                    logger.warning(
+                        "claude_inject cat 既有配置失败 container=%s(可能为临时执行通道故障),"
+                        "已按空配置兜底;若容器内存在预置 mcpServers 会被本次写入覆盖",
+                        container_id,
+                    )
+                existing: dict = existing_cfg or {}
+                preset_servers = existing.get("mcpServers")
+                if not isinstance(preset_servers, dict):
+                    preset_servers = {}  # 契约「非 dict 按 {}」
+                overwritten = sorted(k for k in project_servers if k in preset_servers)
+                existing["mcpServers"] = {**preset_servers, **project_servers}
+                self.write_file(
+                    container_id,
+                    CLAUDE_JSON_PATH,
+                    _json.dumps(existing, ensure_ascii=False, indent=2),
+                )
+                mcp_count = len(existing["mcpServers"])
+                # 单条结果日志(含 skills 落盘数,替代原尾部遗留日志,消除 mcp= 双语义)
+                logger.info(
+                    "claude_inject 合并完成 container=%s skills=%d mcp_total=%d overwritten=%s",
+                    container_id, written, mcp_count, overwritten,
+                )
+        except Exception:
+            logger.exception("claude_inject 失败 container=%s(上游 failed_sides 降级,不阻塞就绪)", container_id)
+            raise
+
         return {"skills": written, "mcp": mcp_count}
 
     def probe_claude(self, image: str = "platform/devbox:v2") -> dict:

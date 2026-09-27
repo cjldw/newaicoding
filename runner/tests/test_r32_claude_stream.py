@@ -50,10 +50,10 @@ class FakeContainer:
         self._api = api
 
     def exec_run(self, cmd_args):
-        # claude_inject 读既有 /root/.claude.json 走 exec_capture(cat)
+        # claude_inject 读既有 /home/node/.claude.json 走 exec_capture(cat)(R3 路径基准)
         joined = " ".join(cmd_args)
-        if joined.startswith("bash -lc cat /root/.claude.json") or "cat /root/.claude.json" in joined:
-            existing = self._api.files.get("/root/.claude.json")
+        if joined.startswith("bash -lc cat /home/node/.claude.json") or "cat /home/node/.claude.json" in joined:
+            existing = self._api.files.get("/home/node/.claude.json")
             return 0, (existing or "").encode()
         # mkdir/base64 写文件:登记到 files
         if "base64 -d >" in joined:
@@ -88,7 +88,7 @@ def _manager(client):
 # ---------------------------------------------------------------------------
 def test_claude_inject_writes_skills_and_merges_mcp():
     client = FakeDockerClient()
-    client.api.files["/root/.claude.json"] = json.dumps({"theme": "dark", "mcpServers": {"old": {"url": "x"}}})
+    client.api.files["/home/node/.claude.json"] = json.dumps({"theme": "dark", "mcpServers": {"old": {"url": "x"}}})
     mgr = _manager(client)
 
     out = mgr.claude_inject(
@@ -96,11 +96,11 @@ def test_claude_inject_writes_skills_and_merges_mcp():
         skills=[{"name": "prd-review", "content": "# 技能"}, {"name": "bad/../evil", "content": "x"}, {"name": "", "content": "skip"}],
         mcp_config={"mcpServers": {"gitlab": {"url": "http://mcp"}}},
     )
-    assert out == {"skills": 2, "mcp": 1}  # "bad/../evil" 过滤为 "badevil" 仍写入,空名跳过
-    assert client.api.files["/root/.claude/skills/prd-review.md"] == "# 技能"
-    merged = json.loads(client.api.files["/root/.claude.json"])
+    assert out == {"skills": 2, "mcp": 2}  # "bad/../evil" 过滤为 "badevil" 仍写入,空名跳过;mcp=合并后总条数(R3)
+    assert client.api.files["/home/node/.claude/skills/prd-review.md"] == "# 技能"
+    merged = json.loads(client.api.files["/home/node/.claude.json"])
     assert merged["theme"] == "dark"  # 既有键保留
-    assert merged["mcpServers"] == {"gitlab": {"url": "http://mcp"}}  # mcpServers 段整体覆盖
+    assert merged["mcpServers"] == {"old": {"url": "x"}, "gitlab": {"url": "http://mcp"}}  # R3 按名合并:既有 old 保留 + 项目级 gitlab 新增
 
 
 def test_claude_inject_no_existing_claude_json():
@@ -108,7 +108,7 @@ def test_claude_inject_no_existing_claude_json():
     mgr = _manager(client)
     out = mgr.claude_inject("c1", skills=[], mcp_config={"mcpServers": {"s": {"url": "u"}}})
     assert out == {"skills": 0, "mcp": 1}
-    assert json.loads(client.api.files["/root/.claude.json"])["mcpServers"]["s"]["url"] == "u"
+    assert json.loads(client.api.files["/home/node/.claude.json"])["mcpServers"]["s"]["url"] == "u"
 
 
 # ---------------------------------------------------------------------------

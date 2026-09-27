@@ -26,13 +26,13 @@ devbox 基础镜像构建期预装 rd-flow plugin(团队自建研发全流程)�
 
 ## 当前进度
 
-**当前进度: 1/4 (25%) - R2 完成,下一 R3(R1 代码完成待 docker 转正)**
+**当前进度: 2/4 (50%) - 下一个 R4(R1 代码完成待 docker 转正,R3 代码完成待端到端联调)**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
 | R1 | devbox 镜像预装 rd-flow plugin(+平台 skills 目录修正 + tag v2 落地) | M1 镜像构建 | 🔄(代码完成,构建冒烟待 docker) | ./DEVPLAN/R1.md |
 | R2 | devbox 镜像预置 MCP 配置(3 新增 + 3 存量激活) | M1 镜像构建 | ✅(运行时联调判据 2–6 后置) | ./DEVPLAN/R2.md |
-| R3 | claude_inject 注入链合并逻辑 + 路径基准 /home/node | M2 runner 注入/采集 | ⬜ | ./DEVPLAN/R3.md |
+| R3 | claude_inject 注入链合并逻辑 + 路径基准 /home/node | M2 runner 注入/采集 | ✅(端到端联调验收后置) | ./DEVPLAN/R3.md |
 | R4 | 系统级采集扩展(probe 覆盖 plugin + 路径校准) | M2 runner 注入/采集 | ⬜ | ./DEVPLAN/R4.md |
 
 (状态:⬜ 未开始 / 🔄 进行中 / ✅ 完成 / ⚠️ 有问题。这张表是**全流程唯一的续接入口**)
@@ -80,3 +80,4 @@ devbox 基础镜像构建期预装 rd-flow plugin(团队自建研发全流程)�
 | 2026-09-27 | R1 回归发现 2 组与本需求无关的既有失败:① r31/r32 共 20 用例(HEAD 缺 runner_service.validate_tags/update_runner);② test_terminal_manager 1 用例(skipTest 结构缺陷)。证据固定于 .scratch/R1/test-output.md,非 v2 翻转引入,不在 R1 顺手修 | 计划外问题留痕(rd-check 阶段关注) |
 | 2026-09-27 | R1 构建冒烟判据 1–4:开发机实测无 docker,按预案降级为 Dockerfile 静态核对(并入审计收口),留待有 docker 环境转正 | 环境约束(DEVPLAN 预案内) |
 | 2026-09-27 | R1 审计通过(有条件,0 阻塞):2 Low 已修——F7 四处失效 Red 注释修剪;F8 规格盲区扩入:README.md:54/:118 v1→v2(照抄会产出旧镜像)、frontend TaskDetail.tsx:651 展示标签 devbox:v1→v2(用户可见错标,该文件无其他会话占用;沿「前端文案一致性」技术约定先例)。✅ 状态转正条件:构建冒烟三场景待有 docker 环境补测 | 审计 Low 项处置(自主决策) |
+| 2026-09-27 | R3 完成。审计(code-review 双轴)5 发现 0 阻塞:F2/F3/F4/F5 修复;F1 部分采纳——cat 临时故障(readable=False)仅加告警仍按 {} 兜底,审查建议的「跳过写回」不采(会推翻判据 3 与 v1 存量容器并行期兼容两项已确认规格:runner 无法区分「文件不存在」与「临时通道故障」的 cat 失败)。另:R3 会话中 QA subagent 曾虚报测试结果(解释器用错未跑成),已作废并由主 agent 重跑纠正 | 审计 Low 项处置(自主决策) |

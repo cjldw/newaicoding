@@ -4,7 +4,7 @@
   → projects.mcp_config_encrypted(R2 已建列)
 - 读取链路:解密 → 敏感值打码 → 返回
 - 注入链路(R8 消费):get_decrypted_config() → 与镜像预装合并(项目级覆盖同名)
-  → 写容器 ~/.claude/config.json
+  → 写容器 /home/node/.claude.json
 """
 
 import json
@@ -206,7 +206,7 @@ async def save_config(db: AsyncSession, project: Project, config_json: dict) -> 
 async def get_decrypted_config(db: AsyncSession, project: Project) -> Optional[dict]:
     """
     任务创建链路:解密项目级 MCP 配置(不打码)。
-    调用方与镜像预装的 ~/.claude/config.json 合并(项目级覆盖同名 server)。
+    调用方与镜像预装的 /home/node/.claude.json 合并(项目级覆盖同名 server)。
     """
     if not project.mcp_config_encrypted:
         return None
