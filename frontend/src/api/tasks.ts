@@ -64,6 +64,10 @@ export interface TaskDetail {
   total_tokens_out: number
   error_message: string | null
   last_commit_sha: string | null
+  // R2.F2:发布维部署字段(编辑弹窗回填;非 release / 旧后端为 undefined)
+  deploy_host?: string | null
+  deploy_port?: number | null
+  deploy_script?: string | null
 }
 
 export interface CreateTaskPayload {
@@ -74,6 +78,17 @@ export interface CreateTaskPayload {
   work_branch?: string
   deploy_port?: number
   deploy_host?: string
+}
+
+// R2.F2:任务字段编辑(仅 pending 可编辑;type/req_id/status 后端不收,天然不可改;缺省 = 不动)
+export interface UpdateTaskPayload {
+  title?: string
+  description?: string
+  base_branch?: string
+  work_branch?: string
+  deploy_host?: string
+  deploy_port?: number
+  deploy_script?: string
 }
 
 export interface TaskMessageFileRef {
@@ -159,6 +174,15 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
   return res.data
 }
 
+/** R2.F2:编辑任务字段(PATCH;后端仅 pending 放行,4001 = 任务已开始,7001 = 端口冲突) */
+export async function updateTask(
+  taskId: string,
+  payload: UpdateTaskPayload,
+): Promise<TaskDetail> {
+  const res = await api.patch<TaskDetail>(`/tasks/${taskId}`, payload)
+  return res.data
+}
+
 export async function stopTask(taskId: string): Promise<void> {
   await api.post(`/tasks/${taskId}/stop`)
 }
@@ -172,13 +196,16 @@ export async function fetchTaskMessages(taskId: string): Promise<TaskMessagesRes
   return res.data
 }
 
+// R34.F2(BUG-UI-092):新增可选第三参 configId —— 请求体携带 config_id(项目模型配置选择)
+// 注意:config_id 后端消费待契约(占位),后端暂忽略该字段不影响现状
 export async function sendTaskMessage(
   taskId: string,
   content: string,
+  configId?: string,
 ): Promise<{ message_id: string }> {
   const res = await api.post<{ message_id: string }>(
     `/tasks/${taskId}/messages`,
-    { content },
+    { content, config_id: configId }, // configId 为 undefined 时序列化自动省略该键
   )
   return res.data
 }
@@ -253,6 +280,19 @@ export function useCreateTask(reqId: string) {
   })
 }
 
+// R2.F2:编辑任务字段(成功后失效详情 + 四维列表缓存)
+export function useUpdateTask() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, payload }: { taskId: string; payload: UpdateTaskPayload }) =>
+      updateTask(taskId, payload),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['task', variables.taskId] })
+      qc.invalidateQueries({ queryKey: ['dimension'] })
+    },
+  })
+}
+
 export function useTaskDetail(taskId: string) {
   return useQuery({
     queryKey: ['task', taskId],
@@ -290,7 +330,9 @@ export function useTaskMessages(taskId: string) {
 export function useSendTaskMessage(taskId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (content: string) => sendTaskMessage(taskId, content),
+    // R34.F2:mutation 变量升级为对象,携带可选 configId(模型配置)透传 sendTaskMessage
+    mutationFn: (vars: { content: string; configId?: string }) =>
+      sendTaskMessage(taskId, vars.content, vars.configId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['task-messages', taskId] }),
   })
 }
