@@ -55,39 +55,40 @@ export function RequirementsManage() {
 }
 
 export function TasksManage() {
+  // R1:统一任务创建入口——本页(全量任务列表)页头单一"新建任务"按钮,打开 TaskCreateDialog
   return (
     <DimensionPage
       dimension="dev"
       title="任务管理"
       statusOptions={TASK_STATUS_OPTIONS}
       icon={Activity}
-      createLabel="新建开发任务"
+      createLabel="新建任务"
       desc="成员项目全量任务(四种类型)· 固定按更新时间倒序"
     />
   )
 }
 
 export function TestsManage() {
+  // R1:分类型创建按钮(新建测试任务)移除,创建入口统一至任务管理页"新建任务"
   return (
     <DimensionPage
       dimension="test"
       title="测试管理"
       statusOptions={TEST_STATUS_OPTIONS}
       icon={FlaskConical}
-      createLabel="新建测试任务"
       desc="成员项目全量测试任务(type=test)· 前置:至少一个开发任务 done"
     />
   )
 }
 
 export function ReleasesManage() {
+  // R1:分类型创建按钮(新建发布任务)移除,创建入口统一至任务管理页"新建任务"
   return (
     <DimensionPage
       dimension="release"
       title="发布管理"
       statusOptions={RELEASE_STATUS_OPTIONS}
       icon={Rocket}
-      createLabel="新建发布任务"
       desc="成员项目全量发布任务(type=release)· 前置:至少一个测试 passed + 端口全平台唯一"
     />
   )

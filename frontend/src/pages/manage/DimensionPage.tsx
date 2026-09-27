@@ -4,20 +4,25 @@
  * R22.F2(BUG-UI-069):统一 audit-logs/vp pageManage 范式——page-head(带快速创建按钮)
  * + card(fbar 筛选区 → scrollx>tbl 表格区 → card-foot 说明);各维列定义照抄 vp L1665-1680;
  * 收敛 BUG-UI-052/053/054/055/059/060/061/062
+ * R1:任务三维创建入口统一——页头单一"新建任务"按钮 + TaskCreateDialog(表单 R2-R5 完善);
+ * 原 QuickCreateDialog 及分类型按钮(新建开发/测试/发布任务)移除;requirements 维保留完整表单
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import {
-  Plus, Shield, ChevronRight, GitBranch, Folder, FlaskConical, Trash2,
+  Plus, Pencil, Shield, ChevronRight, GitBranch, Folder, Trash2,
 } from 'lucide-react'
 import { useDimensionList, type DimensionItem } from '@/api/dashboard'
 import { useProjectList, useProjectMembers } from '@/api/projects'
-import { requirementsApi, useBranchPreview } from '@/api/requirements'
+import {
+  requirementsApi, useBranchPreview, useRequirementDetail,
+  type UpdateRequirementRequest,
+} from '@/api/requirements'
 import type { RequirementPriority } from '@/api/requirements'
 import { useDebounce } from '@/hooks/useDebounce'
-import { createTask, type CreateTaskPayload } from '@/api/tasks'
+import { useTaskDetail, useUpdateTask, type UpdateTaskPayload } from '@/api/tasks'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
@@ -25,6 +30,7 @@ import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Select } from '@/components/ui/Select'
 import { RelatedUserSelect } from '@/pages/requirements/RelatedUserSelect'
+import { TaskCreateDialog } from './TaskCreateDialog'
 
 interface StatusOption {
   value: string
@@ -56,14 +62,6 @@ const PRIORITY_BADGE: Record<string, { label: string; cls: string }> = {
   high: { label: '高', cls: 'b-red' },
   medium: { label: '中', cls: 'b-amber' },
   low: { label: '低', cls: 'b-zinc' },
-}
-
-// 快速创建对话框标题文案(vp names[dim]:dev 维显示"新建开发任务",页头按钮用 conf.createLabel)
-const QUICK_DIALOG_NAME: Record<DimensionPageProps['dimension'], string> = {
-  requirements: '新建需求',
-  dev: '新建开发任务',
-  test: '新建测试任务',
-  release: '新建发布任务',
 }
 
 // 各维表头(照抄 vp conf.heads 一字不差;末列为 chevron 空表头)
@@ -111,6 +109,8 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
   const [qInput, setQInput] = useState<string>('')
   const [page, setPage] = useState(1)
   const [quickOpen, setQuickOpen] = useState(false)
+  // R2.F1/R2.F2:行内编辑入口(requirements 全状态可编辑;任务维仅 pending,其余禁用兜底)
+  const [editItem, setEditItem] = useState<DimensionItem | null>(null)
   const pageSize = 20
 
   const { data, isLoading } = useDimensionList(dimension, {
@@ -153,12 +153,13 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
           {desc && <div className="sub">{desc}</div>}
         </div>
         {/* R22.F2(BUG-UI-061):右上角快速创建按钮(样式对齐 admin/runners) */}
-        {/* R1.F1:requirements 维改为完整表单 dialog,按钮文案去掉"(快速创建)"后缀 */}
+        {/* R1:文案由 ManagePages 传入——任务管理页为"新建任务"(统一入口),需求页为"新建需求";
+            test/release 维不再传 createLabel,分类型按钮(新建测试任务/新建发布任务)随之移除 */}
         {createLabel && (
           <div className="acts">
             <button className="btn btn-pri" onClick={() => setQuickOpen(true)}>
               <Plus className="w-4 h-4" />
-              {dimension === 'requirements' ? createLabel : `${createLabel}(快速创建)`}
+              {createLabel}
             </button>
           </div>
         )}
@@ -210,7 +211,24 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
                 data.items.map(item => (
                   <tr key={item.key} className="rowclick" onClick={() => handleRowClick(item)}>
                     <DimensionCells dimension={dimension} item={item} statusOptions={statusOptions} />
-                    <td><ChevronRight size={14} /></td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        {/* R2.F1/R2.F2:「编辑」按钮(stopPropagation 防触发行跳转;权限恒显,后端 403 兜底) */}
+                        <button
+                          className="btn btn-sm"
+                          disabled={dimension !== 'requirements' && item.status !== 'pending'}
+                          title={
+                            dimension !== 'requirements' && item.status !== 'pending'
+                              ? '任务已开始,不可编辑'
+                              : '编辑'
+                          }
+                          onClick={(e) => { e.stopPropagation(); setEditItem(item) }}
+                        >
+                          编辑
+                        </button>
+                        <ChevronRight size={14} />
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -248,7 +266,8 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
         </div>
       </div>
 
-      {/* R1.F1:requirements 维用完整表单 dialog(对齐项目详情页);其他三维仍走快速创建 */}
+      {/* R1:requirements 维用完整表单 dialog(对齐项目详情页);任务三维改用统一 TaskCreateDialog
+          (表单结构 R2-R5 完善;原 QuickCreateDialog 已随分类型按钮一并移除) */}
       {createLabel && (
         dimension === 'requirements' ? (
           <RequirementCreateDialog
@@ -256,13 +275,19 @@ export function DimensionPage({ dimension, title, statusOptions, icon: Icon, des
             onClose={() => setQuickOpen(false)}
           />
         ) : (
-          <QuickCreateDialog
+          <TaskCreateDialog
             open={quickOpen}
-            dimension={dimension}
-            createLabel={createLabel}
             onClose={() => setQuickOpen(false)}
           />
         )
+      )}
+
+      {/* R2.F1/R2.F2:行内编辑弹窗(requirements / 任务三维共用同一入口) */}
+      {editItem && dimension === 'requirements' && (
+        <RequirementEditDialog item={editItem} onClose={() => setEditItem(null)} />
+      )}
+      {editItem && dimension !== 'requirements' && (
+        <TaskEditDialog item={editItem} onClose={() => setEditItem(null)} />
       )}
     </div>
   )
@@ -375,191 +400,6 @@ function DimensionCells({
   )
 }
 
-// ---- 快速创建对话框(照抄 vp openQuick 结构;关联字段=项目 + 需求) ----
-
-interface QuickCreateDialogProps {
-  open: boolean
-  dimension: DimensionPageProps['dimension']
-  createLabel: string
-  onClose: () => void
-}
-
-function QuickCreateDialog({ open, dimension, onClose }: QuickCreateDialogProps) {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const [pid, setPid] = useState('')
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [reqId, setReqId] = useState('')
-  const [deployPort, setDeployPort] = useState('')
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
-
-  const { data: projData } = useProjectList({ status: 'active', page: 1, page_size: 100 })
-  const projects = projData?.items ?? []
-  // 项目默认选中:列表首个(vp openQuick 的 QC.pid 兜底一致)
-  const activePid = pid || projects[0]?.project_id || ''
-
-  // 该项目需求列表(项目口径,非"我创建的";服务端仍兜底校验)
-  const { data: reqsData } = useQuery({
-    queryKey: ['quick-create-reqs', activePid],
-    queryFn: () => requirementsApi.list(activePid, { page: 1, page_size: 100 }),
-    enabled: open && !!activePid && dimension !== 'requirements',
-  })
-  const reqs = reqsData?.data?.items ?? []
-  // 需求下拉可选状态:dev=approved;test=approved/in_progress/done;release=approved/done
-  // (与 vp 偏差留痕:不逐需求查任务态置灰,前置校验交服务端,避免 N+1)
-  const selectableReqs = reqs.filter(r =>
-    dimension === 'dev' ? r.status === 'approved' :
-    dimension === 'test' ? ['approved', 'in_progress', 'done'].includes(r.status) :
-    ['approved', 'done'].includes(r.status)
-  )
-
-  const close = () => {
-    setTitle(''); setDescription(''); setReqId(''); setDeployPort(''); setErrorMsg(null)
-    onClose()
-  }
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      if (dimension === 'requirements') {
-        const d = await requirementsApi.create(activePid, {
-          title: title.trim(),
-          description: description.trim(),
-        }).then(r => r.data)
-        return { kind: 'requirement' as const, id: d.req_id }
-      }
-      const req = selectableReqs.find(r => r.req_id === reqId)
-      const payload: CreateTaskPayload = {
-        type: dimension,
-        // 后端 title max_length=128,截断对齐(超长需求标题不再 422)
-        title: (title.trim() || `${req?.title || '任务'}`).slice(0, 128),
-        // R1.F3:test/release 无描述输入框,description 恒空;后端 min_length=1 必 422
-        // 兜底为需求标题,dev 留空描述同样受益
-        description: description.trim() || req?.title || '任务描述',
-      }
-      if (dimension === 'release') {
-        payload.deploy_port = Number(deployPort)
-      }
-      const d = await createTask(reqId, payload)
-      return { kind: 'task' as const, id: d.task_id }
-    },
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['dimension'] })
-      close()
-      // 创建成功跳详情页(vp quickSubmit 跳转一致)
-      if (res.kind === 'requirement') {
-        navigate(`/requirements/${res.id}`)
-      } else {
-        navigate(`/tasks/${res.id}`)
-      }
-    },
-    onError: (err: Error) => {
-      setErrorMsg(err?.message || '创建失败')
-    },
-  })
-
-  const canSubmit =
-    !!activePid &&
-    !mutation.isPending &&
-    (dimension === 'requirements'
-      ? !!title.trim()
-      : !!reqId && (dimension !== 'release' || /^(100\d{2})$/.test(deployPort)))
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) close() }}>
-      <DialogContent onClose={close} className="w-[440px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Plus size={16} /> {QUICK_DIALOG_NAME[dimension]} · 快速创建</DialogTitle>
-        </DialogHeader>
-
-        {errorMsg && <Alert variant="error" onClose={() => setErrorMsg(null)}>{errorMsg}</Alert>}
-
-        <div className="flex flex-col gap-4 py-2">
-          <div className="field">
-            <label>项目</label>
-            <select
-              className="input"
-              value={activePid}
-              onChange={(e) => { setPid(e.target.value); setReqId('') }}
-            >
-              {projects.map(p => (
-                <option key={p.project_id} value={p.project_id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {dimension === 'requirements' ? (
-            <>
-              <div className="field">
-                <label>标题</label>
-                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="需求标题" />
-              </div>
-              <div className="field">
-                <label>描述(初始草稿,后续 AI 打磨)</label>
-                <textarea className="input" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
-              </div>
-              <div className="hint">
-                <GitBranch size={12} style={{ display: 'inline', verticalAlign: '-1px' }} />
-                {' '}创建后平台 bot 自动从默认分支切出需求分支(所有绑定仓库)
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="field">
-                <label>需求</label>
-                <select className="input" value={reqId} onChange={(e) => setReqId(e.target.value)}>
-                  <option value="">请选择需求</option>
-                  {selectableReqs.map(r => (
-                    <option key={r.req_id} value={r.req_id}>
-                      {r.req_id.slice(0, 8)} · {r.title}
-                    </option>
-                  ))}
-                </select>
-                <div className="hint">前置不满足的需求未列出;服务端仍会兜底校验(需求状态/token/端口唯一性)</div>
-              </div>
-              {dimension === 'dev' && (
-                <>
-                  <div className="field">
-                    <label>任务标题(留空默认取需求标题)</label>
-                    <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
-                  </div>
-                  <div className="field">
-                    <label>要让 AI 做什么(描述)</label>
-                    <textarea className="input" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
-                  </div>
-                </>
-              )}
-              {dimension === 'test' && (
-                <div className="hint">
-                  <FlaskConical size={12} style={{ display: 'inline', verticalAlign: '-1px' }} />
-                  {' '}AI 基于 PRD 验收标准 + 测试仓库存量用例生成用例,人审后执行
-                </div>
-              )}
-              {dimension === 'release' && (
-                <div className="field">
-                  <label>部署端口(10000-10099,全平台唯一)</label>
-                  <input className="input" type="number" value={deployPort} onChange={(e) => setDeployPort(e.target.value)} placeholder="10042" />
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={close}>取消</Button>
-          <Button
-            variant="primary"
-            disabled={!canSubmit}
-            onClick={() => { setErrorMsg(null); mutation.mutate() }}
-          >
-            {mutation.isPending ? '创建中…' : QUICK_DIALOG_NAME[dimension]}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 // ---- R1.F1:需求维完整创建对话框(表单结构照抄 RequirementList 创建 dialog) ----
 // 与项目详情页差异:①保留项目选择器(manage 跨项目入口)②关联用户按 activePid 动态加载
 // ③提交走 requirementsApi.create(activePid, payload),成功后跳需求详情页
@@ -578,7 +418,7 @@ function RequirementCreateDialog({ open, onClose }: RequirementCreateDialogProps
 
   const { data: projData } = useProjectList({ status: 'active', page: 1, page_size: 100 })
   const projects = projData?.items ?? []
-  // 项目默认选中:列表首个(与 QuickCreateDialog 兜底一致)
+  // 项目默认选中:列表首个
   const activePid = pid || projects[0]?.project_id || ''
 
   // 关联用户候选 = 选中项目成员全量(≤50;切换项目即换候选)
@@ -641,7 +481,7 @@ function RequirementCreateDialog({ open, onClose }: RequirementCreateDialogProps
     onSuccess: (reqId: string) => {
       queryClient.invalidateQueries({ queryKey: ['dimension'] })
       close()
-      // 创建成功跳详情页(与 QuickCreateDialog 跳转一致)
+      // 创建成功跳详情页
       navigate(`/requirements/${reqId}`)
     },
     onError: (err: Error) => {
@@ -848,6 +688,461 @@ function RequirementCreateDialog({ open, onClose }: RequirementCreateDialogProps
             onClick={handleSubmit}
           >
             {mutation.isPending ? '创建中…' : '创建'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---- R2.F1:需求维编辑对话框(表单样式复用 RequirementCreateDialog;不含项目/需求分支/PRD 路径) ----
+// 语义要点:PATCH 缺省 delivery_date 即置 NULL → 恒传回填值,防静默清空;
+// 评审中:后端对 title/description 一律 400 → 前置禁用输入,提交不带这两字段
+
+interface RequirementEditDialogProps {
+  item: DimensionItem
+  onClose: () => void
+}
+
+function RequirementEditDialog({ item, onClose }: RequirementEditDialogProps) {
+  const queryClient = useQueryClient()
+  const [formData, setFormData] = useState(emptyRequirementForm)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  // 详情到达只回填一次(refetch 不覆盖编辑中表单)
+  const [filledReqId, setFilledReqId] = useState('')
+
+  const { data: detail } = useRequirementDetail(item.key)
+  // 关联用户候选 = 所属项目成员全量(与创建弹窗同源)
+  const { data: membersData } = useProjectMembers(item.project.project_id)
+  const members = membersData?.items ?? []
+  const reviewing = detail?.status === 'reviewing'
+
+  useEffect(() => {
+    if (detail && detail.req_id !== filledReqId) {
+      setFilledReqId(detail.req_id)
+      setFormData({
+        ...emptyRequirementForm(),
+        title: detail.title,
+        background: detail.background || '',
+        description: detail.description || '',
+        acceptance_criteria: detail.acceptance_criteria || '',
+        priority: detail.priority,
+        delivery_date: detail.delivery_date || '',
+        related_user_ids: detail.related_user_ids ? [...detail.related_user_ids] : [],
+        prototype_links: (detail.prototype_links || []).map((l) => ({ label: l.label || '', url: l.url })),
+      })
+    }
+  }, [detail, filledReqId])
+
+  // 原型链接行操作(追加/删除/编辑,与创建弹窗同逻辑)
+  function addPrototypeLink() {
+    setFormData((f) => ({
+      ...f,
+      prototype_links: [...f.prototype_links, { label: '', url: '' }],
+    }))
+  }
+  function removePrototypeLink(idx: number) {
+    setFormData((f) => ({
+      ...f,
+      prototype_links: f.prototype_links.filter((_, i) => i !== idx),
+    }))
+  }
+  function updatePrototypeLink(idx: number, patch: Partial<PrototypeLinkDraft>) {
+    setFormData((f) => ({
+      ...f,
+      prototype_links: f.prototype_links.map((row, i) => (i === idx ? { ...row, ...patch } : row)),
+    }))
+  }
+
+  const close = () => {
+    setFormData(emptyRequirementForm())
+    setFilledReqId('')
+    setErrorMsg(null)
+    onClose()
+  }
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const payload: UpdateRequirementRequest = {
+        background: formData.background.trim(),
+        acceptance_criteria: formData.acceptance_criteria.trim(),
+        priority: formData.priority,
+        // 恒传:PATCH 缺省 delivery_date 即置 NULL,不传会静默清空交付时间
+        delivery_date: formData.delivery_date || null,
+        related_user_ids: formData.related_user_ids, // 空数组照传(全量覆盖口径)
+        prototype_links: formData.prototype_links
+          .filter((row) => row.label.trim() !== '' || row.url.trim() !== '')
+          .map((row) => ({
+            label: row.label.trim() || null,
+            url: row.url.trim(),
+          })),
+      }
+      if (reviewing) {
+        // 评审中:后端对 title/description 一律 400(值未变也拒),缺省 = 不动
+      } else {
+        payload.title = formData.title.trim()
+        payload.description = formData.description.trim()
+      }
+      return requirementsApi.update(item.key, payload).then((r) => r.data)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dimension'] })
+      queryClient.invalidateQueries({ queryKey: ['requirement', item.key] })
+      close()
+    },
+    onError: (err: Error) => {
+      setErrorMsg(err?.message || '保存失败')
+    },
+  })
+
+  function handleSubmit() {
+    if (!formData.title.trim() || !formData.description.trim()) {
+      setErrorMsg('标题和描述为必填项')
+      return
+    }
+    // URL 行内校验(与创建弹窗同口径)
+    if (formData.prototype_links.some(isPrototypeLinkRowError)) {
+      setErrorMsg('URL 需以 http(s):// 开头')
+      return
+    }
+    setErrorMsg(null)
+    mutation.mutate()
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) close() }}>
+      <DialogContent onClose={close}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Pencil size={16} /> 编辑需求</DialogTitle>
+        </DialogHeader>
+
+        {errorMsg && <Alert variant="error" onClose={() => setErrorMsg(null)}>{errorMsg}</Alert>}
+        {!detail && <div className="hint">加载需求详情...</div>}
+
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">
+              标题 <span className="text-red-fg">*</span>
+            </label>
+            <Input
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              maxLength={128}
+              disabled={reviewing}
+              placeholder="输入需求标题"
+            />
+            {/* 需求分支/PRD 路径创建后绑定,不可修改,编辑弹窗不出现 */}
+            {reviewing && (
+              <div className="hint">评审中需求不可修改标题与描述;如需调整请先结束评审</div>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">背景</label>
+            <Textarea
+              value={formData.background}
+              onChange={(e) => setFormData({ ...formData, background: e.target.value })}
+              placeholder="需求背景(可选)"
+              rows={2}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">
+              描述 <span className="text-red-fg">*</span>
+            </label>
+            <Textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="详细描述需求内容"
+              rows={3}
+              disabled={reviewing}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">验收标准</label>
+            <Textarea
+              value={formData.acceptance_criteria}
+              onChange={(e) => setFormData({ ...formData, acceptance_criteria: e.target.value })}
+              placeholder="验收标准(可选)"
+              rows={2}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">优先级</label>
+            <Select
+              value={formData.priority}
+              onChange={(e) => setFormData({ ...formData, priority: (e.target.value as RequirementPriority) })}
+              options={[
+                { label: '低', value: 'low' },
+                { label: '中', value: 'medium' },
+                { label: '高', value: 'high' },
+              ]}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">
+              交付时间 <span className="text-xs font-normal text-text-muted">(可选)</span>
+            </label>
+            <Input
+              type="date"
+              value={formData.delivery_date}
+              onChange={(e) => setFormData({ ...formData, delivery_date: e.target.value })}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">
+              关联用户 <span className="text-xs font-normal text-text-muted">(可选)</span>
+            </label>
+            <RelatedUserSelect
+              members={members}
+              value={formData.related_user_ids}
+              onChange={(ids) => setFormData({ ...formData, related_user_ids: ids })}
+            />
+          </div>
+          {/* 原型链接行组(与创建弹窗同结构:标签可选 + URL 必填;≤10 条) */}
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">
+              原型链接 <span className="text-xs font-normal text-text-muted">(可选)</span>
+            </label>
+            <div className="space-y-2">
+              {formData.prototype_links.map((row, idx) => {
+                const rowError = isPrototypeLinkRowError(row)
+                return (
+                  <div key={idx} className="flex items-start gap-2">
+                    <Input
+                      value={row.label}
+                      onChange={(e) => updatePrototypeLink(idx, { label: e.target.value })}
+                      placeholder="链接标签(可选)"
+                      maxLength={20}
+                      className="w-40 shrink-0"
+                      aria-label={`链接 ${idx + 1} 标签`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <Input
+                        value={row.url}
+                        onChange={(e) => updatePrototypeLink(idx, { url: e.target.value })}
+                        placeholder="URL"
+                        className={rowError ? 'border-red-border' : undefined}
+                        aria-label={`链接 ${idx + 1} URL`}
+                      />
+                      {rowError && (
+                        <div className="mt-1 text-xs text-red-fg">URL 需以 http(s):// 开头</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost icon-btn shrink-0"
+                      title="删除"
+                      aria-label={`删除链接 ${idx + 1}`}
+                      onClick={() => removePrototypeLink(idx)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={addPrototypeLink}
+                disabled={formData.prototype_links.length >= MAX_PROTOTYPE_LINKS}
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                添加链接
+              </Button>
+              {formData.prototype_links.length >= MAX_PROTOTYPE_LINKS && (
+                <span className="text-xs text-text-muted">最多 10 条</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={close}>取消</Button>
+          <Button
+            variant="primary"
+            disabled={mutation.isPending || !detail}
+            onClick={handleSubmit}
+          >
+            {mutation.isPending ? '保存中…' : '保存'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---- R2.F2:任务三维编辑对话框(按 type 出字段;不含需求选择/类型/状态) ----
+// 入口已挡非 pending 行(按钮禁用);后端状态守卫 400 兜底
+
+interface TaskEditDialogProps {
+  item: DimensionItem
+  onClose: () => void
+}
+
+function TaskEditDialog({ item, onClose }: TaskEditDialogProps) {
+  const [form, setForm] = useState({
+    title: '', description: '', base_branch: '', work_branch: '',
+    deploy_host: '', deploy_port: '', deploy_script: '',
+  })
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [filledTaskId, setFilledTaskId] = useState('')
+
+  // 详情到达即回填(仅一次;详情 5s 轮询不覆盖编辑中表单)
+  const { data: detail } = useTaskDetail(item.key)
+  useEffect(() => {
+    if (detail && detail.task_id !== filledTaskId) {
+      setFilledTaskId(detail.task_id)
+      setForm({
+        title: detail.title,
+        description: detail.description || '',
+        base_branch: detail.base_branch || '',
+        work_branch: detail.work_branch || '',
+        deploy_host: detail.deploy_host || '',
+        deploy_port: detail.deploy_port != null ? String(detail.deploy_port) : '',
+        deploy_script: detail.deploy_script || '',
+      })
+    }
+  }, [detail, filledTaskId])
+
+  const updateMutation = useUpdateTask()
+  const taskType = detail?.type || item.type || ''
+  const typeLabel = TYPE_BADGE[taskType]?.label || '任务'
+
+  const close = () => {
+    setFilledTaskId('')
+    setErrorMsg(null)
+    onClose()
+  }
+
+  function handleSubmit() {
+    if (!form.title.trim()) {
+      setErrorMsg('标题为必填项')
+      return
+    }
+    const payload: UpdateTaskPayload = {
+      title: form.title.trim(),
+      description: form.description.trim(),
+    }
+    if (taskType === 'dev') {
+      payload.base_branch = form.base_branch.trim()
+      payload.work_branch = form.work_branch.trim()
+    }
+    if (taskType === 'release') {
+      if (!/^(100\d{2})$/.test(form.deploy_port)) {
+        setErrorMsg('部署端口需为 10000-10099')
+        return
+      }
+      payload.deploy_host = form.deploy_host.trim()
+      payload.deploy_port = Number(form.deploy_port)
+      payload.deploy_script = form.deploy_script
+    }
+    setErrorMsg(null)
+    updateMutation.mutate(
+      { taskId: item.key, payload },
+      {
+        // useUpdateTask 已失效 task 详情 + 四维列表缓存
+        onSuccess: close,
+        onError: (err: Error) => setErrorMsg(err?.message || '保存失败'),
+      },
+    )
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) close() }}>
+      <DialogContent onClose={close} className="w-[440px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Pencil size={16} /> 编辑{typeLabel}任务</DialogTitle>
+        </DialogHeader>
+
+        {errorMsg && <Alert variant="error" onClose={() => setErrorMsg(null)}>{errorMsg}</Alert>}
+        {!detail && <div className="hint">加载任务详情...</div>}
+
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">
+              标题 <span className="text-red-fg">*</span>
+            </label>
+            <Input
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              maxLength={128}
+              placeholder="任务标题"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">描述</label>
+            <Textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="本次要做什么(可选)"
+              rows={3}
+              maxLength={2000}
+            />
+          </div>
+          {/* dev 维:分支两项;test 维:仅标题/描述 */}
+          {taskType === 'dev' && (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <label className="block text-sm font-medium text-text">基础分支(base_branch)</label>
+                <Input
+                  value={form.base_branch}
+                  onChange={(e) => setForm({ ...form, base_branch: e.target.value })}
+                  maxLength={64}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="block text-sm font-medium text-text">工作分支(work_branch)</label>
+                <Input
+                  value={form.work_branch}
+                  onChange={(e) => setForm({ ...form, work_branch: e.target.value })}
+                  maxLength={64}
+                />
+              </div>
+            </>
+          )}
+          {/* release 维:部署三项(端口冲突由后端 7001 校验,错误行内展示) */}
+          {taskType === 'release' && (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <label className="block text-sm font-medium text-text">部署主机(deploy_host)</label>
+                <Input
+                  value={form.deploy_host}
+                  onChange={(e) => setForm({ ...form, deploy_host: e.target.value })}
+                  maxLength={253}
+                  placeholder="不含协议与路径"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="block text-sm font-medium text-text">部署端口(deploy_port,10000-10099 全平台唯一)</label>
+                <Input
+                  type="number"
+                  value={form.deploy_port}
+                  onChange={(e) => setForm({ ...form, deploy_port: e.target.value })}
+                  placeholder="10042"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="block text-sm font-medium text-text">部署脚本(deploy_script)</label>
+                <Textarea
+                  value={form.deploy_script}
+                  onChange={(e) => setForm({ ...form, deploy_script: e.target.value })}
+                  rows={3}
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={close}>取消</Button>
+          <Button
+            variant="primary"
+            disabled={updateMutation.isPending || !detail}
+            onClick={handleSubmit}
+          >
+            {updateMutation.isPending ? '保存中…' : '保存'}
           </Button>
         </DialogFooter>
       </DialogContent>
