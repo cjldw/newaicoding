@@ -1,6 +1,6 @@
 # BUGS.md — 活跃问题清单
 
-> 项目:需求原型链接与交付时间 | 更新:2026-09-27(BUG-011 verified 已迁移)
+> 项目:需求原型链接与交付时间 | 更新:2026-09-27(BUG-013 verified 已迁移)(BUG-011 verified 已迁移)
 > 状态流转:open → fixed → verified(verified 后迁移至 ISSUES.md)
 
 | BUG | 状态 | 关联需求点 | 类型 | 来源 | 摘要 |
@@ -27,3 +27,4 @@
 - **根因**:筛选项值 `deployed` 不在 Task.status 枚举;实际落库为 status='done' + extended_attributes.deploy_phase='deployed';dashboard_views.py:146 是裸 `Task.status == status` 等值过滤
 - **修复方案**:候补——①筛选项改值/映射为 done+deploy_phase 复合条件;或 ②移除该筛选项。需用户定夺口径
 - **涉及文件**:frontend/src/pages/manage/ManagePages.tsx(:38-41)、backend/app/services/dashboard_views.py(:146)
+

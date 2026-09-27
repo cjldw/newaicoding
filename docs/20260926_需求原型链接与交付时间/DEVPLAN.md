@@ -1,7 +1,7 @@
 # DEVPLAN:需求原型链接与交付时间
 
 > 创建日期:2026-09-26
-> 当前进度:BUG-011(删除操作)回归 verified 已迁移;BUGS.md 仅剩 BUG-010(低危测试基建)与 BUG-012(发布页「已部署」筛选失效)待用户定夺(2026-09-27)
+> 当前进度:R2/R4/R5 三轮全部闭环(BUG-007~011、013 verified 归档);BUGS.md 仅剩待定夺项:BUG-010(低危测试基建)、BUG-012(发布页「已部署」筛选失效)(2026-09-27)
 
 ## 需求点清单
 
@@ -15,6 +15,7 @@
 | R2.F3 | requirements cancel 端点权限协程未 await(回归轮新发现) | BUG-009 | ✅ | ./DEVPLAN/R2.F3.md |
 | R4.F1 | 需求列表「删除」+ 后端 DELETE /api/requirements/{req_id}(owner/状态/关联三级守卫) | BUG-011 | ✅ | ./DEVPLAN/R4.F1.md |
 | R4.F2 | 任务三维列表「删除」+ 后端 DELETE /api/tasks/{task_id}(pending 严档守卫) | BUG-011 | ✅ | ./DEVPLAN/R4.F2.md |
+| R5.F1 | 项目详情页需求列表(/projects/{pid})编辑+删除(纯前端,复用 R2/R4 后端) | BUG-013 | ✅ | ./DEVPLAN/R5.F1.md |
 
 ## 实施记录
 
@@ -34,3 +35,5 @@
 | 2026-09-27 | 新增 R2.F3 修复 BUG-009(补 await 1 行 + 2 用例 Red→Green,4 文件串行 31 passed,RuntimeWarning 清零),verified 迁移 ISSUES.md;顺带发现 BUG-010(conftest 迁移回退未 await,低危测试基建)留 BUGS.md 待定夺 | rd-fix 循环 |
 | 2026-09-27 | 新增 R4.F1/R4.F2 修复 BUG-011(四维删除操作 + 关联守卫);分析发现发布页「已部署」筛选用了不存在的状态值,登记 BUG-012 | 用户指令 |
 | 2026-09-27 | BUG-011 回归 verified(串行 12 文件 80 passed、tsc 零错误、API 抽查 19/19、BUG-012 未触碰,见 .scratch/regression-R4.md),迁移 ISSUES.md;删除轮修复完成 | rd-fix 回归轮 |
+| 2026-09-27 | 新增 R5.F1 修复 BUG-013(项目详情页需求列表编辑/删除,纯前端) | 用户指令 |
+| 2026-09-27 | R5.F1 完成:抽取 RequirementEditDialog 共享组件(DimensionPage −291/+13 改 import,RequirementList +107),tsc 零错误、后端 14 passed、ui-check 含两页语义一致性;BUG-013 verified 迁移 ISSUES.md | rd-fix 循环 |

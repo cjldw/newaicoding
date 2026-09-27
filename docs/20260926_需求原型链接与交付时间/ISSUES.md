@@ -161,3 +161,16 @@
 - **涉及文件**:backend/app/api/requirements.py、backend/app/api/tasks.py、frontend/src/pages/manage/DimensionPage.tsx、frontend/src/api/requirements.ts、frontend/src/api/tasks.ts(以分析为准)
 
 | BUG-012 | open | 待定(R4.F3?) | UI 缺陷(存量) | rd-fix 删除分析顺带发现 2026-09-27 | 发布维状态筛选项「已部署」用了不存在的 `deployed` 状态值(ManagePages.tsx:38-41),而 Task.status 枚举无此值——部署成功实际写 done+deploy_phase=deployed(task_service.py:1075-1077),dashboard_views.py:146 裸等值过滤,选「已部署」永远查不到行 |
+
+| BUG-013 | verified | R5.F1(项目详情页需求列表编辑/删除) | 功能缺口 | 用户指令 2026-09-27 | 项目详情页(/projects/{pid})需求行补「编辑」「删除」;抽取 RequirementEditDialog 共享组件,manage 四维与项目维两页物理共用同一弹窗(2026-09-27 verified:tsc 零错误、后端 14 passed、ui-check 含两页语义一致性) |
+
+## BUG-013
+
+- **状态**:open
+- **关联需求点**:R5.F1(项目详情页需求列表编辑/删除)
+- **严重程度**:一般(功能缺口;与 BUG-007/011 同族,manage 维已修,项目维未同步)
+- **复现步骤**:访问 /projects/{pid} 需求列表 → 行内无编辑/删除操作
+- **期望 vs 实际**:期望行内操作列有「编辑」「删除」,口径与 manage 四维一致;实际无任何操作入口
+- **根因**:R2.F1/R4.F1 只改造了 DimensionPage(manage 四维),项目详情页 RequirementList.tsx 未同步
+- **修复方案**:见 DEVPLAN/R5.F1.md;后端零改动
+- **涉及文件**:frontend/src/pages/requirements/RequirementList.tsx(主)、DimensionPage.tsx(若抽共享组件)

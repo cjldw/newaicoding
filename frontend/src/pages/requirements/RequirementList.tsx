@@ -1,18 +1,23 @@
 /**
  * RequirementList — 需求列表页
  * 标题"需求" + 主按钮"新建需求" + 表格 + 分页 + 空态 + 创建对话框
+ * R5.F1:需求行操作列新增「编辑」(共享 RequirementEditDialog)+「删除」(确认弹窗),
+ * 与 manage 四维(DimensionPage)同口径;权限恒显,后端 403/400 兜底
  */
 
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Plus, Eye, ClipboardList, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Select } from '@/components/ui/Select'
+import { Alert } from '@/components/ui/Alert'
 import { useProjectMembers } from '@/api/projects'
 import { RelatedUserSelect } from '@/pages/requirements/RelatedUserSelect'
+import { RequirementEditDialog } from './RequirementEditDialog'
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from '@/components/ui/Table'
@@ -22,9 +27,9 @@ import {
 } from '@/components/ui/Dialog'
 import { useDebounce } from '@/hooks/useDebounce'
 import {
-  useRequirementList, useCreateRequirement, useBranchPreview, getRequirementErrorMessage,
+  useRequirementList, useCreateRequirement, useBranchPreview, useDeleteRequirement, getRequirementErrorMessage,
 } from '@/api/requirements'
-import type { RequirementStatus, RequirementPriority } from '@/api/requirements'
+import type { RequirementListItem, RequirementStatus, RequirementPriority } from '@/api/requirements'
 
 // R4:原型链接约束(PRD:label ≤20 可空 / url http(s):// 开头 / 最多 10 条;行内红字文案照分片)
 const MAX_PROTOTYPE_LINKS = 10
@@ -49,6 +54,10 @@ const statusMap: Record<RequirementStatus, { label: string; variant: 'outline' |
   archived: { label: '已归档', variant: 'outline' },
   rejected: { label: '已取消', variant: 'error' },
 }
+
+// R5.F1:需求禁删状态集合 = 评审通过(approved)及之后的下游链路(已产生交付数据);
+// 与 manage 四维(DimensionPage)同口径;关联任务前端列表无此数据,删除按钮不因此禁用,后端 400 兜底
+const REQ_NO_DELETE_STATUSES = ['approved', 'in_progress', 'done', 'archived']
 
 // 优先级徽章映射
 const priorityMap: Record<RequirementPriority, { label: string; variant: 'outline' | 'secondary' | 'primary' }> = {
@@ -76,11 +85,39 @@ function isDeliveryOverdue(deliveryDate: string, status: RequirementStatus): boo
 export function RequirementList() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const { data, isLoading } = useRequirementList(projectId ?? '', { page, page_size: 10 })
   const createRequirement = useCreateRequirement()
+  // R5.F1:行内删除(确认弹窗;失败后端 message 用 Alert 展示,与 manage 四维同口径)
+  const deleteRequirementMutation = useDeleteRequirement()
 
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  // R5.F1:行内编辑/删除入口(编辑弹窗用共享 RequirementEditDialog)
+  const [editItem, setEditItem] = useState<RequirementListItem | null>(null)
+  const [deleteItem, setDeleteItem] = useState<RequirementListItem | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const closeDelete = () => {
+    setDeleteItem(null)
+    setDeleteError(null)
+  }
+
+  const handleDelete = () => {
+    if (!deleteItem) return
+    setDeleteError(null)
+    deleteRequirementMutation.mutate(
+      { reqId: deleteItem.req_id },
+      {
+        onSuccess: () => {
+          // useDeleteRequirement 已失效四维列表/需求详情;项目维需求列表(['requirements'])在此补失效
+          queryClient.invalidateQueries({ queryKey: ['requirements'] })
+          closeDelete()
+        },
+        onError: (err: Error) => setDeleteError(err?.message || '删除失败'),
+      },
+    )
+  }
   const [formData, setFormData] = useState({
     title: '',
     background: '',
@@ -215,7 +252,7 @@ export function RequirementList() {
                 <TableHead>创建人</TableHead>
                 <TableHead>创建时间</TableHead>
                 <TableHead>交付时间</TableHead>
-                <TableHead className="ops w-[80px]">操作</TableHead>
+                <TableHead className="ops w-[150px]">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -253,13 +290,34 @@ export function RequirementList() {
                       )}
                     </TableCell>
                     <TableCell className="ops">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => navigate(`/requirements/${item.req_id}`)}
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {/* R5.F1:「编辑」(样式对齐 manage 四维;stopPropagation 防触发行跳转;
+                            权限恒显——项目详情页角色前端不可靠,后端 403 兜底) */}
+                        <button
+                          className="btn btn-sm"
+                          title="编辑"
+                          onClick={(e) => { e.stopPropagation(); setEditItem(item) }}
+                        >
+                          编辑
+                        </button>
+                        {/* R5.F1:「删除」(danger;禁删=评审通过及之后 + title;
+                            关联任务前端不可知,后端 400 兜底) */}
+                        <button
+                          className="btn btn-sm btn-danger"
+                          disabled={REQ_NO_DELETE_STATUSES.includes(item.status)}
+                          title={REQ_NO_DELETE_STATUSES.includes(item.status) ? '评审通过的需求不可删除' : '删除'}
+                          onClick={(e) => { e.stopPropagation(); setDeleteError(null); setDeleteItem(item) }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => navigate(`/requirements/${item.req_id}`)}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 )
@@ -462,6 +520,36 @@ export function RequirementList() {
               disabled={createRequirement.isPending}
             >
               {createRequirement.isPending ? '创建中...' : '创建'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* R5.F1:行内编辑弹窗(共享 RequirementEditDialog,与 manage 四维同逻辑同款:
+          恒传 delivery_date、评审中禁 title/description、不含分支/PRD 项) */}
+      {editItem && (
+        <RequirementEditDialog
+          reqId={editItem.req_id}
+          projectId={projectId ?? ''}
+          onClose={() => setEditItem(null)}
+        />
+      )}
+
+      {/* R5.F1:删除确认弹窗(照 manage 四维/ModelConfigManagement 惯例:
+          标题 + 含需求标题正文 + 危险操作提示;失败 Alert 展示后端 message) */}
+      <Dialog open={!!deleteItem} onOpenChange={(o) => { if (!o) closeDelete() }}>
+        <DialogContent onClose={closeDelete}>
+          <DialogHeader>
+            <DialogTitle>删除需求</DialogTitle>
+            <DialogDescription>
+              确定删除需求「{deleteItem?.title}」吗?该操作不可恢复。
+            </DialogDescription>
+          </DialogHeader>
+          {deleteError && <Alert variant="error" onClose={() => setDeleteError(null)}>{deleteError}</Alert>}
+          <DialogFooter>
+            <Button variant="ghost" onClick={closeDelete}>取消</Button>
+            <Button variant="danger" disabled={deleteRequirementMutation.isPending} onClick={handleDelete}>
+              {deleteRequirementMutation.isPending ? '删除中…' : '确定'}
             </Button>
           </DialogFooter>
         </DialogContent>
