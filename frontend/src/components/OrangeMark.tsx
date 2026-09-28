@@ -1,42 +1,40 @@
 /**
- * OrangeMark — 品牌 Logo「旗橙」:一颗橙子(用户定案 2026-09-24,替代原三段升旗)
- * 设计:橙色渐变果身 + 高光 + 绿叶短梗;viewBox 32×32,尺寸由 size 控制。
- * 说明:侧栏深色方块底(.logo-mark 容器提供)与登录/认证页白底均适配 ——
- * 橙子主体为亮橙色,在深/浅底上对比度都足够。
+ * OrangeMark — 品牌 Logo「旗橙」:橙子 + 三角小旗(2026-09-27 重绘)
+ * 设计:橙色渐变果身 + 沿球面弧线的弯月高光;果顶短梗作旗杆,橙渐变三角小旗
+ *       向右上展开,呼应品牌名「旗」字;去掉旧版果皮噪点/蒂凹,14px 小尺寸依然干净。
+ * viewBox 32×32,尺寸由 size 控制;深色方块底(侧栏/认证页/favicon)与
+ * 浅色圆底(对话头像)均适配 —— 果身亮橙,深/浅底对比度都足够。
  */
 
 export function OrangeMark({ size = 17 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden style={{ display: 'block' }}>
-      {/* 果身:橙子(径向渐变,左上受光) */}
       <defs>
-        <radialGradient id="orangeBody" cx="38%" cy="34%" r="72%">
+        <radialGradient id="orangeBody" cx="38%" cy="32%" r="78%">
           <stop offset="0%" stopColor="#fdba74" />
           <stop offset="55%" stopColor="#f97316" />
           <stop offset="100%" stopColor="#ea580c" />
         </radialGradient>
+        <linearGradient id="flagWing" x1="0" y1="0" x2="1" y2="0.2">
+          <stop offset="0%" stopColor="#fdba74" />
+          <stop offset="100%" stopColor="#f97316" />
+        </linearGradient>
       </defs>
-      <circle cx="16" cy="18.5" r="11" fill="url(#orangeBody)" />
-      {/* 果蒂凹点 */}
-      <ellipse cx="16" cy="8.6" rx="1.8" ry="1.1" fill="#c2410c" opacity="0.55" />
-      {/* 短梗 */}
-      <rect x="15.3" y="5.2" width="1.4" height="3.4" rx="0.7" fill="#92400e" />
-      {/* 叶:向右上方舒展 */}
+      {/* 果身:橙子(径向渐变,左上受光) */}
+      <circle cx="16" cy="18.6" r="9.6" fill="url(#orangeBody)" />
+      {/* 弯月高光:沿球面左上弧线,圆头端点 */}
       <path
-        d="M17 6.6 C20.4 4.2 24.4 4.4 26.6 5.6 C25 8.6 20.6 9.6 17.6 8.2 Z"
-        fill="#16a34a"
+        d="M 8.95 16.04 A 7.5 7.5 0 0 1 13.44 11.55"
+        stroke="#ffffff"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.32"
       />
-      <path d="M17.9 6.9 C20.6 5.9 23.2 5.8 25.3 6.2" stroke="#15803d" strokeWidth="0.6" fill="none" opacity="0.7" />
-      {/* 高光 */}
-      <ellipse cx="11.6" cy="15" rx="2.4" ry="3.4" fill="#ffffff" opacity="0.35" transform="rotate(-24 11.6 15)" />
-      {/* 橙皮质感点 */}
-      <g fill="#c2410c" opacity="0.28">
-        <circle cx="19.5" cy="15.5" r="0.5" />
-        <circle cx="21" cy="19" r="0.5" />
-        <circle cx="18" cy="23" r="0.5" />
-        <circle cx="13.5" cy="24" r="0.5" />
-        <circle cx="12" cy="20" r="0.5" />
-      </g>
+      {/* 旗杆:短梗插入果顶 */}
+      <rect x="15.45" y="3.8" width="1.3" height="5.6" rx="0.65" fill="#c2410c" />
+      {/* 三角小旗:向右上展开(品牌「旗」字) */}
+      <path d="M16.75 3.9 L25.6 6.1 L16.75 8.3 Z" fill="url(#flagWing)" />
     </svg>
   )
 }

@@ -589,11 +589,11 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
       <span>{me?.nickname || '我'}</span>
     </>
   )
-  // AI 侧:OrangeMark 14px(20px 圆面底)+「旗橙 AI」,身份固定
+  // AI 侧:OrangeMark 14px(20px 品牌深色圆底,与侧栏/favicon 同识别,2026-09-27 logo 重绘)+「旗橙 AI」,身份固定
   const aiHead = (
     <>
       <span
-        className="shrink-0 w-5 h-5 rounded-full bg-surface-strong border border-border flex items-center justify-center"
+        className="shrink-0 w-5 h-5 rounded-full bg-[#18181B] flex items-center justify-center"
         title="旗橙 AI"
       >
         <OrangeMark size={14} />

@@ -22,7 +22,7 @@ import { useTheme } from '@/hooks/useTheme'
 
 import { OrangeMark } from '@/components/OrangeMark'
 
-// 品牌 Logo「旗橙」:橙子图标(OrangeMark);侧栏深色方块底由 .logo-mark 容器提供
+// 品牌 Logo「旗橙」:橙子 + 三角小旗(OrangeMark);侧栏深色方块底由 .logo-mark 容器提供
 
 interface NavItem {
   to: string
