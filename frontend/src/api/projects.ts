@@ -593,3 +593,75 @@ export function useResolvableModelConfig(projectId: string) {
     enabled: !!projectId,
   })
 }
+
+// ---- 项目概览(R2:消费 R1 summary 接口) ----
+export interface ProjectOverviewTokens {
+  total: number
+  in: number
+  out: number
+  by_type: Record<string, number>
+}
+
+export interface ProjectOverviewRecent7d {
+  requirements_created: number
+  requirements_completed: number
+  tasks_created: number
+  tasks_completed: number
+}
+
+export interface ProjectOverviewLatestRelease {
+  title: string
+  branch: string
+  status: string
+  preview_url?: string
+  updated_at?: string
+}
+
+export interface ProjectOverviewRequirement {
+  req_id: string
+  title: string
+  status: string
+  priority?: string
+  delivery_date?: string | null
+  updated_at: string
+}
+
+export interface ProjectOverviewTask {
+  task_id: string
+  title: string
+  status: string
+  type: string
+  updated_at: string
+  finished_at?: string | null
+}
+
+export interface ProjectOverviewDimension {
+  total: number
+  by_status: Record<string, number>
+  active: number
+  polish_tasks?: number
+}
+
+export interface ProjectOverview {
+  requirements: ProjectOverviewDimension
+  dev_tasks: ProjectOverviewDimension
+  test_tasks: ProjectOverviewDimension
+  release_tasks: ProjectOverviewDimension
+  tokens: ProjectOverviewTokens
+  recent_7d: ProjectOverviewRecent7d
+  latest_release: ProjectOverviewLatestRelease | null
+  recent_requirements: ProjectOverviewRequirement[]
+  recent_tasks: ProjectOverviewTask[]
+}
+
+export function useProjectOverview(projectId: string) {
+  return useQuery({
+    queryKey: ['project-overview', projectId],
+    queryFn: async () => {
+      const res = await api.get<ProjectOverview>(`/projects/${projectId}/summary`)
+      return res.data
+    },
+    enabled: !!projectId,
+    refetchInterval: 15_000,
+  })
+}

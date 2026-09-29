@@ -21,6 +21,7 @@ import { McpConfigManagement } from './McpConfigManagement'
 import { SkillsManagement } from './SkillsManagement'
 import { RequirementList } from '../requirements/RequirementList'
 import { ProjectTaskList } from './ProjectTaskList'
+import { ProjectOverview } from './ProjectOverview'
 
 const statusMap: Record<string, { label: string; variant: 'success' | 'default' | 'error' }> = {
   active: { label: '活跃', variant: 'success' },
@@ -29,6 +30,7 @@ const statusMap: Record<string, { label: string; variant: 'success' | 'default' 
 }
 
 const tabs = [
+  { key: 'overview', label: '概览', disabled: false },
   { key: 'requirements', label: '需求', disabled: false },
   { key: 'tasks', label: '任务', disabled: false },
   { key: 'repos', label: '仓库', disabled: false },
@@ -48,7 +50,7 @@ export function ProjectDetail() {
   const [confirmDialog, setConfirmDialog] = useState<'delete' | 'archive' | null>(null)
   const [settingsTab, setSettingsTab] = useState<'mcp' | 'skills' | 'model'>('mcp')
 
-  const activeTab = searchParams.get('tab') ?? 'requirements'
+  const activeTab = searchParams.get('tab') ?? 'overview'
   const st = project ? (statusMap[project.status] ?? statusMap.active) : statusMap.active
 
   function handleConfirm() {
@@ -137,6 +139,7 @@ export function ProjectDetail() {
       </div>
 
       {/* Tab 内容 */}
+      {activeTab === 'overview' && <ProjectOverview />}
       {activeTab === 'requirements' && <RequirementList />}
       {activeTab === 'tasks' && <ProjectTaskList projectId={project.project_id} />}
       {activeTab === 'repos' && <RepoManagement projectId={project.project_id} />}
@@ -169,7 +172,7 @@ export function ProjectDetail() {
           {settingsTab === 'model' && <ModelConfigManagement projectId={project.project_id} />}
         </div>
       )}
-      {activeTab !== 'requirements' && activeTab !== 'repos' && activeTab !== 'members' && activeTab !== 'settings' && (
+      {activeTab !== 'overview' && activeTab !== 'requirements' && activeTab !== 'repos' && activeTab !== 'members' && activeTab !== 'settings' && (
         <div className="text-center py-12 text-text-muted">
           该功能暂未开放
         </div>

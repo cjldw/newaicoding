@@ -17,6 +17,7 @@ import {
   type NotificationLevel, type NotificationItem,
 } from '@/api/notifications'
 import { useToast } from '@/hooks/useToast'
+import { timeAgo } from '@/utils/format'
 
 /** Tab 定义 */
 const TABS: { key: NotificationLevel | 'all'; label: string }[] = [
@@ -33,21 +34,6 @@ function levelBadgeCls(level: NotificationLevel): string {
     case 'normal': return 'bdg b-blue'
     case 'info': return 'bdg b-zinc'
   }
-}
-
-/** 相对时间 */
-function timeAgo(dateStr: string): string {
-  const d = new Date(dateStr)
-  const now = Date.now()
-  const diff = now - d.getTime()
-  const mins = Math.floor(diff / 60_000)
-  if (mins < 1) return '刚刚'
-  if (mins < 60) return `${mins} 分钟前`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours} 小时前`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${days} 天前`
-  return d.toLocaleDateString('zh-CN')
 }
 
 const PAGE_SIZE = 20
