@@ -21,13 +21,14 @@
 
 ## 当前进度
 
-**当前进度: 2/3 (67%) - R1/R2 完成(已提交 f21b70c),R3 待开发**
+**当前进度: 3/3 + 修复 1/1 - R3.F1 已完成(BUG-001 fixed,verified 待 rd-test,commit 待用户确认)**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
 | R1 | 项目聚合统计接口 GET /projects/{id}/summary | M1 后端 | ✅ | ./DEVPLAN/R1.md |
 | R2 | 概览 Tab(统计区 + 四维区块 + 最近列表) | M2 前端 | ✅ | ./DEVPLAN/R2.md |
-| R3 | Tab 架构调整(概览\|需求\|任务\|管理) | M2 前端 | ⬜ | ./DEVPLAN/R3.md |
+| R3 | Tab 架构调整(概览\|需求\|任务\|管理) | M2 前端 | ✅ | ./DEVPLAN/R3.md |
+| R3.F1 | 修复 BUG-001:补「测试」「发布」主 Tab | M2 前端 | ✅ | ./DEVPLAN/R3.F1.md |
 
 (状态:⬜ 未开始 / 🔄 进行中 / ✅ 完成 / ⚠️ 有问题。这张表是**全流程唯一的续接入口**)
 
@@ -63,3 +64,6 @@
 | 2026-09-29 | R1 完成:summary 端点 + build_project_summary + 17 测试用例全绿(py_compile 零错误);审计首审 5 项问题修复闭环、复验条件通过。决策留痕:① requirement.py 的 prd_content/req_branch 判定为「打磨PRD持久化」任务预存改动,保留不回退,仅清除本任务混入的 event/死 import;② project_service.py 的 list_projects BUG-068 为预存改动,代码保留、**提交时与 R1 拆分**;③ conftest.py 回退 HEAD,第二用户场景改测试文件内局部 fixture;④ task.py 整体回退(测试 helper 显式设 created_at 替代 event)。**commit 待用户确认**(全局 git 规则) | /rd-dev R1 |
 | 2026-09-29 | 用户全局约束登记:页面 UI/layout 须与现有保持统一——R1 纯后端不适用;**R2/R3 前端需求点必须遵循**(复用 globals.css 既有类,零新视觉组件,与本 DEVPLAN 技术约定一致) | 用户指令(/rd-dev args) |
 | 2026-09-29 | R2 完成:概览 Tab 全量实现(ProjectOverview/format.ts/useProjectOverview/ProjectDetail 挂载),ui-check 13/13 全绿,QA 契约核对 20 条,审计通过。决策留痕:①前端无测试基础设施,QA 改静态契约核对+rd-test 走查;②tsc 门禁走基线差分(HEAD 19 错→R2 后 16 错,R2 文件零新增);③polish_tasks 字段 QA 存疑点判定为「需求卡 total 已含打磨任务计数,无独立展示位」,与 R1 口径一致不阻塞;④R3 的 Tab 集收口未做,仅保证 ?tab=overview 默认可渲染。**commit 待用户确认**(全局 git 规则) | /rd-dev R2 |
+| 2026-09-29 | R3 完成:Tab 集 6→4 重组(仅 ProjectDetail.tsx,+71/-36),ui-check 9/9、QA 契约核对 15/15、审计通过零阻塞。决策留痕:①管理子 Tab 初始值经 `?tab=manage&sub={repos|members|settings}` URL 参数传递(合法扩展,非深链需求;子 Tab 内切换不推 URL,沿现状);②⋮ 菜单设置项跳 `?tab=manage&sub=settings` 直达设置子 Tab;③ProjectTaskList.tsx 工作区改动为 BUG-063 预存(display_status 优先),非本任务改动,提交时拆分。**commit 待用户确认**(全局 git 规则) | /rd-dev R3 |
+| 2026-09-29 | 新增 R3.F1 修复 BUG-001(测试/发布 Tab 缺失):复用 ProjectTaskList 加 typeFilter 客户端过滤,数据复用 useProjectTaskList 缓存零新接口 | /rd-fix 用户反馈 |
+| 2026-09-29 | R3.F1 完成:BUG-001 open→fixed。Tab 集 4→6(测试/发布插任务后),ui-check 7/7、审计 0 阻塞、tsc 零新增错误;任务 Tab 默认路径零差异,BUG-063/R3 预存改动均保留。verified 待 rd-test 走查,**commit 待用户确认** | /rd-fix R3.F1 |
