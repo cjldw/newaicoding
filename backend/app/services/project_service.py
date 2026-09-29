@@ -184,6 +184,240 @@ async def build_detail(db: AsyncSession, project: Project) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# R1: 项目聚合统计 build_project_summary
+# ---------------------------------------------------------------------------
+async def build_project_summary(db: AsyncSession, project: Project) -> dict:
+    """
+    R1 项目聚合统计:四维需求/任务统计 + tokens + recent_7d + latest_release + Top5。
+    全部顺序 await,不加 asyncio.gather(共享 session 不并发)。
+    """
+    from datetime import datetime, timedelta
+    from app.api.dashboard import REQ_STATUSES, TASK_STATUSES, _by_status_zero_filled
+    from app.models.task import Task
+    from app.services.route_service import get_preview_base_domain, build_preview_host
+
+    pid = project.project_id
+
+    # ---- 1. 需求统计: total + by_status + active + polish_tasks ----
+    # 1a. 需求 by_status(全量 group by)
+    req_status_rows = (await db.execute(
+        select(Requirement.status, func.count(Requirement.id))
+        .where(Requirement.project_id == pid)
+        .group_by(Requirement.status)
+    )).all()
+    req_by_status = _by_status_zero_filled(REQ_STATUSES, req_status_rows)
+    req_total = sum(req_by_status.values())
+    # active = polishing + reviewing
+    req_active = req_by_status.get("polishing", 0) + req_by_status.get("reviewing", 0)
+
+    # 1b. polish_tasks = type=requirement 任务数
+    polish_tasks_count = (await db.execute(
+        select(func.count(Task.id))
+        .where(Task.project_id == pid, Task.type == "requirement")
+    )).scalar() or 0
+
+    requirements_data = {
+        "total": req_total,
+        "by_status": req_by_status,
+        "active": req_active,
+        "polish_tasks": polish_tasks_count,
+    }
+
+    # ---- 2. 任务统计: 一次查询按 (type, status) 分组,内存拆四维 ----
+    task_rows = (await db.execute(
+        select(Task.type, Task.status, func.count(Task.id))
+        .where(Task.project_id == pid)
+        .group_by(Task.type, Task.status)
+    )).all()
+
+    # 内存组装四维: {type: {status: count}}
+    task_matrix: dict[str, dict[str, int]] = {}
+    for task_type, status, cnt in task_rows:
+        if task_type not in task_matrix:
+            task_matrix[task_type] = {}
+        task_matrix[task_type][status] = cnt
+
+    # active 状态集: pending + running + cases_review
+    task_active_statuses = {"pending", "running", "cases_review"}
+
+    def _build_task_dimension(task_type: str) -> dict:
+        status_counts = task_matrix.get(task_type, {})
+        by_status = _by_status_zero_filled(TASK_STATUSES, status_counts.items())
+        total = sum(by_status.values())
+        active = sum(by_status.get(s, 0) for s in task_active_statuses)
+        return {"total": total, "by_status": by_status, "active": active}
+
+    dev_tasks_data = _build_task_dimension("dev")
+    test_tasks_data = _build_task_dimension("test")
+    release_tasks_data = _build_task_dimension("release")
+
+    # ---- 3. tokens 聚合 ----
+    # 3a. 总量(in + out,coalesce 0)
+    tokens_total_row = (await db.execute(
+        select(
+            func.coalesce(func.sum(Task.total_tokens_in), 0),
+            func.coalesce(func.sum(Task.total_tokens_out), 0),
+        )
+        .where(Task.project_id == pid)
+    )).one()
+    tokens_in_total = tokens_total_row[0] or 0
+    tokens_out_total = tokens_total_row[1] or 0
+
+    # 3b. by_type: group by type
+    tokens_by_type_rows = (await db.execute(
+        select(
+            Task.type,
+            func.coalesce(func.sum(Task.total_tokens_in), 0),
+            func.coalesce(func.sum(Task.total_tokens_out), 0),
+        )
+        .where(Task.project_id == pid)
+        .group_by(Task.type)
+    )).all()
+
+    by_type = {}
+    for t_type, t_in, t_out in tokens_by_type_rows:
+        by_type[t_type] = (t_in or 0) + (t_out or 0)
+    # 确保 4 类都有(无数据的为 0)
+    for t in ("dev", "test", "release", "requirement"):
+        if t not in by_type:
+            by_type[t] = 0
+
+    tokens_data = {
+        "total": tokens_in_total + tokens_out_total,
+        "in": tokens_in_total,
+        "out": tokens_out_total,
+        "by_type": by_type,
+    }
+
+    # ---- 4. recent_7d: 4 条 count 查询 ----
+    now = datetime.now()
+    threshold_7d = now - timedelta(days=7)
+
+    # 4a. requirements_created: created_at >= threshold
+    req_created_7d = (await db.execute(
+        select(func.count(Requirement.id))
+        .where(Requirement.project_id == pid, Requirement.created_at >= threshold_7d)
+    )).scalar() or 0
+
+    # 4b. requirements_completed: status=done 且 updated_at >= threshold
+    req_completed_7d = (await db.execute(
+        select(func.count(Requirement.id))
+        .where(
+            Requirement.project_id == pid,
+            Requirement.status == "done",
+            Requirement.updated_at >= threshold_7d,
+        )
+    )).scalar() or 0
+
+    # 4c. tasks_created: created_at >= threshold
+    tasks_created_7d = (await db.execute(
+        select(func.count(Task.id))
+        .where(Task.project_id == pid, Task.created_at >= threshold_7d)
+    )).scalar() or 0
+
+    # 4d. tasks_completed: status=done 且 finished_at >= threshold
+    tasks_completed_7d = (await db.execute(
+        select(func.count(Task.id))
+        .where(
+            Task.project_id == pid,
+            Task.status == "done",
+            Task.finished_at >= threshold_7d,
+        )
+    )).scalar() or 0
+
+    recent_7d_data = {
+        "requirements_created": req_created_7d,
+        "requirements_completed": req_completed_7d,
+        "tasks_created": tasks_created_7d,
+        "tasks_completed": tasks_completed_7d,
+    }
+
+    # ---- 5. latest_release: release 任务 created_at 倒序 limit 1 ----
+    latest_release_row = (await db.execute(
+        select(Task)
+        .where(Task.project_id == pid, Task.type == "release")
+        .order_by(Task.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    latest_release_data = None
+    if latest_release_row is not None:
+        ext_attrs = latest_release_row.extended_attributes or {}
+        deploy_phase = ext_attrs.get("deploy_phase", "")
+        deploy_host = ext_attrs.get("deploy_host", "")
+        deploy_port = ext_attrs.get("deploy_port", 0)
+
+        # preview_url 组装:deploy_phase=deployed 时才构造
+        preview_url = ""
+        if deploy_phase == "deployed" and deploy_host and deploy_port:
+            preview_base_domain = await get_preview_base_domain(db)
+            host = build_preview_host(project.slug, latest_release_row.task_id, deploy_port)
+            preview_url = f"http://{host}.{preview_base_domain}"
+
+        latest_release_data = {
+            "task_id": latest_release_row.task_id,
+            "title": latest_release_row.title,
+            "status": latest_release_row.status,
+            "branch": latest_release_row.work_branch,
+            "preview_url": preview_url,
+            "finished_at": latest_release_row.finished_at,
+        }
+
+    # ---- 6. recent_requirements: updated_at 倒序 limit 5,白名单字段 ----
+    recent_req_rows = (await db.execute(
+        select(Requirement)
+        .where(Requirement.project_id == pid)
+        .order_by(Requirement.updated_at.desc())
+        .limit(5)
+    )).scalars().all()
+
+    recent_requirements = [
+        {
+            "req_id": r.req_id,
+            "title": r.title,
+            "status": r.status,
+            "priority": r.priority,
+            "delivery_date": r.delivery_date,
+            "updated_at": r.updated_at,
+        }
+        for r in recent_req_rows
+    ]
+
+    # ---- 7. recent_tasks: updated_at 倒序 limit 5,白名单字段 ----
+    recent_task_rows = (await db.execute(
+        select(Task)
+        .where(Task.project_id == pid)
+        .order_by(Task.updated_at.desc())
+        .limit(5)
+    )).scalars().all()
+
+    recent_tasks = [
+        {
+            "task_id": t.task_id,
+            "type": t.type,
+            "title": t.title,
+            "status": t.status,
+            "updated_at": t.updated_at,
+            "finished_at": t.finished_at,
+        }
+        for t in recent_task_rows
+    ]
+
+    # ---- 组装返回 ----
+    return {
+        "requirements": requirements_data,
+        "dev_tasks": dev_tasks_data,
+        "test_tasks": test_tasks_data,
+        "release_tasks": release_tasks_data,
+        "tokens": tokens_data,
+        "recent_7d": recent_7d_data,
+        "latest_release": latest_release_data,
+        "recent_requirements": recent_requirements,
+        "recent_tasks": recent_tasks,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 把平台用户加为 repo 成员(非关键步骤:失败仅告警,不阻断项目创建)
 # ---------------------------------------------------------------------------
 async def _grant_repo_member(

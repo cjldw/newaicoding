@@ -90,6 +90,25 @@ async def get_project(
 
 
 # -------------------------------------------------------------------
+# GET /api/projects/{project_id}/summary - 项目聚合统计(R1)
+# -------------------------------------------------------------------
+@router.get("/{project_id}/summary")
+async def get_project_summary(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """项目聚合统计(三步鉴权同款 GET /{project_id})"""
+    project = await project_service.get_project_or_404(db, project_id)
+    from app.services.project_member_service import get_project_role
+
+    role = await get_project_role(db, project, current_user)
+    project_service._ensure_can_view(project, current_user, role)
+    data = await project_service.build_project_summary(db, project)
+    return success(data=data)
+
+
+# -------------------------------------------------------------------
 # PATCH /api/projects/{project_id} - 更新项目
 # -------------------------------------------------------------------
 @router.patch("/{project_id}")
