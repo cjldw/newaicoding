@@ -47,6 +47,11 @@ RESERVED_ENV_KEYS = {
 # 域名(合法主机名)正则:至少一个点分段,每段字母数字连字符,不以 - 开头/结尾
 _HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63}(?<!-))+$")
 
+# docker 镜像引用正则(宽松):registry/namespace/repo:tag;强制带 tag(pull 确定性,避免 latest 漂移)
+_IMAGE_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$")
+# 镜像引用长度上限(docker 引用规范 255;registry 路径含 namespace 时易超 64,故不复用 str 类型)
+_IMAGE_REF_MAX = 255
+
 # key → (类型, 校验+归一化函数, 说明)
 SETTING_KEYS: dict[str, tuple[str, Any]] = {
     "gitlab_url": ("url", None),
@@ -57,6 +62,8 @@ SETTING_KEYS: dict[str, tuple[str, Any]] = {
     "deploy_base_domain": ("domain", None),
     "max_containers_total": ("int", (1, 10000)),
     "max_containers_per_user": ("int", (1, 100)),
+    # 任务容器镜像(带 tag 的 docker 引用;未配置时读取方回落代码常量 DEFAULT_IMAGE)
+    "container_image": ("image", None),
     "kb_max_pages_per_kb": ("int", (1, 100000)),
     "kb_max_file_mb": ("int", (1, 1024)),
     # R23: 平台默认 LLM 配置(四键齐备才生效;R1 模型升级为列表+默认项)
@@ -139,10 +146,30 @@ def validate_setting_value(key: str, value: Any) -> Any:
             raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 不能为空")
         return value.strip()[:64]
 
+    # 镜像引用:registry/repo:tag(强制带 tag;宽松字符集,长度 ≤255)
+    if vtype == "image":
+        return _validate_image(key, value)
+
     # secret/token:非空字符串
     if not isinstance(value, str) or not value.strip() or len(value) > 255:
         raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 不能为空且长度需在 255 以内")
     return value.strip()
+
+
+def _validate_image(key: str, value: Any) -> str:
+    """
+    container_image 校验:必须为带 tag 的 docker 镜像引用(如 registry.cn-hangzhou.aliyuncs.com/ns/repo:v2)。
+    强制 tag 保证 pull 确定性(latest 会随推送漂移,违背"镜像在创建时刻定格"语义);
+    字符集宽松(registry 域名/namespace/repo 大小写与点横线下划线均放行),长度 ≤255。
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 不能为空")
+    normalized = value.strip()
+    if len(normalized) > _IMAGE_REF_MAX:
+        raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 超长(≤{_IMAGE_REF_MAX} 字符)")
+    if not _IMAGE_REF_RE.match(normalized):
+        raise BizError(ErrCode.PLATFORM_SETTING_INVALID, f"配置项 {key} 必须为带 tag 的镜像引用(如 registry.example.com/ns/repo:v2)")
+    return normalized
 
 
 def _validate_custom_env(value: Any) -> dict:

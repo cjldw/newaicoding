@@ -1,0 +1,7 @@
+# 开发/测试工具链(运行时依赖见 requirements.txt)
+# 安装:pip install -r requirements-dev.txt(已含 -r requirements.txt)
+-r requirements.txt
+pytest>=8.0
+pytest-asyncio>=0.23
+httpx
+ruff>=0.4

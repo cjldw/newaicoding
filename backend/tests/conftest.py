@@ -110,6 +110,24 @@ async def _fallback_create_all():
     async with app_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+        # R5.F5(BUG-076):create_all 不 ALTER 已有列,手动补 MEDIUMTEXT 迁移
+        # (与 alembic 迁移 a1b2c3d4e5f6 保持一致;幂等)
+        col_info = await conn.scalar(
+            sa.text(
+                "SELECT COLUMN_TYPE FROM information_schema.columns "
+                "WHERE table_schema = DATABASE() AND table_name = 'task_messages' "
+                "AND column_name = 'content'"
+            )
+        )
+        if col_info and "mediumtext" not in col_info.lower():
+            await conn.execute(
+                sa.text(
+                    "ALTER TABLE `task_messages` "
+                    "MODIFY COLUMN `content` MEDIUMTEXT NOT NULL "
+                    "COMMENT '内容(Markdown;@filename 前端渲染为链接)'"
+                )
+            )
+
         # create_all 只建表不建 alembic 迁移里 op.execute 的 FULLTEXT 索引;
         # 知识库搜索(MATCH...AGAINST)依赖它们,缺了会报 1191。此处补建
         # (与 a3c8e7f2b9d4 / b5d9e1f4a7c3 两笔迁移保持一致;幂等:已存在则跳过)

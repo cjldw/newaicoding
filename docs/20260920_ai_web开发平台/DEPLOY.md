@@ -917,3 +917,34 @@ python3 main.py                            # 建议配 systemd unit:Restart=alwa
   1. Docker Hub 可达后重建:`docker build -t platform/runner:v1 -f docker/runner/Dockerfile runner/`(context 必须是 `runner/` 目录,非仓库根)
   2. 用旧镜像运行的 runner 容器**不含** task_id 上报——对账收养不生效(仅 R8.F5 收养路径退化为旧行为,不产生新破坏);每台 Runner 机器重建镜像并重建容器
 - **回滚**:runner 侧改动向后兼容(平台容忍无 task_id 的旧上报);平台侧 handle_sync 收养路径对旧上报零影响
+
+## R35 追加(2026-09-27,增量8)— task_messages 表加 thinking_content 列
+
+- **迁移**:`*_r35_task_message_thinking.py`(rd-dev 阶段生成;down_revision=d8e4f2a6b9c3 即 R32 tags 迁移);`alembic upgrade head` 幂等
+- **SQL(全新环境手写等价)**:
+  ```sql
+  ALTER TABLE task_messages ADD COLUMN thinking_content TEXT NULL COMMENT '思考过程文本(R35;thinking_delta 累计)';
+  ```
+- **存量行处理**:默认 NULL(=无思考,非推理模型/存量消息),代码兼容读(null 不渲染折叠区),无需回填
+- **已执行**:待 rd-dev 阶段执行(dev 库 aicoding + 测试库 aicoding_test;conftest create_all 不加列,测试库需同步补列——环境陷阱#2)
+- **配置**:无新增;**依赖**:无新增
+- **落点决策留痕(Q73)**:PRD 曾建议复用 tool_calls JSON 列,rd-plan 拍板独立列(tool_calls 有既有消费方,防语义污染)
+
+
+## 增量9(R38/R39,2026-09-29)
+
+- 数据库变更:**无**(R38 纯参数扩展;R39 身份实时解析不落库)
+- **Runner 镜像重建要求**:R39 新增 runner git_commit/git_push 方法,需重建 platform/runner:v1 镜像并重建 runner 容器(先例:第 38/40 轮);重建顺带转正 R4.F5 的 list_dir "dir" 修正
+
+## R5.F5 追加(2026-09-29,BUG-076)— task_messages.content TEXT → MEDIUMTEXT
+
+- **迁移**:`a1b2c3d4e5f6_r5f5_task_message_content_mediumtext.py`(down_revision=30088c854a08);`alembic upgrade head` 幂等
+- **根因**:TEXT 列 64KB 上限,长 AI 回复被 sql_mode=IGNORE_SPACE 静默截断(数据劣化)
+- **SQL(全新环境手写等价)**:
+  ```sql
+  ALTER TABLE task_messages MODIFY COLUMN content MEDIUMTEXT NOT NULL COMMENT '内容(Markdown;@filename 前端渲染为链接)';
+  ```
+- **存量行处理**:不动(MEDIUMTEXT 兼容 TEXT 存量数据,无需回填)
+- **已执行**:待 rd-dev 阶段执行(dev 库 aicoding + 测试库 aicoding_test;conftest create_all 不加列,测试库需同步补列——环境陷阱#2)
+- **配置**:无新增;**依赖**:无新增
+- **配套修复**:P0 runner prompt 改走临时文件+stdin 重定向(避 ARG_MAX);P2 SendMessageRequest.content 加 max_length=200000(超限 422)

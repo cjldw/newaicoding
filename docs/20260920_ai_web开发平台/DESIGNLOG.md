@@ -140,3 +140,45 @@ shell-topbar(影响全局,先做)→ manage-四页 → 项目内逐页(列表→
 - **需求**:发送后对话框自动滚到新内容(不再手动下滚);消息气泡美化
 - **改动**:① TaskChat.tsx 滚动监听补 pendingUser/thinking 源 + smooth 滚动;② globals.css 气泡样式(12px 大圆角、用户右下/AI 左下 4px 收音角、软阴影、AI 气泡细描边,亮暗双主题);③ 组件气泡留白统一 px-3.5 py-2.5、max-w 78%
 - **验证**:tsc 0 错 + vite build 过;HMR 即生效
+
+## 2026-09-29 容器重试页面置灰(rd-ui)
+
+- **需求**:用户口径——容器停止后点「重试」,整个页面置灰(与「停止」置灰同款交互),直到容器启动成功
+- **改动**:frontend/src/pages/tasks/TaskDetail.tsx(镜像同日「任务停止页面置灰」模式:retryRequested state + taskId 复位并入既有 effect + 撤遮罩轮询 effect〔display_status=running 成功撤 / 落回 failed/cancelled/timeout 失败撤,pending/starting 保持〕+ handleRetryClick onError 撤回+toast + 按钮 disabled/「重试中…」联动 + `.page-blocking-overlay` 遮罩「正在启动容器…」)
+- **验证**:tsc 0 错 + vite build 过(21.57s);静态核对六处落点齐全,未动停止置灰既有行为;真实容器启动场景浏览器走查归 rd-test/用户复验
+
+## 2026-09-29 打磨页产品化三件套(rd-ui)
+
+- **需求**:用户口径——① 打磨页 PRD 草稿改容器内 PRD.md 全文 markdown 预览(保留全屏);② AI 思考三点动效带消耗时间;③ 打磨页「停止任务」左侧新增「打磨完成」按钮(点击提交代码)+ 需求详情页新增 PRD.md 预览区块
+- **改动**:
+  - frontend/src/api/tasks.ts:finishTask + useFinishTask(接**既有**后端 POST /tasks/{id}/finish:全仓库 commit+push 创建者 token → 销毁容器 → done;零后端改动)
+  - frontend/src/pages/tasks/TaskDetail.tsx:PRD 草稿 pane 三分支渲染(容器 PRD.md 全文 .md 渲染 / 不可读回退需求表单字段+提示 / 加载中)+ 15s 轮询(仅 prd Tab 且运行中)+ 全屏保留;打磨完成按钮(btn-pri+CheckCircle2,requirement 运行中显示)+ finishRequested 置灰遮罩「正在提交打磨成果…」(镜像 stopRequested/retryRequested 模式;done/failed/cancelled/timeout 撤遮罩;onError 撤+toast,onSuccess toast「打磨成果已提交」)
+  - frontend/src/components/TaskChat.tsx:thinkingElapsed state + 每秒自增 effect;三点后「思考中… Ns / MmNNs」
+  - frontend/src/pages/requirements/RequirementDetail.tsx:PRD 预览 card(req.tasks 找 type==='requirement' 打磨任务 → 读容器内 prd_file_path → renderMarkdown 全文;不可读占位「评审通过后的归档预览:占位,待后端(从仓库读取)」)
+- **验证**:tsc --noEmit 0 错 + vite build 过(两次独立跑均过);静态核对四文件落点齐全;真实打磨容器场景浏览器走查归 rd-test/用户复验
+- **语义决策**:「打磨完成」= finish(提交代码+销毁容器),需求状态不流转(polishing 保持,后续走既有「提交评审→评审通过」链);若产品要「完成即转待评审」,把 submit-review 串接在 finish 后即可(已向用户说明)
+- **占位/待开发支持**:需求详情页 PRD 归档预览(评审通过后从 GitLab 仓库读取 PRD.md)——需后端仓库文件读取接口,交 rd-plan/rd-dev
+
+## 2026-09-29 PRD 路径修复 + 全屏按钮右上(rd-ui 续)
+
+- **PRD 预览不可读修复**:prd_file_path 是仓库相对路径(评审链 add_path 基准 /workspace/main),容器文件读取须绝对路径 → TaskDetail/RequirementDetail 两处读取统一拼 `/workspace/main/` 前缀(已 /workspace 开头则原样)。容器须运行中才可读(草稿态)
+- **全屏按钮迁移(用户同意方案)**:PRD 草稿 pane 全屏按钮从底部 card-foot 移至 tabs 栏右端(tabsBar 加可选 rightSlot 插槽,不影响其他调用点);全屏覆盖层内右上角加退出按钮(Minimize2),Esc 保留;card-foot 仅留说明文案。globals.css 增 .tabs-right
+- **验证**:tsc --noEmit 0 错;真实容器走查归用户复验
+
+## 2026-09-29 全屏层叠修复 + 工作区统一 + 刷新反馈(rd-ui 续 2)
+
+- **全屏「一半在 logo 下」修复**:覆盖层虽 z-60 > topbar z-20,但被祖先层叠上下文困住 → PRD/工作区全屏覆盖层改 createPortal 到 body(z-70 + bg-surface 不透明底),右上角退出按钮,Esc 保留;editor/chat/term 既有全屏未动(如现同样症状可同法处理)
+- **工作区全屏统一**:tabs 右端单按钮按激活 Tab 动态(「PRD 草稿全屏」/「工作区全屏」);files card-foot 全屏按钮移除
+- **工作区刷新反馈**:FileTree 加 isRefreshing prop(useTaskFiles isFetching 驱动)——刷新中 Loader2 旋转 + 按钮 disabled
+- **验证**:tsc --noEmit 0 错;落点逐项复核(createPortal ×2 / rightSlot 动态 / isRefreshing);浏览器复验归用户
+
+## 2026-09-29 工作区占满右栏宽(rd-ui 续 3)
+
+- **根因**:FileTree 根 div 写死 `w-[250px] flex-shrink-0`——右栏(320-640 可拖拽)内恒 250px;dev 任务左栏(236px)里甚至溢出 14px
+- **改动**:FileTree.tsx:539 根容器改 `w-full min-w-0`(跟随容器宽,横向溢出由内层 overflow-auto 承接);两处使用(打磨页工作区 / dev 左树)同 ben落
+- **验证**:tsc 0 错;浏览器复验归用户
+
+## 2026-09-29 dev 任务树刷新反馈(rd-ui 续 4)
+
+- dev 任务页左树(col-tree)「全部文件」刷新按钮补反馈:TaskDetail 第二处 FileTree 调用补传 `isRefreshing={filesFetching}`(组件能力前一轮已加:刷新中 Loader2 旋转 + disabled),onRefresh 本已接 refreshFileTree
+- 验证:tsc 0 错;用户在 tasks/830af6e6 页面复验

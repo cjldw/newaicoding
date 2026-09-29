@@ -5,13 +5,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.core.response import BizError, ErrCode, success
 from app.database import get_db
+from app.models.container import Container
 from app.models.project import Project
 from app.models.requirement import Requirement
 from app.models.task import Task, TaskMessage, TaskUploadedFile
@@ -52,9 +53,12 @@ async def list_project_tasks(
     rows = (await db.execute(
         select(Task).where(Task.project_id == project_id).order_by(Task.created_at.desc(), Task.id.desc())
     )).scalars().all()
+    # BUG-063:批量查询容器状态(防 N+1),构建 task_id → 最新容器状态 map
+    task_ids = [t.task_id for t in rows]
+    container_map = await task_service.batch_latest_container_status(db, task_ids)
     items = []
     for t in rows:
-        brief = task_service.task_brief(t)
+        brief = task_service.task_brief(t, container_status=container_map.get(t.task_id))
         brief["created_by"] = await task_service._creator_brief(db, t.created_by)
         # 补充需求标题(用于分组显示)
         req = (await db.execute(
@@ -79,9 +83,12 @@ async def list_tasks(
     rows = (await db.execute(
         select(Task).where(Task.req_id == req_id).order_by(Task.created_at.asc(), Task.id.asc())
     )).scalars().all()
+    # BUG-063:批量查询容器状态(防 N+1)
+    task_ids = [t.task_id for t in rows]
+    container_map = await task_service.batch_latest_container_status(db, task_ids)
     items = []
     for t in rows:
-        brief = task_service.task_brief(t)
+        brief = task_service.task_brief(t, container_status=container_map.get(t.task_id))
         brief["created_by"] = await task_service._creator_brief(db, t.created_by)
         items.append(brief)
     return success(data={"items": items})
@@ -251,6 +258,15 @@ async def get_task(
 async def _task_detail_data(db: AsyncSession, task: Task) -> dict:
     """任务详情响应体(GET 详情 / PATCH 更新共用;R2.F2 抽取)"""
     ext = task.extended_attributes or {}
+    # BUG-063:查最新容器状态(单任务,直接取最大 id 行)
+    from app.models.container import Container
+    container_result = await db.execute(
+        select(Container.status)
+        .where(Container.task_id == task.task_id)
+        .order_by(Container.id.desc())
+        .limit(1)
+    )
+    container_status = container_result.scalar_one_or_none()
     return {
         "task_id": task.task_id,
         # R4.F4:任务工作台面包屑需要 完整上级链(项目 / {项目名} / {需求} / 任务),补两个归属字段
@@ -260,6 +276,7 @@ async def _task_detail_data(db: AsyncSession, task: Task) -> dict:
         "title": task.title,
         "description": task.description,
         "status": task.status,
+        "display_status": task_service.derive_display_status(task.status, container_status),
         "base_branch": task.base_branch,
         "work_branch": task.work_branch,
         # R2.F2:发布维部署字段(编辑弹窗回填;非 release 行为空)
@@ -574,13 +591,29 @@ async def list_messages(
         }
         for m in rows
     ]
-    return success(data={"items": items})
+    # R3.F5(BUG-076):容器启动代数 — containers 表该 task_id 的行数(行数=创建过几个实例)
+    # 无容器行 → 0;前端据此判定容器是否换新,决定是否重发 /rd-prd
+    from sqlalchemy import func as sa_func
+    container_gen = (await db.execute(
+        select(sa_func.count()).select_from(Container).where(Container.task_id == task_id)
+    )).scalar() or 0
+    return success(data={"items": items, "container_generation": container_gen})
 
 
 class SendMessageRequest(BaseModel):
+    # R5.F5(BUG-076):content 用 field_validator 显式校验 max_length,
+    # 错误信息含 'max_length' 便于前端/测试定位(Field.max_length 的错误文案不含该词)
     content: str = Field(min_length=1)
     # R34.F2:会话级模型配置(对话框切换;None=走项目默认回退链)
     config_id: str | None = None
+
+    @field_validator("content")
+    @classmethod
+    def check_content_length(cls, v: str) -> str:
+        """R5.F5(BUG-076):显式 max_length 校验,错误信息含 'max_length' 便于前端/测试定位"""
+        if len(v) > 200_000:
+            raise ValueError(f"content 超过 max_length 限制(最多 200000 字符,当前 {len(v)})")
+        return v
 
 
 @router.post("/tasks/{task_id}/messages")

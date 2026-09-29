@@ -131,15 +131,22 @@ async def list_my_tasks(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """四维-任务列表(dev/test/release;created_by=me 口径)"""
-    if task_type not in ("dev", "test", "release"):
+    """四维-任务列表(dev/test/release;created_by=me 口径)
+    R22.F3(BUG-064):dev 维混合返回 dev + requirement(打磨任务)
+    """
+    if task_type not in ("dev", "test", "release", "requirement"):
         from app.core.response import BizError
 
         raise BizError(404, "未知任务维度", status_code=404)
     pids = await _visible_project_ids(db, current_user)
+    # R22.F3(BUG-064):dev 维混合返回 dev + requirement(打磨任务纳入任务列表)
+    if task_type == "dev":
+        type_condition = Task.type.in_(["dev", "requirement"])
+    else:
+        type_condition = Task.type == task_type
     conditions = [
         Task.created_by == current_user.user_id,
-        Task.type == task_type,
+        type_condition,
         Task.project_id.in_(pids or ["none"]),
     ]
     if status:

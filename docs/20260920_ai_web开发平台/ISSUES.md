@@ -36,6 +36,27 @@
 - **验证**:pytest `test_list_projects_includes_req_and_member_counts`(直插 2 需求+1 成员行 → req_count=2 / member_count=2)26/26 绿;真机 API 三项目逐项与 DB 实际行数一致(req=1/5/3,members=2/2/3);tsc 零错误
 - **状态**:verified
 
+### BUG-064 | /manage/tasks 任务列表查不到打磨任务(type=requirement) | verified(R22.F3)
+- **复现**:「开始打磨」创建的打磨任务(type='requirement')不出现在 /manage/tasks;DB 实证 2026-09-28 仅 2 条打磨任务(id 975/977)列表不可见,audit 当日 0 条 task.create(仅 requirement.create/start_polish)——创建链与 scope 过滤链均正常,纯展示口径问题
+- **根因**:dashboard_views.py type 白名单仅收 dev/test/release,打磨任务按旧规格被排除(规格口径问题;用户 AskUserQuestion 拍板方案 A=纳入任务列表)
+- **修复记录(2026-09-28,rd-fix 第 34 轮 / R22.F3)**:dashboard_views.py 白名单放行 requirement + dev 维混合返回 `Task.type.in_(["dev","requirement"])`;前端零改动(DimensionPage TYPE_BADGE 既有「打磨」徽章映射自动渲染)
+- **验证**:新增 pytest 5/5(Red→Green:requirement 行入列表 / dev·test·release 零回归 / scope 不破)+ 触碰面回归 23 passed + tsc 零错(前端零 diff);真机 API:超管 13 条(5 requirement+8 dev)、普通用户仅自有 1 条(scope 不变);无头浏览器复验 3/3 PASS(账号 13900001111 规避超管互踢:登录 → /manage/tasks 打磨行徽章渲染 → 点击行进工作台 /tasks/{id} wb-head 渲染),截图 report/rd-fix-r34/01、02,脚本 .scratch/rd-fix-r34/uiverify.py(首跑点击被 R29 首访导览弹层遮挡,补跳过步骤后全过)
+- **分析底稿**:`.scratch/fix-analysis.md` § 第 34 轮;分片 `DEVPLAN/R22.F3.md`
+- **状态**:verified(2026-09-28 第 34 轮收敛迁移)
+
+### BUG-053 | 需求创建弹窗分支预览 □ 占位符易误读 | verified(R34.F1 追加域)
+- **复现**:创建需求弹窗标题输入汉字,分支预览渲染 `feat/□□□□□20260926`,用户误读为乱码(BUG-DATA-001 归因附带发现 2026-09-26;原登记见 BUGS「R34.F1 移交项」)
+- **根因**:R34.F1 初版为客户端 □ 占位设计(注释「汉字以□占位提示,后端权威」),观感差易误读;R34.F1 追加(commit 5c4e4c9)已补后端权威预览——`GET /requirements/branch-preview?title=`(pypinyin 首拼+10 字截断+8 位日期,与 default_req_branch 同口径)+ 前端 useBranchPreview + useDebounce(300ms),唯 BUGS 登记未同步、缺浏览器级证据
+- **验证(2026-09-28 第 34 轮追加)**:API 实证「购物车优惠券叠加使用」→ `feat/gwcyhqdjsy20260928`(首拼 10 字截断+8 位日期);浏览器复验 PASS——预览区渲染「分支预览: feat/gwcyhqdjsy20260928(以创建时系统生成为准;可手动改填覆盖)」,无 □,截图 report/rd-fix-r34/03-branch-preview.png(脚本 .scratch/rd-fix-r34/verify053b.py;键盘逐键输入驱动 React 受控组件)
+- **状态**:verified(2026-09-28 迁移)
+
+### BUG-068 | 非 owner 成员的项目列表为空(list_projects 只认 owner) | verified(R12.F1)
+- **复现**:13900001111(editor 成员,DB 成员行在、项目 5b9ba156 active、dashboard 同口径 GET /api/dashboard/requirements total=1)登录后 GET /api/projects **total=0**、/projects 页空态「还没有项目」——被邀请成员从列表进不了项目(BUG-053 浏览器复验附带发现 2026-09-28)
+- **根因**:project_service.list_projects 过滤只按 owner_id,不 join project_members——R12 邀请协作链集成缺口;规格核对:R2.md「成员体系 R12 接入后扩展为成员项目」+ R12.md「数据范围:用户是成员的所有项目」→ 非 owner-only,确认功能缺陷
+- **修复记录(2026-09-28,rd-fix 第 34 轮追加 / R12.F1)**:非超管条件改 `owner_id == me OR project_id IN (成员子查询)` 去重;超管口径不变;pytest 5/5 Red→Green(test_bug068_member_list_projects.py,含 owner/成员/软删/超管用例)
+- **验证**:API 实证 13900001111 GET /api/projects total=1(原 0);浏览器复验 PASS(/projects 渲染 rd-fix smoke test 卡片「1 仓库/13 个需求/活跃」,截图 report/rd-fix-r34/04-projects-member.png,脚本 verify053b.py)
+- **状态**:verified(2026-09-28 迁移);分片留痕:DEVPLAN.md 进度表 R12.F1(无独立分片文件,变更记录留痕,R2.F8 先例)
+
 ---
 
 ## BUG-001 superadmin 登录后看不到平台设置等超管信息
@@ -317,3 +338,58 @@
 | BUG-058 | verified | R32.F6( runner container_manager + 平台映射) | runner claude_prompt_stream cmd 未加 --include-partial-messages(CLI 默认按 turn 整块);平台 _stream_event_to_chat 无 stream_event 映射。修复=cmd 加 flag(容器内 CLI 实证支持)+ 映射 stream_event/content_block_delta/text_delta → chat_delta(assistant 整块回退保留)。**整段呈现的终极根因为环境限制(另案)**:容器内直连上游网关 SSE 实测 2928 行 span=0.00s(800 词 59.10s 攒齐一次吐)——网关不支持流式;平台全链已就绪,网关开启流式或换流式网关即零改动变逐字输出 | runner 43/43(cmd 断言);真机探针 126 delta 可达;用户复验通过(活动流实时;整段/逐字随网关能力) |
 
 **遗留登记(非平台代码 bug)**:上游 LLM 网关(token-console qwen)SSE 非流式——服务端攒齐完整响应一次性返回(实测 span=0.00s)。归用户网关侧处置(开启流式透传或更换网关);平台侧零改动自适应。
+
+## rd-fix 第 31 轮迁移(2026-09-28,BUG-061 环境缺陷修复 + BUG-052 接线实证解决)
+
+| BUG | 状态 | 关联 | 根因与处置 | 验证 |
+|---|---|---|---|---|
+| BUG-061 | verified | R34.F1(需求分支默认策略,commit 93242f9)依赖环境;修复分片 R34.F2 | 用户实测报障:需求创建 POST /api/projects/{pid}/requirements 500「服务器内部错误」。traceback 实锤=requirement_service.py L194 create_requirement→L173 default_req_branch→L146 gen_req_branch_slug 函数内 `from pypinyin import ...` 抛 ModuleNotFoundError。pyproject L21 已声明 pypinyin>=0.50,<1.0(uv.lock 锁 0.55.0),但本机运行时(E:\services\python310 system env)自 93242f9 后从未执行依赖安装;backend/venv 为空壳(空 site-packages 无解释器)加剧混淆;函数内延迟 import 使启动期不报错,首个创建请求才炸。**零代码修复**=定向补装 `pip install "pypinyin>=0.50,<1.0"`→0.55.0(与锁一致);`pip install -e .` 因 setuptools 包发现配置问题在 editable 构建阶段失败(独立打包问题未修,本机历来散装依赖);防御性建议(gen_req_branch_slug 加 ImportError 回退)留用户决策未实施 | pytest tests/test_r34_req_branch.py 16/16;真机重放(超管 JWT 铸造)POST 创建中文标题需求 → code=0,req_branch=feat/hgcsrzwbty20260928(拼音首拼 slug 10 字截断+8 位日期,正则 ^feat/[a-z]{1,10}\d{8}$;R34.F2 分片初稿正则 \d{4} 系笔误已勘正);测试行经 DELETE /api/requirements/{id} 删除(code=0);后端 uvicorn --reload 无需重启(延迟 import 调用时解析);证据 .scratch/R34.F2/verify.md |
+| BUG-052 | verified(解决) | R34.F1(需求分支默认策略) | 登记时(2026-09-26)create_requirement L190 仍为 `req-{id8}` 回退,gen_req_branch_slug/default_req_branch 死代码;R34.F1 会话 commit 93242f9「需求分支默认策略 feat/{需求名首拼≤10}{日期}+接线」已完成接线(L194 现调 default_req_branch(title));本轮 BUG-061 回归真机实证拼音策略真实产出(feat/hgcsrzwbty20260928),原「未接线」缺口闭环。连带勘误:BUGS.md 原「ISSUES.md R34.F1 行表述与工作区代码不符」随接线完成自然消解 | 同 BUG-061 回归(同一链路:接线→拼音 slug→落库) |
+
+## rd-fix 第 32 轮迁移(2026-09-28,BUG-062 依赖安装链加固;用户指令)
+
+| BUG | 状态 | 关联 | 处置 | 验证 |
+|---|---|---|---|---|
+| BUG-062 | verified | —(工程化;修复分片 R34.F3;BUG-061 根因链延伸) | 用户指令「生成 requirements.txt 默认启动,安装好对应的依赖 -r requirements.txt」。落地:① `backend/requirements.txt`(14 项运行时,与 pyproject [project].dependencies 同源同约束逐字对应,文件头注明同步纪律)+ `backend/requirements-dev.txt`(-r requirements.txt + pytest/pytest-asyncio/httpx/ruff,对应 dev extras);② README 快速开始默认安装改 `pip install -r requirements-dev.txt`(仅运行时可只装 requirements.txt),留痕 `pip install -e .` 因 setuptools 包发现配置不可用;③ 执行安装(本机 E:\services\python310):安装前快照实证漂移——fastapi 0.104.0 低于声明 >=0.110、ruff 缺失、其余 13 项满足;安装后 fastapi→0.141.1、pydantic 2.5.3→2.13.5(+pydantic-core 2.46.5)、starlette→1.7.0、anyio→4.15.1、watchfiles/httptools 新装、ruff 0.16.9 补齐;④ 后端重启加载新栈 | ① 清单一致性:两文件与 pyproject 约束逐一比对一致;② pip install -r 两文件全绿;③ 新栈 /health ok、启动日志零异常;④ 真机重放(超管 JWT)需求创建 code=0、req_branch=feat/hgcsrylsjh20260928、测试行已删(证据 .scratch/R34.F2/verify.md § R34.F3);⑤ 全量 pytest 22 failed/838 passed 逐例隔离分类(报告 .scratch/R34.F3/pytest-analysis.md):**A 升级回归=0**——20 个=R32 Runner 标签流测试先行(create_runner(tags=)/validate_tags/update_runner 未实现,任何依赖状态都红,归属该流非本修)、2 个=环境噪音(测试环境 LLM 配置缺失 + bcrypt `__about__` setup error);判定 PASS → verified |
+
+## rd-fix 第 35 轮迁移(2026-09-28,BUG-065 runner 容器旧镜像回退;两会话协同收口)
+
+| BUG | 状态 | 关联 | 根因与处置 | 验证 |
+|---|---|---|---|---|
+| BUG-065 | verified | R8.F6(runner 运行时;承接第 29 轮「runner 镜像重建」遗留);登记会话报症状①(对话 9001),协同会话补症状②(打磨容器未启动)并完成根因定位+修复执行 | 根因两层:① 17:04 runner 容器从旧 platform/runner:v1 重建,第 29 轮 docker cp 热补(R8.F5 上报/R32.F5 流式)全部回退(容器代码与仓库 md5 不一致,留痕预言应验);② 16:58 打磨 start 指令发进濒死连接丢失,占位行挂 creating 无兜底。修复=BASE_IMAGE=python:3.10 回退重建 runner:v1(R31.F3 文档化路径)+原参数重建容器(md5 与仓库逐字节一致);后继深挖:对话空回复=「R34.F3 权限桥接 --permission-prompt-tool + 任务会话被容器内交互 claude 占用」→ bridge.py 阻塞 stdin、runner recv 无限挂——加 120s 超时守卫(runner/main.py,超时 cancel_claude+回报 stream_timeout)+清空 977/978 残留 claude_session_id;占位行经 handle_sync 判 destroyed 自愈。证据链:DEVPLAN/R8.F6.md、.scratch/R8.F6/{hang-analysis,hang-fix}.md、.scratch/R34.F2/verify.md § BUG-065 | ① 容器代码与仓库 md5 一致;② 真机消息 POST code=0、assistant="pong" 真实落库(tokens_in=49398/out=18);③ 977 打磨容器 running+新会话首聊成功;④ 遗留占位行判毁;⑤ 两会话各自独立复验通过。附带留痕:claude CLI 2.1.280 对 qwen3.7-plus 报 unrecognized_model 警告(仅 stderr 不拦截,可 CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 消音);建议 runner 镜像重建进 DEPLOY.md 检查单(热更不持久第二次踩坑) |
+
+## rd-fix 第 41 轮迁移(2026-09-29,BUG-073 容器泄漏 4 路径收口 R3.F3;用户报障)
+
+| BUG | 状态 | 关联 | 根因与处置 | 验证 |
+|---|---|---|---|---|
+| BUG-073 | verified | R3.F3(新建修复分片;诊断底稿 .scratch/fix-analysis.md § BUG-073) | 用户报障「窗口管理泄漏:任务跑一段时间容器会比任务多」。诊断实证 4/4 运行容器全孤儿(running 任务 0),4 条泄漏路径:①retry_task 不清旧容器叠新;②request_stop 下发即返回无超时兜底(DB+docker 双驻留);③Runner 离线分支只标 stopped 不销毁(「待 R16 对账」未实现);④lifespan 启动无孤儿对账;助收漏点=finish_task/sweep_timeouts 收容器 limit(1) 漏历史行。修复五子项:F2.a request_stop 等回报+60s 超时置 destroyed / F2.b Runner 重连补发 stop(接入 runner_ws register) / F2.c retry 前清旧 running/creating 行 / F2.d 启动对账(fail-safe:inspect 无结论仅抑制直接销毁,task 终态→create_task 后台并发补发 stop 不阻塞 lifespan) / F2.e finish/sweep 收所有 running 非 limit(1)。执行中打回两轮:①inspect 占位返回 None 会把活容器全误标 destroyed→fail-safe 化;②「无结论」跳过了补发 stop 分支→逻辑重排 | ①单测 test_bug073_container_leak.py 14/14(两轮打回各补用例)+触碰面 test_container_platform 25/25 串行;②真机对账:4 孤儿容器经用户批准 docker stop+rm→修正版重启→0a2bf2449cb2/5cf413bb2dda/9b13fe6af4a9 destroyed_at=13:48:50(=启动对账 13:47:50 派发+60s 兜底,F2.d+F2.a 活体实证)、2173ba6b17e7 destroyed_at 与用户 13:52 retry started_at 同刻(F2.c 活体实证);③docker 侧仅剩合法容器(wonderful_austin=用户活跃重试任务、qicheng-runner),Runner 看门狗复活现象(13:34 曾按 DB running 复活 2 容器)随 DB 行收敛未再现;④冒烟 /docs 200、无 5xx。附带留痕:main.py lifespan 缺 async_session_factory import(单测 mock 掩盖,真机启动 NameError,主会话直修一行);830af6e6 用户 13:25 修复前重试致「running 任务无容器」(归用户页面停止或重试);retry 不清 finished_at(观察项);Runner 看门狗按 DB 状态复活容器的机制未读码定位(观察项) |
+
+## BUG-072 | 任务 AI 对话 MCP 工具调用无响应 | ✅ verified(2026-09-29 第 41 轮,rd-fix 第 40/41 轮)
+
+- **关联**:R5.F3(对话链路权限;波及 R34.F3 权限桥接 4dc7d45 / R17 MCP 配置)
+- **症状**:任务 AI 对话让 AI 使用 mysql_dev(MySQL MCP)无响应(空结算占位)
+- **排除**:mysql_dev 本身健康——配置 `${ENV_MCP_MYSQL_*}` 键一致、`claude mcp list` Connected、3306 TCP 通、凭据用户 10:51 自配
+- **根因(权限层,最终三层)**:
+  1. 无桥接降级路径:headless 默认 permissionMode,MCP 工具触发 permission_denied 无人应答静默拒绝
+  2. 桥接路径:R34.F3 用 `--mcp-config /tmp/permgate/mcp.json --permission-prompt-tool mcp__permgate__approval`——CLI 2.1.280 下 permgate server connected 但 approval 工具不进可用列表(实测 43 项),每个 MCP 调用 `tool_use_error: MCP tool mcp__permgate__approval not found`
+  3. 第 40 轮 F2 合并 ~/.claude.json 形态**同样失效**(容器内复刻复现)——该 CLI 版本下 --permission-prompt-tool 引用 MCP 工具的机制整体不可用;坏 flag 在位时即使用户会话正常也 7s 空结算(用户 14:44 复现)
+  4. 叠加自愈缺口:--resume 不存在的会话时 CLI 输出**单行 error-result**(is_error=true,非零行),R32.F8「零行降级」判定漏掉该形态(BUG-067②)→ 毒化会话每条消息秒败
+- **修复(R5.F3 终态)**:
+  - F1 cmd 追加 `--allowedTools` 放行 MCP 工具面(mysql_dev/beta/filesystem/brave-search/figma/github + 3 资源工具;任务对话=授权环境;mysql_query 具写库能力留痕接受)
+  - 二修:stream 链路**彻底摘除 --permission-prompt-tool**(container_manager.py perm_flag 恒空),main.py 不再注入桥/起轮询(perm_ok=False);需审批工具(Bash/Edit/Write)维持静默拒绝;桥恢复归 CLI 升级/换实现
+  - 三修(自愈):解析器识别 error-result → resume_error=True(errors 折入 stderr_tail);降级条件扩为 `(lines==0 or resume_error)`;后端结算时 resume_error → 置空 tasks.claude_session_id(免毒化会话每条双跑)
+- **验证**:runner pytest 95/95(新增 test_bug072_resume_error 2 例 + r32 断言补键);容器内直调 SELECT 1→[{"test_col":1}] ×2;**端到端:平台 API 发「用 mysql_dev 查 SELECT 1」→ assistant 5s 落库「查询结果是 **1**。」**(runner 日志无降级线,resume 直接成功);镜像重建+容器重建 ×2;后端单进程重启
+- **留痕**:① devbox:v2 镜像的 R9.F3 hasCompletedOnboarding 修复仍待 devbox 镜像重建(发布动作);② MCP server 启动有短暂 pending 窗口(模型过早调用看不到工具,提示等待即可);③ 运行环境 B.1 桥接注入实验遗留 permgate 键于部分容器 .claude.json(惰性无害,新容器不再注入);④ 修复涉及 backend task_service.py(会话自清)为第 41 轮新增,后端已重启加载
+- **报告**:docs/20260920_ai_web开发平台/.scratch/R5.F3/fix_report.md(含主会话补充验证)
+
+## BUG-075 迁移(2026-09-29,rd-ui 容器门卫核对轮附带发现;环境缺陷即时修复)
+
+| BUG | 状态 | 关联 | 根因与处置 | 验证 |
+|---|---|---|---|---|
+| BUG-075 | verified | —(环境缺陷;零代码修复,BUG-061 pypinyin 同类) | 创建需求接口 500:代码用 `ZoneInfo("Asia/Shanghai")`,Windows 运行时缺 `tzdata` 包 → `ZoneInfoNotFoundError`。核对 agent 超管复现实证后处置:`uv pip install tzdata` 装入 backend/.venv(2026.4)+ 后端重启加载 | ① `ZoneInfo('Asia/Shanghai')` 本机验证 OK;② 重启后超管真机创建需求 200 成功(原 500);③ 留痕:tzdata **未声明**在 pyproject/requirements(BUG-061 requirements 同步纪律的漏网项)——建议 rd-dev 把 tzdata 补进依赖清单,否则换机/重建 venv 必复发;④ 复测用需求「BUG-075复测-可删」(07d2a0b1)已取消,平台无硬删,留系统(标题自带可删标识) |
+
+## rd-fix 第 44 轮迁移(2026-09-30,BUG-077 需求详情关联任务创建时间空显;4 环断链修复)
+
+| BUG | 状态 | 关联 | 根因与处置 | 验证 |
+|---|---|---|---|---|
+| BUG-077 | verified | R22.F3 波及(混合类型任务列表);复现 /requirements/0d227c83 | 四环断链:①requirement_service.py:224-232 tasks 子列表未返 created_at/display_status ②RequirementTaskBrief schema 缺字段 ③前端 RequirementTask 接口缺 created_at ④RequirementDetail.tsx:482 渲染处硬编码「—」(从未接线)。数据层本就有值(DB 实证),纯链路丢字段。修复=四环补齐+test_bug077_requirement_task_created_at.py 3 用例 | ①pytest 3/3+触碰面 16 passed 串行;②一轮假波折留痕:首验活体仍空显,仲裁发现 **8000 端口 0.0.0.0+127.0.0.1 双绑定**——localhost 永远命中 loopback 老进程(修复被误判无效),清杀后唯一监听=新代码;③终验:活体 API tasks[0].created_at 非空+display_status 非空,页面创建时间显示 2026/9/29,截图 report/rd-fix-r44/01-created-time.png。附带:ProjectTaskList.tsx:135 `data possibly undefined` 预存 tsc 错(R3.F1 期遗留,非本轮夹带),登记待修 |

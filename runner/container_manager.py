@@ -120,6 +120,29 @@ PERMGATE_MCP_CONFIG = {
 }
 
 
+def _merge_permgate_into_config(config: dict | None) -> dict:
+    """
+    R5.F3(BUG-072 路径②):把 permgate server 幂等合并进 ~/.claude.json 的 mcpServers。
+    纯函数,便于单测:
+    - config=None / 非法 → 返回全新 {mcpServers: {permgate: ...}}
+    - 已有 permgate 键 → 更新(幂等)
+    - 已有其他 mcpServers 键 → 保留不覆盖
+    - 顶层非 dict 字段(如 mcpServers 非 dict) → 按缺失处理
+    """
+    cfg = dict(config) if isinstance(config, dict) else {}
+    servers = cfg.get("mcpServers")
+    if not isinstance(servers, dict):
+        servers = {}
+    else:
+        servers = dict(servers)  # 浅拷贝,不修改入参
+    servers["permgate"] = {
+        "command": "python3",
+        "args": [f"{PERMGATE_DIR}/bridge.py"],
+    }
+    cfg["mcpServers"] = servers
+    return cfg
+
+
 def allocate_ports(needed: list[int], rng: Optional[random.Random] = None,
                    taken: Optional[set[int]] = None) -> dict[int, int]:
     """
@@ -362,7 +385,7 @@ class ContainerManager:
             ftype, size, mtime, rel = parts
             items.append({
                 "path": rel,
-                "type": "tree" if ftype == "d" else "file",
+                "type": "dir" if ftype == "d" else "file",
                 "size": int(float(size)),
                 "mtime": float(mtime),
             })
@@ -431,6 +454,90 @@ class ContainerManager:
             files.append(entry)
         return files
 
+    def git_commit(self, container_id: str, repo_path: str, message_b64: str,
+                   author_name_b64: str, author_email_b64: str) -> dict:
+        """
+        R39:容器内 git commit(整仓库 add -A + commit;身份 base64 传输防注入)。
+        流程:
+        1. git status --porcelain 空检 → 空则返回 {"commit": "none"}(无变更标记)
+        2. git add -A
+        3. git -c user.name="$(printf %s {name_b64} | base64 -d)"
+              -c user.email="$(printf %s {email_b64} | base64 -d)"
+              commit -m "$(printf %s {message_b64} | base64 -d)"
+        4. 返回 {"commit": 短 hash}
+        身份/message 均走 base64 通道(同 write_file L343 先例),规避引号/特殊字符注入。
+        """
+        # 空变更预检
+        code, out = self.exec_capture(
+            container_id, "git status --porcelain", workdir=repo_path)
+        if code != 0:
+            raise RuntimeError(
+                f"git status 失败({code}): {out.decode(errors='ignore')[:300]}")
+        if not out.decode(errors="ignore").strip():
+            return {"commit": "none"}
+
+        # add -A(整仓库)
+        code, out = self.exec_capture(
+            container_id, "git add -A", workdir=repo_path)
+        if code != 0:
+            raise RuntimeError(
+                f"git add 失败({code}): {out.decode(errors='ignore')[:300]}")
+
+        # commit(message/身份均 base64 解码;双引号包裹防 shell 注入)
+        # printf %s 避免 echo 的 -n/-e 解释;base64 -d 解码
+        commit_cmd = (
+            f'git -c user.name="$(printf %s {author_name_b64} | base64 -d)" '
+            f'-c user.email="$(printf %s {author_email_b64} | base64 -d)" '
+            f'commit -m "$(printf %s {message_b64} | base64 -d)"'
+        )
+        code, out = self.exec_capture(
+            container_id, commit_cmd, workdir=repo_path)
+        if code != 0:
+            raise RuntimeError(
+                f"git commit 失败({code}): {out.decode(errors='ignore')[:300]}")
+
+        # 取短 hash
+        code, out = self.exec_capture(
+            container_id, "git rev-parse --short HEAD", workdir=repo_path)
+        if code != 0:
+            raise RuntimeError(
+                f"git rev-parse 失败({code}): {out.decode(errors='ignore')[:300]}")
+        short_hash = out.decode(errors="ignore").strip()
+        return {"commit": short_hash}
+
+    def git_push(self, container_id: str, repo_path: str, branch: str, token: str) -> dict:
+        """
+        R39:容器内 git push(临时注入 oauth2 remote → push → 恢复原 remote)。
+        失败抛 RuntimeError(含上游输出截断 ≤300 字符)。
+        同 commit_push L463-476 先例,但分离 push 逻辑,不绑定 commit。
+        """
+        # 取原 remote URL
+        code, out = self.exec_capture(
+            container_id, "git remote get-url origin", workdir=repo_path)
+        origin = out.decode(errors="ignore").strip()
+        auth_url = ""
+        if code == 0 and origin.startswith("http"):
+            auth_url = origin.replace("https://", f"https://oauth2:{token}@", 1)
+            self.exec_capture(
+                container_id, f"git remote set-url origin {auth_url}",
+                workdir=repo_path)
+
+        try:
+            code, out = self.exec_capture(
+                container_id, f"git push origin {branch}", workdir=repo_path)
+            if code != 0:
+                raise RuntimeError(
+                    f"git push 失败({code}): {out.decode(errors='ignore')[:300]}")
+        finally:
+            # 恢复原 remote(token 不留痕迹)
+            if auth_url:
+                self.exec_capture(
+                    container_id, f"git remote set-url origin {origin}",
+                    workdir=repo_path)
+
+        logger.info("git push 完成 repo=%s branch=%s", repo_path, branch)
+        return {"branch": branch}
+
     def commit_push(self, container_id: str, repo_path: str, add_path: str,
                     message: str, branch: str, token: str) -> None:
         """
@@ -490,16 +597,39 @@ class ContainerManager:
             else:
                 session_flag = f" --session-id {_shlex.quote(session_id)}"
         model_flag = f" --model {_shlex.quote(model)}" if model else ""
-        perm_flag = (
-            f" --mcp-config {PERMGATE_DIR}/mcp.json"
-            f" --permission-prompt-tool {PERMGATE_TOOL_REF}"
-        ) if permission_bridge else ""
+        # R5.F3(BUG-072 路径①):任务 AI 对话本身即授权环境,放行 MCP 工具面免人工审批。
+        # 留痕:mysql_query 类工具具备写库能力(mcp-server-mysql 不限只读),任务容器环境
+        # 由用户自配凭据,接受。Bash/Edit/Write 等危险内置工具**不**放行,保持审批语义。
+        allowed_tools = (
+            "mcp__mysql_dev__* mcp__mysql_beta__* mcp__filesystem__* "
+            "mcp__brave-search__* mcp__figma__* mcp__github__* "
+            "ListMcpResourcesTool ReadMcpResourceTool ReadMcpResourceDirTool"
+        )
+        allowed_tools_flag = f" --allowedTools '{allowed_tools}'"
 
+        # R5.F3 二修(BUG-072 第 41 轮):--permission-prompt-tool + permgate 桥在 CLI
+        # 2.1.280 实测整体失效——两种注入形态都报 "MCP tool mcp__permgate__approval
+        # (passed via --permission-prompt-tool) not found"(permgate 不进可用工具列表:
+        # --mcp-config 与合并进 ~/.claude.json 两形态容器内均复现)。坏 flag 使每次 MCP
+        # 工具调用 tool_use_error → 秒级空结算占位(用户 14:44 复现)。stream 链路摘除
+        # 该 flag:MCP 走上方 --allowedTools 放行;Bash/Edit/Write 需审批工具维持静默
+        # 拒绝;桥接恢复归 CLI 升级/换实现(BUG-072/R34.F3 留档)。permission_bridge
+        # 形参保留(调用方兼容),本函数不再输出任何权限 flag。
+        perm_flag = ""
+
+        # BUG-069(F4):去末尾 2>/dev/null,stderr 走 docker demux 分离(帧 stream=2)
+        # cd 的 2>/dev/null 保留(目录切换失败静默合理)
+        # R5.F5(BUG-076):prompt 走临时文件 + stdin 重定向,不占 argv(避 ARG_MAX)
+        import uuid as _uuid
+        prompt_file = f"/tmp/prompt_{_uuid.uuid4().hex}.txt"
+        self.write_file(container_id, prompt_file, prompt)
         cmd = (
             f"cd {workdir} 2>/dev/null; "
             # BUG-058:--include-partial-messages 输出 stream_event/text_delta 增量(逐字流式)
-            f"claude -p {_shlex.quote(prompt)} --output-format stream-json --verbose "
-            f"--include-partial-messages{session_flag}{model_flag}{perm_flag} 2>/dev/null"
+            f"claude -p - --output-format stream-json --verbose "
+            f"--include-partial-messages{session_flag}{model_flag}{allowed_tools_flag}{perm_flag} "
+            f"< {_shlex.quote(prompt_file)}; "
+            f"_rc=$?; rm -f {_shlex.quote(prompt_file)}; exit $_rc"
         )
         api = self.client.api
         exec_id = api.exec_create(container_id, ["bash", "-lc", cmd], tty=False, stdin=False)
@@ -511,10 +641,19 @@ class ContainerManager:
         tokens_in = 0
         tokens_out = 0
         lines: list[str] = []
+        # BUG-069(F1):累积 textDelta 文本 —— CLI 不发 result 事件时,用累积文本兜底
+        accumulated_text_parts: list[str] = []
+        # BUG-069(F4):stderr 捕获 —— 截断 ≤2000 字符,供日志/排障
+        stderr_tail = ""
+        _STDERR_TAIL_MAX = 2000
+        # R5.F3 三修(BUG-072):--resume 不存在的会话时,CLI 输出单行 error-result
+        # (is_error=true,errors=["No conversation found..."],result 字段空)——
+        # 非零行、非正常空回复,原「零行降级」判定失效(BUG-067②)。置位供降级
+        resume_error_seen = False
 
         def _drain_line_buf() -> None:
             """把行缓冲按 \\n 切行处理(上泵/提 result);非 local 的 result_* 经闭包写回"""
-            nonlocal line_buf, result_text, tokens_in, tokens_out
+            nonlocal line_buf, result_text, tokens_in, tokens_out, resume_error_seen, stderr_tail
             while b"\n" in line_buf:
                 raw, line_buf = line_buf.split(b"\n", 1)
                 line = raw.decode(errors="ignore").strip()
@@ -530,7 +669,21 @@ class ContainerManager:
                     usage = evt.get("usage") or {}
                     tokens_in = evt.get("total_tokens_in") or usage.get("input_tokens", 0) or tokens_in
                     tokens_out = evt.get("total_tokens_out") or usage.get("output_tokens", 0) or tokens_out
+                    # R5.F3 三修(BUG-072):error-result 视同 resume 失败(见上方注释),
+                    # CLI 的 errors[] 折入 stderr_tail 供排障
+                    if evt.get("is_error") and not result_text:
+                        resume_error_seen = True
+                        errs = evt.get("errors") or []
+                        if errs and len(stderr_tail) < _STDERR_TAIL_MAX:
+                            stderr_tail += "cli: " + "; ".join(str(e) for e in errs)
                     continue  # result 事件不上泵(终态由 result 回报承载)
+                # BUG-069(F1):累积 textDelta 文本 —— 长消息/中途出错场景 CLI 不发 result 事件时兜底
+                if evt and evt.get("type") == "stream_event":
+                    inner = evt.get("event") or {}
+                    if inner.get("type") == "content_block_delta":
+                        delta = inner.get("delta") or {}
+                        if delta.get("type") == "text_delta" and delta.get("text"):
+                            accumulated_text_parts.append(delta["text"])
                 if on_line is not None:
                     on_line(line)
 
@@ -550,8 +703,14 @@ class ContainerManager:
                         frame_len = int.from_bytes(buf[4:8], "big")
                         if len(buf) < 8 + frame_len:
                             break  # 帧体未收齐
-                        if buf[0] == 1:  # 只取 stdout;stderr(2)/stdin(0) 不入对话行流
+                        if buf[0] == 1:  # stdout → 入行缓冲(剥帧后按行处理)
                             line_buf += buf[8:8 + frame_len]
+                        elif buf[0] == 2:  # BUG-069(F4):stderr → 累积到 stderr_tail(截断 ≤2000 字符)
+                            stderr_piece = buf[8:8 + frame_len].decode(errors="ignore")
+                            if len(stderr_tail) < _STDERR_TAIL_MAX:
+                                stderr_tail += stderr_piece
+                                if len(stderr_tail) > _STDERR_TAIL_MAX:
+                                    stderr_tail = stderr_tail[:_STDERR_TAIL_MAX]
                         buf = buf[8 + frame_len:]
                     else:
                         # 防御:非帧协议流(理论不发生)按裸流处理,保持旧兜底
@@ -569,6 +728,12 @@ class ContainerManager:
             except Exception:
                 pass
 
+        # BUG-069(F1):finalize 优先级:显式 result 事件 > 累积文本 > lines[-1] 兜底
+        # 长消息/中途出错场景 CLI 不发 result 事件,累积文本是完整内容;lines[-1] 是
+        # 最后一个 content_block_delta(解析出空/残缺),仅作末道兜底
+        accumulated_text = "".join(accumulated_text_parts)
+        if not result_text and accumulated_text:
+            result_text = accumulated_text
         if not result_text and lines:
             # 流式输出缺失/被 CLI 版本降级:兜底取最后一行纯文本(与 claude_prompt 非 JSON 兜底同思路)
             try:
@@ -578,8 +743,12 @@ class ContainerManager:
                 result_text = lines[-1]
         # BUG-060(R32.F8):lines 计数供调用方识别「resume 会话不存在」的静默失败
         # (CLI 报错走 stderr 被吞,stdout 零行;正常空回复也会有 assistant 行)
+        # BUG-069(F1/F4):返回体新增 accumulated_text(供后端兜底)+ stderr_tail(供日志排障)
+        # R5.F3 三修(BUG-072):resume_error=error-result 且无有效内容(降级判定用)
         return {"result": result_text, "tokens_in": int(tokens_in or 0),
-                "tokens_out": int(tokens_out or 0), "lines": len(lines)}
+                "tokens_out": int(tokens_out or 0), "lines": len(lines),
+                "accumulated_text": accumulated_text, "stderr_tail": stderr_tail,
+                "resume_error": bool(resume_error_seen and not result_text and not accumulated_text)}
 
     def _read_container_json(self, container_id: str, path: str) -> tuple[bool, Optional[dict]]:
         """读容器内 JSON 文件,统一 exit code gating(claude_inject R32.F1 / probe_claude R5 共用)。
@@ -840,9 +1009,14 @@ class ContainerManager:
                 session_flag = f" --session-id {_shlex.quote(session_id)}"
         model_flag = f" --model {_shlex.quote(model)}" if model else ""
 
+        # R5.F5(BUG-076):prompt 走临时文件 + stdin 重定向,不占 argv(避 ARG_MAX)
+        import uuid as _uuid
+        prompt_file = f"/tmp/prompt_{_uuid.uuid4().hex}.txt"
+        self.write_file(container_id, prompt_file, prompt)
         cmd = (
             f"cd {workdir} 2>/dev/null; "
-            f"claude -p {_shlex.quote(prompt)} --output-format json{session_flag}{model_flag} 2>/dev/null"
+            f"claude -p - --output-format json{session_flag}{model_flag} < {_shlex.quote(prompt_file)} 2>/dev/null; "
+            f"_rc=$?; rm -f {_shlex.quote(prompt_file)}; exit $_rc"
         )
         code, out = self.exec_capture(container_id, cmd)
         text = out.decode(errors="ignore").strip()
@@ -878,7 +1052,11 @@ class ContainerManager:
     def setup_permission_bridge(self, container_id: str) -> bool:
         """
         注入权限确认桥接(每次 claude_prompt_stream 执行前调用):
-        写 bridge.py + mcp.json,清空上次请求/应答残留。
+        - 写 bridge.py 到 PERMGATE_DIR(桥接脚本,承接 tools/call 协议)
+        - 把 permgate server 配置**幂等合并**进 /home/node/.claude.json 的 mcpServers
+          (R5.F3 改造:不再写独立 mcp.json + --mcp-config;2.1.280 下 --mcp-config 的
+          server 不进 tools 列表,合并到 claude.json 才能被 CLI 识别)
+        - 清空上次请求/应答残留
         失败(容器异常等)返回 False —— 调用方降级不加权限参数(维持静默拒绝现状,
         验收③:无确认能力时不回归)。
         """
@@ -886,11 +1064,16 @@ class ContainerManager:
 
         try:
             self.write_file(container_id, f"{PERMGATE_DIR}/bridge.py", PERMGATE_BRIDGE_SCRIPT)
-            self.write_file(container_id, f"{PERMGATE_DIR}/mcp.json",
-                            _json.dumps(PERMGATE_MCP_CONFIG, ensure_ascii=False))
+            # 幂等合并 permgate 进 ~/.claude.json(R5.F3)
+            readable, existing_cfg = self._read_container_json(
+                container_id, CLAUDE_JSON_PATH)
+            merged = _merge_permgate_into_config(existing_cfg if readable else None)
+            self.write_file(container_id, CLAUDE_JSON_PATH,
+                            _json.dumps(merged, ensure_ascii=False))
             self.exec_capture(container_id,
                               f"rm -f {PERMGATE_DIR}/req.log {PERMGATE_DIR}/ans-*.json 2>/dev/null")
-            logger.info("权限确认桥接已注入 container=%s dir=%s", container_id, PERMGATE_DIR)
+            logger.info("权限确认桥接已注入 container=%s dir=%s(merged into %s)",
+                        container_id, PERMGATE_DIR, CLAUDE_JSON_PATH)
             return True
         except Exception:
             logger.exception("权限桥接初始化失败 container=%s(本次执行降级为无确认通道)", container_id)

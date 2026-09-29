@@ -25,7 +25,7 @@ import {
 import {
   useRequirementDetail, usePolishRequirement, useSubmitReview,
   useReviewRequirement, useCancelRequirement, useUpdateRequirement,
-  getRequirementErrorMessage,
+  getRequirementErrorMessage, useRequirementPrdContent,
 } from '@/api/requirements'
 import type { RequirementStatus, RequirementPriority, RequirementTask } from '@/api/requirements'
 // Markdown 简易渲染:共享实现(原本地版已并入 utils/markdown.ts,口径以更安全的 TaskDetail 版为准,
@@ -75,6 +75,10 @@ export function RequirementDetail() {
   const { data: membersData } = useProjectMembers(requirement?.project_id ?? '')
   const members = membersData?.items ?? []
   const memberMap = useMemo(() => new Map(members.map((m) => [m.user_id, m])), [members])
+
+  // R3:PRD 副本读取(免容器预览)— 数据源切换至平台副本接口
+  // 原 polishTask/prdTaskId/prdAbsPath 派生逻辑与 useTaskFileContent 调用已移除
+  const { data: prdContentData } = useRequirementPrdContent(requirement?.req_id)
 
   const [rejectDialog, setRejectDialog] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
@@ -421,6 +425,18 @@ export function RequirementDetail() {
         </div>
       </div>
 
+      {/* PRD 预览:R3 切换至平台副本接口(免容器预览,容器离线也可用) */}
+      <div className="bg-surface border border-border rounded-lg p-6 mb-6">
+        <h2 className="text-lg font-semibold text-text mb-4">PRD 预览</h2>
+        {prdContentData?.prd_content ? (
+          <div className="text-text prose prose-sm max-w-none md" dangerouslySetInnerHTML={{ __html: renderMarkdown(prdContentData.prd_content) }} />
+        ) : (
+          <div className="text-sm text-text-muted">
+            暂无 PRD,完成首轮打磨后可预览
+          </div>
+        )}
+      </div>
+
       {/* 关联任务列表(BUG-UI-078/079:标题区 p-6 内边距 + 表头灰底贯通,与 manage/releases 表格同风格) */}
       <div className="card mb-6">
         <div className="p-6 pb-0">
@@ -450,9 +466,22 @@ export function RequirementDetail() {
                     </TableCell>
                     <TableCell className="font-medium text-text">{task.title}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{task.status}</Badge>
+                      {/* BUG-063:优先取 display_status(区分「启动中」vs「运行中」);旧后端无字段时回退 status */}
+                      {(() => {
+                        const ds = task.display_status ?? task.status
+                        if (ds === 'starting') return <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20">启动中</Badge>
+                        if (ds === 'running') return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">运行中</Badge>
+                        if (ds === 'done') return <Badge variant="success">已完成</Badge>
+                        if (ds === 'failed') return <Badge variant="destructive">失败</Badge>
+                        if (ds === 'cancelled') return <Badge variant="outline">已取消</Badge>
+                        if (ds === 'pending') return <Badge variant="outline">等待中</Badge>
+                        if (ds === 'timeout') return <Badge variant="destructive">超时</Badge>
+                        return <Badge variant="outline">{ds}</Badge>
+                      })()}
                     </TableCell>
-                    <TableCell className="text-text-muted">—</TableCell>
+                    <TableCell className="text-text-muted">
+                      {task.created_at ? new Date(task.created_at).toLocaleDateString('zh-CN') : '—'}
+                    </TableCell>
                     <TableCell className="ops">
                       <button
                         className="btn btn-sm"

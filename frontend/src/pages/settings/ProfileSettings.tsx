@@ -260,11 +260,9 @@ export function ProfileSettings() {
                       onChange={handleFileChange}
                     />
                   </label>
-                  {/* btn--primary 为 R28 渲染核对类名(globals.css .btn--primary),视觉由全局 .btn-pri 提供 */}
                   <Button
                     type="button"
                     variant="primary"
-                    className="btn--primary"
                     disabled={!selectedFile || uploadMutation.isPending}
                     onClick={handleUpload}
                   >

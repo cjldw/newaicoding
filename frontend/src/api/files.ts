@@ -85,10 +85,20 @@ export const filesApi = {
       `/tasks/${taskId}/files/operations`,
       data
     ),
-  getDiff: (taskId: string) =>
-    api.get<{ files: DiffFile[] }>(`/tasks/${taskId}/files/diff`),
-  getChanges: (taskId: string) =>
-    api.get<ChangesResponse>(`/tasks/${taskId}/files/changes`),
+  // R38:scope 口径切换(all=基线分支 vs 工作区;head=HEAD vs 工作区,缺省 all 向后兼容)
+  getDiff: (taskId: string, scope: 'all' | 'head' = 'all') =>
+    api.get<{ files: DiffFile[] }>(`/tasks/${taskId}/files/diff?scope=${scope}`),
+  getChanges: (taskId: string, scope: 'all' | 'head' = 'all') =>
+    api.get<ChangesResponse>(`/tasks/${taskId}/files/changes?scope=${scope}`),
+
+  // R39:git 操作(commit/push)
+  taskGitCommit: (taskId: string, message?: string) =>
+    api.post<{ message: string; commit: string; author_name: string; author_email: string }>(
+      `/tasks/${taskId}/git/commit`,
+      { message }
+    ),
+  taskGitPush: (taskId: string) =>
+    api.post<{ message: string; branch: string }>(`/tasks/${taskId}/git/push`),
 }
 
 // ---- React Query Hooks ----
@@ -147,19 +157,46 @@ export function useFileOperation() {
   })
 }
 
-export function useTaskDiff(taskId: string) {
+// R38:scope 口径入参,queryKey 带 scope → 切口径自动换 key refetch
+export function useTaskDiff(taskId: string, scope: 'all' | 'head' = 'all') {
   return useQuery({
-    queryKey: ['task-diff', taskId],
-    queryFn: () => filesApi.getDiff(taskId).then(r => r.data),
+    queryKey: ['task-diff', taskId, scope],
+    queryFn: () => filesApi.getDiff(taskId, scope).then(r => r.data),
     enabled: !!taskId,
   })
 }
 
-export function useTaskChanges(taskId: string) {
+export function useTaskChanges(taskId: string, scope: 'all' | 'head' = 'all') {
   return useQuery({
-    queryKey: ['task-changes', taskId],
-    queryFn: () => filesApi.getChanges(taskId).then(r => r.data),
+    queryKey: ['task-changes', taskId, scope],
+    queryFn: () => filesApi.getChanges(taskId, scope).then(r => r.data),
     enabled: !!taskId,
+  })
+}
+
+// R39:git commit mutation — 成功后失效 diff/changes 双口径(R38 queryKey 带 scope,前缀失效覆盖 all+head)
+export function useTaskGitCommit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, message }: { taskId: string; message?: string }) =>
+      filesApi.taskGitCommit(taskId, message),
+    onSuccess: (_data, variables) => {
+      // 前缀失效:覆盖 task-diff/task-changes 两口径(all+head)
+      qc.invalidateQueries({ queryKey: ['task-diff', variables.taskId] })
+      qc.invalidateQueries({ queryKey: ['task-changes', variables.taskId] })
+    },
+  })
+}
+
+// R39:git push mutation — 成功后同样失效 diff/changes
+export function useTaskGitPush() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (taskId: string) => filesApi.taskGitPush(taskId),
+    onSuccess: (_data, taskId) => {
+      qc.invalidateQueries({ queryKey: ['task-diff', taskId] })
+      qc.invalidateQueries({ queryKey: ['task-changes', taskId] })
+    },
   })
 }
 

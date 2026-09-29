@@ -17,7 +17,7 @@ import re
 import pytest
 
 import main as runner_main
-from container_manager import ContainerManager, PERMGATE_DIR, PERMGATE_TOOL_REF
+from container_manager import ContainerManager, PERMGATE_DIR, PERMGATE_TOOL_REF, CLAUDE_JSON_PATH
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +62,12 @@ class FakeContainer:
         if m:  # write_file / write_confirm_answer
             self.files[m.group(2)] = base64.b64decode(m.group(1)).decode("utf-8")
             return 0, b""
+        # R5.F3:setup_permission_bridge 读 ~/.claude.json 做幂等合并
+        if f"cat {CLAUDE_JSON_PATH}" in joined:
+            content = self.files.get(CLAUDE_JSON_PATH)
+            if content is None:
+                return 1, b""  # 文件不存在
+            return 0, content.encode()
         if f"cat {PERMGATE_DIR}/req.log" in joined:
             content = self.files.get(f"{PERMGATE_DIR}/req.log", "")
             if not content:
@@ -103,13 +109,22 @@ def _manager(container: FakeContainer) -> ContainerManager:
 def test_setup_permission_bridge_injects_files_and_cleans():
     container = FakeContainer(FakeExecApi())
     container.files[f"{PERMGATE_DIR}/req.log"] = "stale\n"
+    # 预置既有 claude.json,验证合并而非覆盖
+    container.files[CLAUDE_JSON_PATH] = json.dumps({
+        "theme": "dark",
+        "mcpServers": {"existing_server": {"url": "http://existing"}},
+    })
     mgr = _manager(container)
 
     assert mgr.setup_permission_bridge("c1") is True
     bridge = container.files[f"{PERMGATE_DIR}/bridge.py"]
     assert "tools/call" in bridge and "req.log" in bridge  # 桥接协议面
-    mcp = json.loads(container.files[f"{PERMGATE_DIR}/mcp.json"])
-    assert mcp["mcpServers"]["permgate"]["args"] == [f"{PERMGATE_DIR}/bridge.py"]
+    # R5.F3:不再写独立 mcp.json,改为合并进 ~/.claude.json
+    assert f"{PERMGATE_DIR}/mcp.json" not in container.files
+    merged = json.loads(container.files[CLAUDE_JSON_PATH])
+    assert merged["theme"] == "dark"  # 既有顶层键保留
+    assert "existing_server" in merged["mcpServers"]  # 既有 MCP server 不覆盖
+    assert merged["mcpServers"]["permgate"]["args"] == [f"{PERMGATE_DIR}/bridge.py"]
     assert f"{PERMGATE_DIR}/req.log" not in container.files  # 残留已清
 
 
@@ -129,13 +144,25 @@ def test_claude_prompt_stream_permission_flags():
     mgr = _manager(container)
 
     mgr.claude_prompt_stream("c1", "hi", permission_bridge=True)
-    assert f"--permission-prompt-tool {PERMGATE_TOOL_REF}" in api.created[0]
-    assert f"--mcp-config {PERMGATE_DIR}/mcp.json" in api.created[0]
+    # R5.F3 二修(BUG-072 第 41 轮):CLI 2.1.280 下 permgate 桥(--permission-prompt-tool)
+    # 实测整体失效(容器内两种注入形态均复现 "MCP tool mcp__permgate__approval not found"),
+    # 坏 flag 使每个 MCP 调用 tool_use_error → 秒级空结算。stream cmd 恒不输出权限 flag,
+    # MCP 走 --allowedTools 放行;permission_bridge 形参保留但仅作兼容
+    assert f"--permission-prompt-tool" not in api.created[0]
+    assert f"--mcp-config {PERMGATE_DIR}/mcp.json" not in api.created[0]
+    # R5.F3(BUG-072 路径①):新增 --allowedTools 放行 MCP 工具面
+    assert "--allowedTools" in api.created[0]
+    assert "mcp__mysql_dev__*" in api.created[0]
+    assert "mcp__mysql_beta__*" in api.created[0]
+    assert "mcp__filesystem__*" in api.created[0]
+    assert "ListMcpResourcesTool" in api.created[0]
     assert "--strict-mcp-config" not in api.created[0]  # 保留项目级 MCP 配置
 
     api.created.clear()
     mgr.claude_prompt_stream("c1", "hi", permission_bridge=False)
-    assert "permission-prompt-tool" not in api.created[0]  # 降级路径:维持原命令
+    # 降级路径:无桥接时 --permission-prompt-tool 不出现,但 --allowedTools 仍出现(R5.F3 独立于桥接)
+    assert "permission-prompt-tool" not in api.created[0]
+    assert "--allowedTools" in api.created[0]  # MCP 工具放行是独立的,不依赖桥接
 
 
 # ---------------------------------------------------------------------------
@@ -263,3 +290,52 @@ async def test_exec_tool_confirm_unknown_id_is_noop(monkeypatch):
     await runner_main.handle_message(ws, {
         "type": "exec_tool_confirm", "confirm_id": "ghost", "choice": "allow"})
     assert fake.answers == []  # 未知 confirm(桥接超时自拒/重启丢表)幂等
+
+
+# ---------------------------------------------------------------------------
+# R5.F3:_merge_permgate_into_config 纯函数单测
+# ---------------------------------------------------------------------------
+from container_manager import _merge_permgate_into_config
+
+
+def test_merge_permgate_empty_config():
+    """空配置/None → 返回只含 permgate 的 mcpServers"""
+    result = _merge_permgate_into_config(None)
+    assert result == {"mcpServers": {"permgate": {
+        "command": "python3", "args": [f"{PERMGATE_DIR}/bridge.py"]}}}
+
+
+def test_merge_permgate_existing_other_servers_preserved():
+    """已有其他 MCP server → 保留不覆盖,permgate 新增"""
+    cfg = {"mcpServers": {"mysql_dev": {"url": "x"}, "gitlab": {"url": "y"}}}
+    result = _merge_permgate_into_config(cfg)
+    assert result["mcpServers"]["mysql_dev"] == {"url": "x"}
+    assert result["mcpServers"]["gitlab"] == {"url": "y"}
+    assert "permgate" in result["mcpServers"]
+    # 入参不被修改(纯函数)
+    assert "permgate" not in cfg["mcpServers"]
+
+
+def test_merge_permgate_idempotent():
+    """已有 permgate → 幂等更新,不重复"""
+    cfg = {"mcpServers": {"permgate": {"command": "old", "args": ["old"]}}}
+    result = _merge_permgate_into_config(cfg)
+    assert result["mcpServers"]["permgate"]["command"] == "python3"
+    assert result["mcpServers"]["permgate"]["args"] == [f"{PERMGATE_DIR}/bridge.py"]
+
+
+def test_merge_permgate_top_level_keys_preserved():
+    """顶层其他键(如 theme)保留"""
+    cfg = {"theme": "dark", "mcpServers": {"old": {"url": "x"}}}
+    result = _merge_permgate_into_config(cfg)
+    assert result["theme"] == "dark"
+    assert "permgate" in result["mcpServers"]
+    assert "old" in result["mcpServers"]
+
+
+def test_merge_permgate_invalid_mcpServers_field():
+    """mcpServers 非 dict(如字符串) → 按缺失处理,新建 dict"""
+    cfg = {"mcpServers": "invalid"}
+    result = _merge_permgate_into_config(cfg)
+    assert isinstance(result["mcpServers"], dict)
+    assert "permgate" in result["mcpServers"]

@@ -131,24 +131,65 @@ async def task_file_diff(
     task_id: str,
     repo_path: str = Query(default="/workspace/main"),
     base_branch: str = Query(default=""),
+    # R38:Diff 口径 scope=all(现状,工作区 vs 基线分支)/ head(工作区 vs HEAD,仅未提交)
+    scope: str = Query(default="all", pattern="^(all|head)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """逐文件 unified diff(任务工作台 Diff 视图)"""
-    data = await file_service.task_git_diff(db, task_id, repo_path, base_branch)
+    logger.info("diff scope=%s task=%s repo_path=%s base_branch=%s", scope, task_id, repo_path, base_branch)
+    data = await file_service.task_git_diff(db, task_id, repo_path, base_branch, scope=scope)
     return success(data={"files": data})
 
 
 @router.get("/tasks/{task_id}/files/changes")
 async def task_file_changes(
     task_id: str,
-    base_branch: str = Query(default="master"),
+    # BUG-074:默认改为空(空=经 resolve_task_base_branch 解析任务/项目真实基线;原硬编码 "master")
+    base_branch: str = Query(default=""),
+    # R38:Diff 口径 scope=all(现状)/ head(仅未提交,vs HEAD)
+    scope: str = Query(default="all", pattern="^(all|head)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Q27 变更清单:相对 base_branch 全部差异,按仓库分组(M/A/D/R + 行数)"""
-    data = await file_service.task_git_changes(db, task_id, base_branch)
+    logger.info("changes scope=%s task=%s base_branch=%s", scope, task_id, base_branch)
+    data = await file_service.task_git_changes(db, task_id, base_branch, scope=scope)
     return success(data=data)
+
+
+# ---------------------------------------------------------------------------
+# R39:任务 git commit / push(editor+;容器 running)
+# ---------------------------------------------------------------------------
+class GitCommitRequest(BaseModel):
+    message: str = Field(default="", max_length=500)
+
+
+@router.post("/tasks/{task_id}/git/commit")
+async def task_git_commit(
+    task_id: str,
+    req: GitCommitRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """R39:任务 git commit(全部挂载仓库;身份回退链)"""
+    project = await file_service.get_project_by_task(db, task_id)
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+    result = await file_service.task_git_commit(db, task_id, req.message, current_user)
+    return success(data=result)
+
+
+@router.post("/tasks/{task_id}/git/push")
+async def task_git_push(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """R39:任务 git push(全部挂载仓库 push work_branch)"""
+    project = await file_service.get_project_by_task(db, task_id)
+    await project_member_service.require_project_role(db, project, current_user, "editor")
+    result = await file_service.task_git_push(db, task_id, current_user)
+    return success(data=result)
 
 
 # ---------------------------------------------------------------------------

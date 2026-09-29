@@ -42,6 +42,10 @@ export interface RequirementTask {
   type: 'requirement' | 'dev' | 'test' | 'release'
   title: string
   status: string
+  // BUG-063:派生展示状态;旧后端未重启时为 undefined,调用方需 ?? status 兜底
+  display_status?: string
+  // BUG-077:创建时间(前端「创建时间」列渲染依赖)
+  created_at: string
 }
 
 // R4 原型链接:label 可空(≤20,后端截断;空则前端展示「链接 N」),url 需 http(s):// 开头;最多 10 条(超限/非法整组 400)
@@ -152,6 +156,11 @@ export const requirementsApi = {
   // R1.F2:分支名预览(后端拼音策略权威生成;title 必填 1-128,与创建时 default_req_branch 同口径)
   branchPreview: (title: string) =>
     api.get<{ branch: string }>(`/requirements/branch-preview?title=${encodeURIComponent(title)}`),
+  // R3:PRD 副本读取(免容器预览)— 服务端内置完整降级链(db → 容器回填 → none)
+  getPrdContent: (reqId: string) =>
+    api.get<{ prd_content: string | null; source: 'db' | 'container' | 'none' }>(
+      `/requirements/${reqId}/prd-content`,
+    ),
 }
 
 // ---- Error code helpers ----
@@ -196,6 +205,15 @@ export function useRequirementDetail(reqId: string) {
   return useQuery({
     queryKey: ['requirement', reqId],
     queryFn: () => requirementsApi.detail(reqId).then(r => r.data),
+    enabled: !!reqId,
+  })
+}
+
+// R3:PRD 副本读取 hook(免容器预览)— 同构 useTaskFileContent 三段式(queryKey/queryFn/enabled)
+export function useRequirementPrdContent(reqId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['requirement-prd-content', reqId],
+    queryFn: () => requirementsApi.getPrdContent(reqId as string).then(r => r.data),
     enabled: !!reqId,
   })
 }

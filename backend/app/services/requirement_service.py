@@ -20,6 +20,180 @@ from app.services.runner_service import runner_registry
 
 logger = logging.getLogger(__name__)
 
+# R2 PRD 回传:最大副本字节数(16MB,MEDIUMTEXT 物理上限)
+_PRD_CONTENT_MAX_BYTES = 16 * 1024 * 1024
+
+
+# ---------------------------------------------------------------------------
+# R2:PRD 回传(容器 → 平台副本)
+# ---------------------------------------------------------------------------
+async def sync_prd_from_container(db: AsyncSession, task_id: str) -> None:
+    """
+    R2 同步逻辑:从容器回读 prd_file_path 并更新 requirement.prd_content。
+    全程 try/except,任何异常不外抛(静默跳过 + [prd-sync] 日志)。
+    由 _sync_prd_background 包装(独立 session)或测试直接传入 db 调用。
+    """
+    try:
+        from app.models.task import Task
+        from app.services import file_service
+
+        # ① 校验 task 存在且 type=='requirement' 且 req_id 非空
+        result = await db.execute(select(Task).where(Task.task_id == task_id))
+        task = result.scalar_one_or_none()
+        if task is None:
+            logger.warning("[prd-sync] task not found task_id=%s", task_id)
+            return
+        if task.type != "requirement":
+            logger.info("[prd-sync] skip non-requirement task task_id=%s type=%s", task_id, task.type)
+            return
+        if not task.req_id:
+            logger.info("[prd-sync] skip task without req_id task_id=%s", task_id)
+            return
+
+        # ② 查 requirement;查不到 → 静默跳过(悬空引用)
+        req_result = await db.execute(
+            select(Requirement).where(Requirement.req_id == task.req_id)
+        )
+        req = req_result.scalar_one_or_none()
+        if req is None:
+            logger.warning("[prd-sync] requirement not found req_id=%s", task.req_id)
+            return
+
+        # ③ prd_file_path 为空 → 跳过
+        prd_path = (req.prd_file_path or "").strip()
+        if not prd_path:
+            logger.info("[prd-sync] skip empty prd_file_path req_id=%s", req.req_id)
+            return
+
+        # ④ 容器路径 = /workspace/main/{prd_file_path}(去前导斜杠拼接)
+        container_path = "/workspace/main/" + prd_path.lstrip("/")
+
+        # ⑤ 查 running 容器 + runner 在线(静默 return,不抛 9001)
+        ctr_result = await db.execute(
+            select(Container)
+            .where(Container.task_id == task_id, Container.status == "running")
+            .order_by(Container.id.desc())
+            .limit(1)
+        )
+        container = ctr_result.scalar_one_or_none()
+        if container is None:
+            logger.info("[prd-sync] skip no running container task_id=%s", task_id)
+            return
+        if runner_registry.get(container.runner_id) is None:
+            logger.info("[prd-sync] skip runner offline runner_id=%s", container.runner_id)
+            return
+
+        # ⑥ 调 file_service.task_read_file 拿 content
+        file_data = await file_service.task_read_file(db, task_id, container_path)
+        content = file_data.get("content") or ""
+
+        # ⑦ 空 → 跳过
+        if not content:
+            logger.info("[prd-sync] skip empty content req_id=%s", req.req_id)
+            return
+
+        # 超 16MB → 截断 + warning(按字节截断后回退到字符边界,避免 UTF-8 半字符)
+        content_bytes = content.encode("utf-8")
+        if len(content_bytes) > _PRD_CONTENT_MAX_BYTES:
+            truncated_bytes = content_bytes[:_PRD_CONTENT_MAX_BYTES]
+            # 回退到有效 UTF-8 字符边界(去掉尾部不完整的 multibyte 序列)
+            content = truncated_bytes.decode("utf-8", errors="ignore")
+            logger.warning(
+                "[prd-sync] truncated oversized content req_id=%s truncated_to=%d bytes",
+                req.req_id, _PRD_CONTENT_MAX_BYTES,
+            )
+
+        # ⑧ UPDATE requirement.prd_content(ORM 属性赋值,flush 由调用方负责)
+        req.prd_content = content
+        await db.flush()
+
+        byte_len = len(content.encode("utf-8"))
+        logger.info("[prd-sync] success req_id=%s bytes=%d", req.req_id, byte_len)
+
+    except Exception as e:
+        logger.warning("[prd-sync] failed task_id=%s: %s", task_id, e, exc_info=True)
+
+
+async def get_prd_content_with_fallback(db: AsyncSession, req: Requirement) -> tuple:
+    """
+    R3 PRD 副本读取降级链:
+    ① req.prd_content truthy → (content, 'db')
+    ② 否则定位打磨任务 → 查 running 容器 + runner 在线 → 调 sync_prd_from_container 回读回填
+       → 成功返回 (content, 'container')
+    ③ 任何一步不满足/失败 → (None, 'none')
+
+    打磨任务定位:requirement.polish_task_id 优先;空则按 req_id 找 type=requirement 最新任务。
+    """
+    # ① DB 副本优先
+    if req.prd_content:
+        logger.info("[prd-view] hit db req_id=%s", req.req_id)
+        return (req.prd_content, "db")
+
+    # ② 定位打磨任务
+    from app.models.task import Task
+
+    task_id = None
+    if req.polish_task_id:
+        task_id = req.polish_task_id
+    else:
+        # 按 req_id 找 type=requirement 最新任务
+        result = await db.execute(
+            select(Task.task_id)
+            .where(Task.req_id == req.req_id, Task.type == "requirement")
+            .order_by(Task.created_at.desc(), Task.id.desc())
+            .limit(1)
+        )
+        task_id = result.scalar_one_or_none()
+
+    if not task_id:
+        logger.info("[prd-view] no polish task found req_id=%s", req.req_id)
+        return (None, "none")
+
+    # 查 running 容器 + runner 在线
+    ctr_result = await db.execute(
+        select(Container)
+        .where(Container.task_id == task_id, Container.status == "running")
+        .order_by(Container.id.desc())
+        .limit(1)
+    )
+    container = ctr_result.scalar_one_or_none()
+    if container is None:
+        logger.info("[prd-view] no running container task_id=%s", task_id)
+        return (None, "none")
+    if runner_registry.get(container.runner_id) is None:
+        logger.info("[prd-view] runner offline runner_id=%s", container.runner_id)
+        return (None, "none")
+
+    # 调 R2 同步函数回读回填(内部自捕获异常)
+    try:
+        await sync_prd_from_container(db, task_id)
+    except Exception as e:
+        logger.warning("[prd-view] sync_prd_from_container failed task_id=%s: %s", task_id, e)
+        return (None, "none")
+
+    # 重查 req.prd_content 判断回填是否成功
+    await db.refresh(req)
+    if req.prd_content:
+        logger.info("[prd-view] hit container req_id=%s task_id=%s", req.req_id, task_id)
+        return (req.prd_content, "container")
+
+    logger.info("[prd-view] container read but empty req_id=%s", req.req_id)
+    return (None, "none")
+
+
+async def _sync_prd_background(task_id: str) -> None:
+    """
+    R2 后台包装:自开 session(请求级 db 在 SSE 响应结束后关闭,后台任务禁用之)
+    全程捕获异常不外抛(fire-and-forget 语义)。
+    """
+    from app.database import async_session_factory
+
+    try:
+        async with async_session_factory() as session:
+            await sync_prd_from_container(session, task_id)
+    except Exception:
+        logger.warning("[prd-sync] background task unexpected error task_id=%s", task_id, exc_info=True)
+
 
 async def _creator_brief(db: AsyncSession, user_id: str) -> dict:
     result = await db.execute(select(User).where(User.user_id == user_id))
@@ -47,12 +221,17 @@ async def build_detail(db: AsyncSession, req: Requirement) -> dict:
         select(Task).where(Task.req_id == req.req_id)
         .order_by(Task.created_at.asc(), Task.id.asc())
     )
+    from app.services import task_service
+
     tasks = [
         {
             "task_id": t.task_id,
             "type": t.type,
             "title": t.title,
             "status": t.status,
+            # BUG-077:补齐 created_at/display_status,前端「创建时间」列与状态徽章渲染依赖
+            "created_at": t.created_at,
+            "display_status": task_service.derive_display_status(t.status, None),
         }
         for t in result.scalars().all()
     ]

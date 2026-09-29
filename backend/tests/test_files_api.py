@@ -173,6 +173,82 @@ async def test_task_mode_changes_grouped_by_repo(client, auth_headers, db_sessio
 
 
 @pytest.mark.asyncio
+async def test_task_file_list_normalizes_tree_to_dir(client, auth_headers, db_session, registered_user, monkeypatch):
+    """BUG-070:task_file_list 防御归一化——runner 返回 type="tree" 应归一为 "dir"(前端 FileItem 契约)"""
+    project = Project(name="fn", slug=f"fn-{uuid.uuid4().hex[:6]}", owner_id=registered_user["user_id"])
+    db_session.add(project)
+    await db_session.flush()
+    from app.models.container import Container
+
+    container = Container(
+        container_id=f"docker-{uuid.uuid4().hex[:10]}",
+        task_id="task-norm", runner_id="runner-norm", project_id=project.project_id,
+        status="running", exposed_ports=[],
+    )
+    db_session.add(container)
+    await db_session.flush()
+    runner_registry.register("runner-norm", "worker", None, "10.0.0.7")
+
+    async def fake_request(db, container, message, timeout=15.0):
+        if message["type"] == "file_list":
+            # 模拟旧 runner 返回 type="tree"(目录)
+            return {"items": [
+                {"path": "src", "type": "tree", "size": 4096, "mtime": 1758412800.0},
+                {"path": "main.py", "type": "file", "size": 1234, "mtime": 1758412801.5},
+            ]}
+        raise AssertionError(f"unexpected {message['type']}")
+
+    monkeypatch.setattr(file_service, "_request_container", fake_request)
+
+    items = await file_service.task_file_list(db_session, "task-norm", "/workspace/main")
+    # 归一化断言:"tree" → "dir";"file" 保持
+    assert items[0]["type"] == "dir", f"期望 'dir',实际 '{items[0]['type']}'"
+    assert items[1]["type"] == "file"
+    assert len(items) == 2
+    runner_registry.unregister("runner-norm")
+
+
+@pytest.mark.asyncio
+async def test_task_file_list_passes_custom_dir_path(client, auth_headers, db_session, registered_user, monkeypatch):
+    """R4.F6(BUG-070 复开):懒加载契约——task_file_list 把自定义目录绝对路径原样透传给 runner。
+
+    前端 FileTree 目录展开时按 `/workspace/main/<子目录>` 逐层拉取(runner list_dir 为
+    find -maxdepth 1 单层),路径透传是懒加载树的 API 契约,此处钉死防回归。
+    """
+    project = Project(name="fl", slug=f"fl-{uuid.uuid4().hex[:6]}", owner_id=registered_user["user_id"])
+    db_session.add(project)
+    await db_session.flush()
+    from app.models.container import Container
+
+    container = Container(
+        container_id=f"docker-{uuid.uuid4().hex[:10]}",
+        task_id="task-lazy", runner_id="runner-lazy", project_id=project.project_id,
+        status="running", exposed_ports=[],
+    )
+    db_session.add(container)
+    await db_session.flush()
+    runner_registry.register("runner-lazy", "worker", None, "10.0.0.8")
+
+    seen_paths: list[str] = []
+
+    async def fake_request(db, container, message, timeout=15.0):
+        if message["type"] == "file_list":
+            seen_paths.append(message["path"])
+            # 子目录层返回相对该目录的单层条目(runner %P 语义)
+            return {"items": [{"path": "App.tsx", "type": "file", "size": 10, "mtime": 0.0}]}
+        raise AssertionError(f"unexpected {message['type']}")
+
+    monkeypatch.setattr(file_service, "_request_container", fake_request)
+
+    root = await file_service.task_file_list(db_session, "task-lazy", "/workspace/main")
+    sub = await file_service.task_file_list(db_session, "task-lazy", "/workspace/main/src")
+    # 路径透传断言:根层与子目录层的 path 原样到达 runner(懒加载逐层拉取的前提)
+    assert seen_paths == ["/workspace/main", "/workspace/main/src"]
+    assert isinstance(root, list) and isinstance(sub, list)
+    runner_registry.unregister("runner-lazy")
+
+
+@pytest.mark.asyncio
 async def test_project_mode_file_content_endpoint(client, auth_headers, db_session, registered_user):
     """项目模式文件内容端点(经 GitLab mock;base64 → utf-8)"""
     project, repo = await _setup_project_with_repo(db_session, registered_user)

@@ -214,10 +214,11 @@ class TestScheduleAndStart:
         msg = sent[0]
         assert msg["type"] == "start_container"
         assert msg["task_id"] == "task-xyz"
-        # R1:schedule_and_start 默认镜像应为 v2(钉住生产常量 container_service.DEFAULT_IMAGE
-        # 的 v2 默认);下发消息与 DB 登记行同源
-        assert msg["image"] == "platform/devbox:v2", f"下发镜像应为 v2,实际: {msg['image']}"
-        assert container.image == "platform/devbox:v2", f"登记镜像应为 v2,实际: {container.image}"
+        # R1→R5(container_image):默认镜像钉住生产常量 aliyun 地址;下发消息与 DB 登记行同源
+        assert msg["image"] == "registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2", \
+            f"下发镜像应为 aliyun 默认,实际: {msg['image']}"
+        assert container.image == "registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2", \
+            f"登记镜像应为 aliyun 默认,实际: {container.image}"
         assert msg["ports"] == [5173, 8000]
         assert msg["repos"][0]["branch"] == "req-1"
         await db_session.refresh(runner)
@@ -240,3 +241,77 @@ class TestScheduleAndStart:
                 env={}, repos=[],
             )
         assert getattr(exc_info.value, "code", None) == 8003
+
+
+# ---------------------------------------------------------------------------
+# 镜像解析链(R5 container_image:显式传参 > 后台设置 > DEFAULT_IMAGE 常量)
+# ---------------------------------------------------------------------------
+class TestImageResolution:
+    @pytest.mark.asyncio
+    async def test_setting_overrides_default_image(self, db_session, registered_user, monkeypatch):
+        """后台配置 container_image 后,不传 image 的调度应改用设置值"""
+        from app.services import platform_settings_service
+
+        runner = await _insert_runner(db_session, "runner-img-set", current=0)
+        runner_registry.register(runner.runner_id, "worker", None, "10.0.0.2")
+
+        sent = []
+
+        async def fake_send(c, message):
+            sent.append(message)
+
+        monkeypatch.setattr(runner_service, "send_to_runner", fake_send)
+
+        project = Project(name="p-img-set", slug=f"pis-{uuid.uuid4().hex[:8]}",
+                          owner_id=registered_user["user_id"])
+        db_session.add(project)
+        await db_session.flush()
+        await platform_settings_service.update_settings(
+            db_session, "test", {"container_image": "reg.example.com/ns/repo:v9"}
+        )
+
+        container = await container_service.schedule_and_start(
+            db_session,
+            project_id=project.project_id,
+            task_id="task-img-set",
+            owner_user_id=registered_user["user_id"],
+            env={}, repos=[],
+        )
+        assert sent[0]["image"] == "reg.example.com/ns/repo:v9", sent[0]
+        assert container.image == "reg.example.com/ns/repo:v9", container.image
+        runner_registry.unregister(runner.runner_id)
+
+    @pytest.mark.asyncio
+    async def test_explicit_param_wins_over_setting(self, db_session, registered_user, monkeypatch):
+        """显式传参优先级最高:设置项已配置时,传参值仍胜出"""
+        from app.services import platform_settings_service
+
+        runner = await _insert_runner(db_session, "runner-img-exp", current=0)
+        runner_registry.register(runner.runner_id, "worker", None, "10.0.0.3")
+
+        sent = []
+
+        async def fake_send(c, message):
+            sent.append(message)
+
+        monkeypatch.setattr(runner_service, "send_to_runner", fake_send)
+
+        project = Project(name="p-img-exp", slug=f"pie-{uuid.uuid4().hex[:8]}",
+                          owner_id=registered_user["user_id"])
+        db_session.add(project)
+        await db_session.flush()
+        await platform_settings_service.update_settings(
+            db_session, "test", {"container_image": "reg.example.com/ns/repo:v9"}
+        )
+
+        container = await container_service.schedule_and_start(
+            db_session,
+            project_id=project.project_id,
+            task_id="task-img-exp",
+            owner_user_id=registered_user["user_id"],
+            env={}, repos=[],
+            image="explicit/custom:v1",
+        )
+        assert sent[0]["image"] == "explicit/custom:v1", sent[0]
+        assert container.image == "explicit/custom:v1", container.image
+        runner_registry.unregister(runner.runner_id)

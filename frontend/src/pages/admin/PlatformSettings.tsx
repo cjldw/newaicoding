@@ -6,7 +6,7 @@
  * 分组:
  *  1. GitLab 集成 — gitlab_url / gitlab_bot_token / gitlab_bot_group_id / gitlab_webhook_secret + 测试连接
  *  2. 域名配置 — preview_base_domain / deploy_base_domain
- *  3. 全局参数 — max_containers_total / kb_max_pages_per_kb / kb_max_file_mb
+ *  3. 全局参数 — max_containers_total / max_containers_per_user / container_image / kb_max_pages_per_kb / kb_max_file_mb
  *  4. 模型默认配置(R23/R1)— llm_base_url / llm_api_key / llm_models(≤10 个模型名 tag,先测后入列)
  *     / llm_default_model(四键齐备校验 + 2008 连通测试)
  *  5. 自定义变量(R8.F4)— custom_env_vars(KV 表,任务容器启动时全量注入)
@@ -79,9 +79,14 @@ const domainSchema = z.object({
 type DomainValues = z.infer<typeof domainSchema>
 
 // 3. 全局参数
+// 任务容器镜像引用(与后端 _IMAGE_REF_RE 同口径:registry/repo:tag,强制带 tag;留空=未配置回落默认)
+const IMAGE_REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$/
 const globalSchema = z.object({
   max_containers_total: z.coerce.number().min(1, '至少 1'),
   max_containers_per_user: z.coerce.number().min(1, '至少 1'),
+  container_image: z
+    .string()
+    .refine((v) => v.trim() === '' || IMAGE_REF_RE.test(v.trim()), '须为带 tag 的镜像引用(如 registry.example.com/ns/repo:v2)'),
   kb_max_pages_per_kb: z.coerce.number().min(1, '至少 1'),
   kb_max_file_mb: z.coerce.number().min(1, '至少 1'),
 })
@@ -230,6 +235,7 @@ export function PlatformSettings() {
     globalForm.reset({
       max_containers_total: d.max_containers_total ?? 100,
       max_containers_per_user: d.max_containers_per_user ?? 5,
+      container_image: d.container_image ?? '',
       kb_max_pages_per_kb: d.kb_max_pages_per_kb ?? 50,
       kb_max_file_mb: d.kb_max_file_mb ?? 10,
     })
@@ -352,7 +358,12 @@ export function PlatformSettings() {
     setGlobalSaving(true)
     setGlobalMsg(null)
     try {
-      await api.put('/admin/platform-settings', values)
+      // 镜像留空 = 恢复未配置(后端回落代码默认);不发空串(后端校验非空会 2007)
+      const payload: Record<string, unknown> = { ...values }
+      if ((values.container_image ?? '').trim() === '') {
+        delete payload.container_image
+      }
+      await api.put('/admin/platform-settings', payload)
       setGlobalMsg({ type: 'success', text: '保存成功' })
       setTimeout(() => setGlobalMsg(null), 3000)
     } catch (err) {
@@ -856,6 +867,21 @@ export function PlatformSettings() {
             <Input type="number" {...globalForm.register('max_containers_per_user')} />
           ),
         })}
+
+        {/* 任务容器镜像(R5:留空 = 未配置,后端回落代码默认 aliyun devbox;改动仅影响之后新起的容器) */}
+        {renderField({
+          label: '任务容器镜像',
+          error: globalErrors.container_image?.message,
+          children: (
+            <Input
+              placeholder="registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2"
+              {...globalForm.register('container_image')}
+            />
+          ),
+        })}
+        <p className="text-xs text-text-muted -mt-1">
+          留空使用平台默认镜像;须带 tag(如 .../devbox:v2)。改动仅对之后新起的任务容器生效,不影响运行中容器
+        </p>
 
         {renderField({
           label: '每个知识库最大页数',

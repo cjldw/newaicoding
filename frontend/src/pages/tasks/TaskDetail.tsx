@@ -19,12 +19,19 @@
  * 面包屑(BUG-UI-063 链):项目 / {项目名} / {需求短id} / 任务 {短id},BreadcrumbOverrideProvider。
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+// R39:git 操作 Dialog + 身份/权限来源
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
+import { useAuthStore } from '@/stores/authStore'
+import { ApiError } from '@/api/client'
+import { useProjectMembers } from '@/api/projects'
+import { useTaskGitCommit, useTaskGitPush } from '@/api/files'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Square, Sparkles, FileCode, FlaskConical, Rocket, GitBranch, Box, Server,
   GitCommit, Eye, FolderOpen, FileText, MessageSquare, Terminal, Activity, Maximize2, Minimize2,
-  Save, Clock, Check, ExternalLink, Loader2, RotateCcw,
+  Save, Clock, Check, ExternalLink, Loader2, RotateCcw, CheckCircle2, Upload,
 } from 'lucide-react'
 import CodeEditor from '@/components/Editor'
 import DiffViewer from '@/components/DiffViewer'
@@ -39,14 +46,15 @@ import DeployStatus from '@/pages/tasks/DeployStatus'
 import { BreadcrumbOverrideProvider, type CrumbItem } from '@/components/layout/Breadcrumb'
 import { useToast } from '@/hooks/useToast'
 import {
-  useTaskDetail, useStopTask, useRetryTask, useTaskPreviews,
+  useTaskDetail, useStopTask, useRetryTask, useTaskPreviews, useFinishTask,
 } from '@/api/tasks'
 import {
   useTaskFiles, useTaskFileContent, useUpdateTaskFileContent,
-  useTaskDiff, useTaskChanges,
+  useTaskDiff, useTaskChanges, filesApi,
 } from '@/api/files'
+import { useQueryClient } from '@tanstack/react-query'
 import { useProjectDetail } from '@/api/projects'
-import { useRequirementDetail } from '@/api/requirements'
+import { useRequirementDetail, useRequirementPrdContent } from '@/api/requirements'
 import { useOfflineTask } from '@/api/deploy'
 import { createTerminalSession } from '@/api/terminal'
 import { useDragSash } from '@/hooks/useDragSash'
@@ -67,6 +75,8 @@ const VP_ST: Record<string, { label: string; bdg: string }> = {
   cancelled: { label: '已取消', bdg: 'b-zinc' },
   pending: { label: '排队中', bdg: 'b-zinc' },
   running: { label: '运行中', bdg: 'b-blue' },
+  // BUG-063:容器启动中(amber 黄,与 running 蓝区分;pulse 动画同 running)
+  starting: { label: '启动中', bdg: 'b-amber' },
   cases_review: { label: '用例评审', bdg: 'b-amber' },
   passed: { label: '测试通过', bdg: 'b-green' },
   failed: { label: '失败', bdg: 'b-red' },
@@ -129,7 +139,23 @@ export default function TaskDetail() {
   const [, showToast, ToastEl] = useToast()
 
   // BUG-UI-064:面板全屏状态(null=正常;面板 CSS 提升为 fixed 覆盖层,不重挂载)
-  const [fullscreen, setFullscreen] = useState<'chat' | 'term' | 'editor' | null>(null)
+  // 20260929_任务打磨面板全屏:扩展 'prd'(PRD 草稿) / 'files'(工作区) 两中栏
+  const [fullscreen, setFullscreen] = useState<'chat' | 'term' | 'editor' | 'prd' | 'files' | null>(null)
+  // 20260929_任务停止页面置灰:点停止后置 true → 全页遮罩拦截操作,
+  // 容器真正停下(display_status 离开 running/starting)或 mutation 报错时复位
+  const [stopRequested, setStopRequested] = useState(false)
+  // 20260929_容器重试页面置灰:点重试后置 true → 全页遮罩(与停止同款交互),
+  // 容器启动成功(display_status=running)或重试失败/终态落回 failed/cancelled/timeout 时复位
+  const [retryRequested, setRetryRequested] = useState(false)
+  // 20260929_打磨完成按钮:点「打磨完成」后置 true → 全页遮罩(与停止/重试同款交互),
+  // 任务转 done/failed/cancelled/timeout 时复位;提交失败也撤
+  const [finishRequested, setFinishRequested] = useState(false)
+  // 20260929_任务容器未启动置灰引导:容器门卫状态
+  // containerGateOpen=弹框是否显示;containerGateStarting=是否正在启动中(遮罩)
+  // display_status ∉ {running, starting} → 门卫生效 → 全页遮罩 + 弹框引导启动
+  // sessionStorage 按 taskId 记跳过标记,本会话不重弹(刷新/重进再弹)
+  const [containerGateOpen, setContainerGateOpen] = useState(false)
+  const [containerGateStarting, setContainerGateStarting] = useState(false)
   // 编辑器当前草稿(供显式「保存」;自动保存链路保留)
   const [editorDraft, setEditorDraft] = useState<string | null>(null)
   // 右栏 Tab(vp rightPane:对话/终端/活动;初始 chat,tab on ⇔ pane 显示同步)
@@ -141,6 +167,72 @@ export default function TaskDetail() {
   const [enabled, setEnabled] = useState(false) // 点选文件后才拉内容
   // 当前查看的 diff 文件
   const [diffPath, setDiffPath] = useState<string | null>(null)
+  // R38:Diff 口径切换('all'=基线分支 vs 工作区,默认现状;'head'=HEAD vs 工作区,仅未提交)
+  // 切口径 → useTaskDiff/useTaskChanges 的 queryKey 带 scope → 自动换 key refetch
+  const [diffScope, setDiffScope] = useState<'all' | 'head'>('all')
+
+  // R39:git 操作(commit/push)状态 + mutations
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false)
+  const [commitMessage, setCommitMessage] = useState('')
+  const gitCommit = useTaskGitCommit()
+  const gitPush = useTaskGitPush()
+  // R39:权限判定(editor+ 才显示操作行)+ 身份显示
+  const { data: membersData } = useProjectMembers(task?.project_id ?? '')
+  const me = useAuthStore((s) => s.user)
+  // 当前用户在项目中的角色(owner/editor 可操作;viewer 隐藏)
+  const myRole = useMemo(() => {
+    if (!me || !membersData?.items) return null
+    return membersData.items.find((m) => m.user_id === me.user_id)?.role ?? null
+  }, [me, membersData])
+  // R39:身份展示(name/email 从 commit 响应取 v1;静态占位用当前用户信息)
+  const identityName = me?.nickname || me?.gitlab_username || me?.phone || '—'
+  const identityEmail = me?.gitlab_username ? `${me.gitlab_username}@zhanqi.com` : (me?.phone ? `${me.phone}@zhanqi.com` : '—')
+  // R39:默认 commit message 文案「AI 任务变更 {短id} {YYYY-MM-DD HH:mm}」
+  const defaultCommitMessage = useMemo(() => {
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+    return `AI 任务变更 ${shortId(taskId)} ${ts}`
+  }, [taskId])
+  // R39:错误码 → toast 文案矩阵(6 条)
+  const mapGitError = (err: unknown): string => {
+    if (err instanceof ApiError) {
+      switch (err.code) {
+        case 9001: return '任务无运行中的容器'
+        case 2015: return '无变更可提交'
+        case 1012: return 'GitLab token 无效,请到个人设置重绑'
+        case 1013: return 'token 权限不足(push 被拒)'
+        case 2014: return `GitLab 操作失败:${err.message.slice(0, 300)}`
+        case 403: return '需要编辑者及以上权限'
+      }
+    }
+    return err instanceof Error ? err.message : '操作失败'
+  }
+  // R39:点「提交」→ 开 Dialog 预填默认文案
+  const handleCommitClick = () => {
+    setCommitMessage(defaultCommitMessage)
+    setCommitDialogOpen(true)
+  }
+  // R39:Dialog 确认 → POST commit → 成功关 Dialog + toast;失败保留 message
+  const handleCommitConfirm = () => {
+    gitCommit.mutate({ taskId, message: commitMessage }, {
+      onSuccess: () => {
+        showToast('ok', '提交成功')
+        setCommitDialogOpen(false)
+      },
+      onError: (err) => {
+        showToast('err', mapGitError(err))
+        // Dialog 不关,message 保留
+      },
+    })
+  }
+  // R39:点「推送」→ 直发 POST → toast
+  const handlePushClick = () => {
+    gitPush.mutate(taskId, {
+      onSuccess: () => showToast('ok', '推送成功'),
+      onError: (err) => showToast('err', mapGitError(err)),
+    })
+  }
 
   // R4.F2:左右栏拖拽宽度(vp 初始 236/384);sash 叠加在分栏边缘,不进 grid 流
   const [leftW, onLeftSashDown] = useDragSash(236, { min: 220, max: 480 })
@@ -155,24 +247,71 @@ export default function TaskDetail() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const toggleFullscreen = (panel: 'chat' | 'term' | 'editor') =>
+  const toggleFullscreen = (panel: 'chat' | 'term' | 'editor' | 'prd' | 'files') =>
     setFullscreen((cur) => (cur === panel ? null : panel))
 
   const { data: previews } = useTaskPreviews(taskId)
   const stopTask = useStopTask(taskId)
   const retryTask = useRetryTask(taskId)
+  const finishTask = useFinishTask(taskId)
   const offlineTask = useOfflineTask(taskId)
 
   // 文件树 / 变更 / 文件内容 / diff 数据
-  const { data: filesData, refetch: refetchFiles } = useTaskFiles(taskId, '/workspace/main')
-  const { data: changesData, refetch: refetchChanges } = useTaskChanges(taskId)
-  const { data: fileData } = useTaskFileContent(taskId, enabled ? selectedPath : '')
+  const { data: filesData, refetch: refetchFiles, isFetching: filesFetching } = useTaskFiles(taskId, '/workspace/main')
+  const { data: changesData, refetch: refetchChanges } = useTaskChanges(taskId, diffScope)
+  // R4.F6(BUG-070 复开):内容加载三态外露——此前 isLoading/isError 被丢弃,
+  // read 失败(如路径语义错误)静默渲染空编辑器,用户无法分辨「空文件」与「加载失败」
+  const {
+    data: fileData,
+    isLoading: fileContentLoading,
+    isError: fileContentError,
+    refetch: refetchFileContent,
+  } = useTaskFileContent(taskId, enabled ? selectedPath : '')
+
+  // R4.F6 完整文件树管理:selectedPath 全链路升级为容器绝对路径(runner read/write/file_op
+  // 均为裸 shell 拼路径,绝对路径是唯一安全语义;树内展示用 basename,由 FileTree 内部处理)
+  const queryClient = useQueryClient()
+  // 文件树外部刷新令牌:bump → FileTree 清空已加载子级缓存,已展开目录自动重拉
+  const [treeRefreshNonce, setTreeRefreshNonce] = useState(0)
+  // 目录懒加载:按目录绝对路径 fetchQuery(60s 缓存窗口,折叠再展开不重拉;
+  // 刷新链路 refreshFileTree 已 invalidate 全前缀,置旧后 fetchQuery 必真实重拉)
+  const loadTaskDir = useCallback(
+    (dir: string) =>
+      queryClient.fetchQuery({
+        queryKey: ['task-files', taskId, dir],
+        queryFn: () => filesApi.listTaskFiles(taskId, dir).then((r) => r.data.items),
+        staleTime: 60_000,
+      }),
+    [queryClient, taskId]
+  )
+  const refreshFileTree = useCallback(() => {
+    setTreeRefreshNonce((n) => n + 1)
+    refetchFiles()
+    refetchChanges()
+    // 根层 + 各已展开目录的按目录缓存一并置旧,fetchQuery 下次触发真实重拉
+    queryClient.invalidateQueries({ queryKey: ['task-files', taskId] })
+  }, [queryClient, taskId, refetchFiles, refetchChanges])
   const saveFile = useUpdateTaskFileContent()
-  const { data: diffData } = useTaskDiff(taskId)
+  // R4.F8(BUG-075):diff 数据三态外露——此前失败/空缓存无任何恢复入口,
+  // 用户点 chip 只看到误导性「该文件暂无变更」
+  const {
+    data: diffData,
+    isError: diffError,
+    isFetching: diffFetching,
+    refetch: refetchDiff,
+  } = useTaskDiff(taskId, diffScope)
 
   // 归属数据(面包屑 + requirement PRD 面板):后端 R4.F4 起返回 project_id/req_id
   const { data: project } = useProjectDetail(task?.project_id ?? '')
   const { data: req } = useRequirementDetail(task?.req_id ?? '')
+
+  // R3:PRD 副本读取(免容器预览)— 数据源切换至平台副本接口(降级链服务端内置)
+  // 原 prdContainerPath 拼接 + useTaskFileContent 调用已移除(容器离线也可用,核心诉求)
+  const {
+    data: prdContentData,
+    isLoading: prdContentLoading,
+    refetch: refetchPrdContent,
+  } = useRequirementPrdContent(task?.req_id)
 
   const previewItem: { port: number; preview_url: string; status: string } | null =
     (previews as unknown as { items?: { port: number; preview_url: string; status: string }[] })?.items?.[0] ?? null
@@ -184,12 +323,152 @@ export default function TaskDetail() {
     return () => clearInterval(timer)
   }, [task?.status, refetchChanges])
 
+  // R3:PRD 副本读取(免容器预览):15s 轮询刷新平台副本
+  // 镜像本文件 refetchChanges 的 15s setInterval 先例——仅 centerTab==='prd' 且任务在跑时 refetch
+  useEffect(() => {
+    if (task?.status !== 'running') return
+    if (centerTab !== 'prd') return
+    const timer = setInterval(() => refetchPrdContent(), 15000)
+    return () => clearInterval(timer)
+  }, [task?.status, centerTab, refetchPrdContent])
+
+  // 20260929_任务停止页面置灰 / 20260929_容器重试页面置灰 / 20260929_打磨完成按钮 / 20260929_任务容器未启动置灰引导:taskId 变化/卸载时遮罩状态复位(防跨任务残留)
+  useEffect(() => {
+    setStopRequested(false)
+    setRetryRequested(false)
+    setFinishRequested(false)
+    setContainerGateOpen(false)
+    setContainerGateStarting(false)
+    return () => {
+      setStopRequested(false)
+      setRetryRequested(false)
+      setFinishRequested(false)
+      setContainerGateOpen(false)
+      setContainerGateStarting(false)
+    }
+  }, [taskId])
+
+  // 20260929_任务停止页面置灰:轮询监听任务状态(useTaskDetail 已有 5s refetchInterval),
+  // display_status 离开 running/starting → 容器已停 → 撤遮罩。
+  // 早 return:未请求停止 / task 未就绪 / 仍在跑 → 都不动
+  useEffect(() => {
+    if (!stopRequested) return
+    if (!task) return
+    const displaySt = task.display_status ?? task.status
+    if (displaySt === 'running' || displaySt === 'starting') return
+    setStopRequested(false)
+  }, [stopRequested, task])
+
+  // 20260929_容器重试页面置灰:轮询监听任务状态(镜像停止遮罩 effect 写法),
+  // display_status=running → 容器启动成功 → 撤遮罩;
+  // display_status 落回 failed/cancelled/timeout → 重试失败,放行再次重试 → 也撤;
+  // pending/starting 期间保持遮罩(容器启动中)
+  useEffect(() => {
+    if (!retryRequested) return
+    if (!task) return
+    const displaySt = task.display_status ?? task.status
+    if (displaySt === 'running') {
+      setRetryRequested(false)
+      return
+    }
+    if (displaySt === 'failed' || displaySt === 'cancelled' || displaySt === 'timeout') {
+      setRetryRequested(false)
+    }
+  }, [retryRequested, task])
+
+  // 20260929_打磨完成按钮:轮询监听任务状态(镜像重试遮罩 effect 写法),
+  // 提交成功 → 任务转 done → 撤遮罩;
+  // display_status 落 failed/cancelled/timeout → 提交失败/任务异常 → 也撤放行重试;
+  // pending/starting/running 期间保持遮罩(后端处理中)
+  useEffect(() => {
+    if (!finishRequested) return
+    if (!task) return
+    const displaySt = task.display_status ?? task.status
+    if (displaySt === 'done' || displaySt === 'failed' || displaySt === 'cancelled' || displaySt === 'timeout') {
+      setFinishRequested(false)
+    }
+  }, [finishRequested, task])
+
+  // 20260929_任务容器未启动置灰引导:容器门卫状态机
+  // 触发条件:task 数据就绪 + display_status ∉ {running, starting} + 本会话未跳过该 taskId
+  // 撤除条件:轮询到 running/starting(容器已起)→ 自动撤遮罩 + 关弹框
+  // 与停止遮罩(stopRequested)互斥:停止只在 running,门卫只在非 running,状态天然不相交;
+  // 若极端场景交叉(如轮询间隙),以停止遮罩优先(停止遮罩渲染在门卫遮罩之后,z-index 更高)
+  useEffect(() => {
+    if (!task) return
+    const st = task.display_status ?? task.status
+    // running/starting → 容器已起或正在起 → 门卫不生效,撤所有门卫态
+    if (st === 'running' || st === 'starting') {
+      if (containerGateOpen) setContainerGateOpen(false)
+      if (containerGateStarting) setContainerGateStarting(false)
+      return
+    }
+    // 非 running/starting → 门卫生效;若用户本会话已点「暂不」(sessionStorage 有 skip 标记)→ 不弹框不遮罩
+    const skipKey = `containerGateSkip:${taskId}`
+    const skipped = sessionStorage.getItem(skipKey)
+    if (skipped) {
+      // 已跳过:不弹框;若正在启动中(用户之前点过启动,轮询还没到 running)保持启动中遮罩
+      if (containerGateOpen) setContainerGateOpen(false)
+      return
+    }
+    // 未跳过 + 非 running/starting → 弹框 + 遮罩
+    if (!containerGateOpen) setContainerGateOpen(true)
+  }, [task, taskId, containerGateOpen, containerGateStarting])
+
+  // 20260929_任务容器未启动置灰引导:点「启动」→ 调 retryTask;
+  // pending 态后端 retry_task 只收 failed/cancelled/timeout(pending 会报 TASK_REQ_STATUS_INVALID)
+  // → 前端 pending 态直接 disabled + toast 提示「排队任务等待调度」,不发起请求
+  // 成功:关弹框,遮罩转「容器启动中…」loading 态(轮询到 running 自动撤)
+  // 失败:toast 透出后端错误文案,遮罩+弹框保持(用户可再选暂不)
+  const handleContainerGateStart = () => {
+    const st = task?.display_status ?? task?.status
+    if (st === 'pending') {
+      showToast('info', '排队任务等待调度')
+      return
+    }
+    setContainerGateStarting(true)
+    setContainerGateOpen(false)
+    retryTask.mutate(undefined, {
+      onSuccess: () => {
+        // 成功:遮罩保持(containerGateStarting=true),轮询到 running 自动撤
+        // 弹框已关(setContainerGateOpen(false) 在 mutate 前)
+      },
+      onError: (err: unknown) => {
+        // 失败:撤启动中遮罩,重新开弹框,toast 透出后端错误文案
+        setContainerGateStarting(false)
+        setContainerGateOpen(true)
+        const msg = err instanceof Error ? err.message : '启动失败'
+        showToast('err', msg)
+      },
+    })
+  }
+  // 20260929_任务容器未启动置灰引导:点「暂不」→ 关弹框撤遮罩 + sessionStorage 写 skip 标记
+  const handleContainerGateSkip = () => {
+    setContainerGateOpen(false)
+    sessionStorage.setItem(`containerGateSkip:${taskId}`, '1')
+  }
+
   // BUG-UI-065 保留:切到 Diff 且未选文件时,自动选第一个变更文件
   useEffect(() => {
     if (centerTab !== 'diff' || diffPath) return
     const first = changesData?.repos?.[0]?.files?.[0]?.path
     if (first) setDiffPath(first)
   }, [centerTab, diffPath, changesData])
+
+  // R4.F8(BUG-075):失步自愈——进入 Diff Tab 时变更清单有文件而 diff 数据为空
+  // (旧缓存/容器抖动窗口抓取失败),自动补拉一次;不反复重试(失败走可见重试按钮)
+  // R38:按 scope 维度独立重试标记(切口径 → queryKey 换 → 数据全新,旧标记不复用)
+  const diffAutoRetriedRef = useRef<Record<'all' | 'head', boolean>>({ all: false, head: false })
+  useEffect(() => {
+    if (centerTab !== 'diff' || diffAutoRetriedRef.current[diffScope]) return
+    if (diffFetching) return
+    const hasChanges = (changesData?.repos ?? []).some((g) => (g.files ?? []).length > 0)
+    const hasDiff = (diffData?.files ?? []).length > 0
+    if (hasChanges && !hasDiff) {
+      diffAutoRetriedRef.current[diffScope] = true
+      refetchDiff()
+    }
+  }, [centerTab, diffScope, diffData, changesData, diffFetching, refetchDiff])
 
   // 中栏初始 Tab:类型分支确定后落到该分支第一个 Tab(vp centerPane 各分支首个 tab)
   useEffect(() => {
@@ -240,6 +519,45 @@ export default function TaskDetail() {
     return list
   }, [project, req, taskId])
 
+  // 20260929_容器状态动态反馈:1s ticker(驱动时间 chip 每秒刷新)。
+  // 依赖 taskId 变化重置;卸载清理 interval。
+  // 仅在 starting/running 时渲染时间,其余态不消耗渲染(但 ticker 恒跑保持实现最简;
+  // 每秒 setState 成本可忽略,且避免依赖 displaySt 变化时重启 interval 的边界问题)
+  // NOTE:必须在 early return 之前,否则违反 React hooks 规则(task 未就绪时 hook 数少)
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [taskId])
+
+  // BUG-063:优先取 display_status(区分「启动中」vs「运行中」);旧后端无字段时回退 status
+  const displaySt = task?.display_status ?? task?.status ?? 'pending'
+  // starting 也算「在跑」→ pulse dot + 停止按钮
+  const isRun = displaySt === 'running' || displaySt === 'starting'
+
+  // 20260929_容器状态动态反馈:elapsed 计算(ms)。
+  // 早 return:非 starting/running 或 started_at 缺失 → null(不渲染时间 chip)。
+  // <0 或 NaN 兜底 null(旧数据/时钟漂移)
+  const elapsedMs = useMemo(() => {
+    if (displaySt !== 'starting' && displaySt !== 'running') return null
+    if (!task?.started_at) return null
+    const start = new Date(task.started_at).getTime()
+    const ms = now - start
+    if (!Number.isFinite(ms) || ms < 0) return null
+    return ms
+  }, [displaySt, task?.started_at, now])
+
+  // 20260929_容器状态动态反馈:elapsed 格式化。
+  // <60s → `Ns`;≥60s → `Nm Ss`(如 12s / 5m03s);null → 不显示
+  const elapsedFmt = useMemo(() => {
+    if (elapsedMs === null) return null
+    const s = Math.floor(elapsedMs / 1000)
+    if (s < 60) return `${s}s`
+    const m = Math.floor(s / 60)
+    const rs = s % 60
+    return `${m}m${String(rs).padStart(2, '0')}s`
+  }, [elapsedMs])
+
   if (!task) {
     return (
       <div className="page wide page-fill">
@@ -247,8 +565,6 @@ export default function TaskDetail() {
       </div>
     )
   }
-
-  const isRun = task.status === 'running'
   // vp L1465:文件树仅 dev 且非挂起显示
   const showTree = task.type === 'dev' && task.status !== 'pending'
   // BUG-UI-081(用户口径):requirement(打磨)任务面向产品,对话为主工作区 → 左右对调
@@ -259,16 +575,65 @@ export default function TaskDetail() {
   /* ---------------- wb-head acts(vp L1462-1464 条件;R35.F3/F6 追加式) ---------------- */
   // R35.F3:failed/cancelled/timeout → 重试(useRetryTask 死代码激活,retry 后立即重新拉起)
   // R35.F6:running 恒有 停止任务;test/release 附加按钮紧随其后(原覆盖 bug 修复)
+  // 20260929_任务停止页面置灰:点击停止 → 置 stopRequested 拉起遮罩;
+  //   onError 撤回遮罩 + toast(沿用文件内 useToast 既有方式);
+  //   遮罩期间按钮 disabled 防重复点击
+  const handleStopClick = () => {
+    setStopRequested(true)
+    stopTask.mutate(undefined, {
+      onError: (err: unknown) => {
+        // 请求失败 → 撤遮罩,沿用文件内 showToast 提示
+        setStopRequested(false)
+        const msg = err instanceof Error ? err.message : '停止任务失败'
+        showToast('err', msg)
+      },
+    })
+  }
+  // 20260929_容器重试页面置灰:点击重试 → 置 retryRequested 拉起遮罩;
+  //   onError 撤回遮罩 + toast(沿用文件内 useToast 既有方式);
+  //   遮罩期间按钮 disabled 防重复点击
+  const handleRetryClick = () => {
+    setRetryRequested(true)
+    retryTask.mutate(undefined, {
+      onError: (err: unknown) => {
+        setRetryRequested(false)
+        const msg = err instanceof Error ? err.message : '重试失败'
+        showToast('err', msg)
+      },
+    })
+  }
+  // 20260929_打磨完成按钮:点击「打磨完成」→ 置 finishRequested 拉起遮罩;
+  //   onSuccess 提示提交成功(PRD 已推送);onError 撤遮罩 + toast(文案回退「提交失败」);
+  //   遮罩期间按钮 disabled 防重复点击
+  const handleFinishClick = () => {
+    setFinishRequested(true)
+    finishTask.mutate(undefined, {
+      onSuccess: () => {
+        showToast('success', '打磨成果已提交(PRD 已推送至需求分支)')
+      },
+      onError: (err: unknown) => {
+        setFinishRequested(false)
+        const msg = err instanceof Error ? err.message : '提交失败'
+        showToast('err', msg)
+      },
+    })
+  }
   const acts: ReactNode = (
     <>
+      {/* 20260929_打磨完成按钮:requirement 任务运行中时,在「停止任务」左侧 */}
+      {task.type === 'requirement' && isRun && (
+        <button className="btn btn-pri" onClick={handleFinishClick} disabled={finishTask.isPending || finishRequested}>
+          <CheckCircle2 size={13} />{finishTask.isPending || finishRequested ? '提交中…' : '打磨完成'}
+        </button>
+      )}
       {isRun && (
-        <button className="btn btn-danger" onClick={() => stopTask.mutate()}>
-          <Square size={13} />停止任务
+        <button className="btn btn-danger" onClick={handleStopClick} disabled={stopRequested}>
+          <Square size={13} />{stopRequested ? '停止中…' : '停止任务'}
         </button>
       )}
       {['failed', 'cancelled', 'timeout'].includes(task.status) && (
-        <button className="btn" onClick={() => retryTask.mutate()} disabled={retryTask.isPending}>
-          <RotateCcw size={13} />{retryTask.isPending ? '重试中…' : '重试'}
+        <button className="btn" onClick={handleRetryClick} disabled={retryTask.isPending || retryRequested}>
+          <RotateCcw size={13} />{retryTask.isPending || retryRequested ? '重试中…' : '重试'}
         </button>
       )}
       {task.type === 'test' && (
@@ -310,16 +675,27 @@ export default function TaskDetail() {
   /* ---------------- 中栏 centerPane 五分支(vp L1253-1377) ---------------- */
 
   // 公共 Tab 条(vp:tabs padding:0 10px;background:var(--surface);样式由 .wb .tabs 承接)
-  const tabsBar = (nodes: ReactNode) => (
-    <div className="tabs">{nodes}</div>
+  // 可选 rightSlot:第三参传入时右对齐渲染在 tabs 行右端(不传时与现状完全一致)
+  const tabsBar = (nodes: ReactNode, rightSlot?: ReactNode) => (
+    <div className="tabs">
+      {nodes}
+      {rightSlot && <span className="tabs-right">{rightSlot}</span>}
+    </div>
   )
 
+  // R38:head 口径空态判定(scope==='head' && 无错误 && 0 文件 → 全部已 commit)
+  const headEmpty = diffScope === 'head' && !diffError && changedFiles.length === 0
   // ---- Diff 视图(dev/test 共用;vp diff pane 结构:d-chips + 内容 + card-foot) ----
+  // R38:d-chips 行右端新增口径开关(两 pill 互斥,复用 .dchip 基础,选中 .on)
   const diffView = (
     <>
       <div className="d-chips">
-        {changedFiles.length === 0 && <span className="small faint">暂无变更文件</span>}
-        {changedFiles.map((f) => {
+        {/* head 口径空态:0 文件时显示区分文案 + 切回按钮(替代 chips 列表) */}
+        {headEmpty && (
+          <span className="small faint">无未提交变更(全部已 commit)</span>
+        )}
+        {!headEmpty && changedFiles.length === 0 && <span className="small faint">暂无变更文件</span>}
+        {!headEmpty && changedFiles.map((f) => {
           const st = diffStat(diffOf(f.path)?.diff ?? '')
           return (
             <button
@@ -333,9 +709,40 @@ export default function TaskDetail() {
             </button>
           )
         })}
+        {/* R38:口径开关右端(margin-left auto 推到行尾;pill 复用 .dchip 样式基础) */}
+        <span className="dchip-scope">
+          <button
+            type="button"
+            className={`dchip${diffScope === 'all' ? ' on' : ''}`}
+            onClick={() => setDiffScope('all')}
+            disabled={diffFetching && diffScope === 'all'}
+          >全部改动</button>
+          <button
+            type="button"
+            className={`dchip${diffScope === 'head' ? ' on' : ''}`}
+            onClick={() => setDiffScope('head')}
+            disabled={diffFetching && diffScope === 'head'}
+          >仅未提交</button>
+        </span>
       </div>
       <div className="ed-scroll diff-body">
-        {diffPath && currentDiff() ? (
+        {/* R4.F8(BUG-075):加载失败→可见错误条+重试,不再误导为「暂无变更」 */}
+        {diffError ? (
+          <div className="empty">
+            Diff 数据加载失败(容器不可达或加载超时)
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => refetchDiff()}>
+              <RotateCcw size={13} /> 重试
+            </button>
+          </div>
+        ) : headEmpty ? (
+          /* R38:head 口径全空→区分文案 + 切回按钮 */
+          <div className="empty">
+            无未提交变更(全部已 commit)
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setDiffScope('all')}>
+              <RotateCcw size={13} /> 切回全部改动
+            </button>
+          </div>
+        ) : diffPath && currentDiff() ? (
           <DiffViewer oldValue={currentDiff()!.old} newValue={currentDiff()!.new} oldTitle={diffPath} newTitle={diffPath} />
         ) : (
           <div className="empty">该文件暂无变更(diff 数据未就绪或文件不在变更列表)</div>
@@ -367,6 +774,21 @@ export default function TaskDetail() {
             : 'flex-1 min-h-0 flex flex-col'}
           >
             <div className="flex-1 min-h-0">
+              {/* R4.F6(BUG-070 复开):内容加载三态——加载中/失败(带重试)/内容。
+                  此前 read 失败静默渲染空编辑器,用户无法分辨「空文件」与「加载失败」 */}
+              {fileContentLoading && (
+                <div className="flex items-center gap-2 px-4 py-2 text-sm text-text-muted">
+                  <Loader2 size={14} className="animate-spin" /> 加载文件中…
+                </div>
+              )}
+              {!fileContentLoading && fileContentError && (
+                <div className="flex items-center gap-2 px-4 py-2 text-sm text-red-500">
+                  文件加载失败(容器不可达或路径无效)
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => refetchFileContent()}>
+                    <RotateCcw size={13} /> 重试
+                  </button>
+                </div>
+              )}
               <CodeEditor
                 value={fileData?.content ?? ''}
                 path={selectedPath}
@@ -419,52 +841,151 @@ export default function TaskDetail() {
     </div>
   )
 
-  // ---- requirement 打磨(vp L1364-1376:PRD 草稿(容器内) / 工作区) ----
+  // ---- requirement 打磨(vp L1364-1376:PRD 草稿 / 工作区) ----
+  // R3:数据源切换至平台副本接口,原 reqFallbackFields 回退分支已移除(已确认 ⑤)
   const reqCenter = (
     <div className="twrap card twrap-fill">
       {tabsBar(<>
-        <button className={tabCls('prd', centerTab)} onClick={() => setCenterTab('prd')}><FileText size={14} />PRD 草稿(容器内)</button>
+        <button className={tabCls('prd', centerTab)} onClick={() => setCenterTab('prd')}><FileText size={14} />PRD 草稿</button>
         <button className={tabCls('files', centerTab)} onClick={() => setCenterTab('files')}><FolderOpen size={14} />工作区</button>
-      </>)}
-      {centerTab === 'prd' && (
-        <>
-          <div className="ed-scroll">
-            <div className="card-body">
-              {req ? (
-                // PRD 排版统一走 .md 作用域类(globals.css);首 h2 为需求标题,顶距由 .md>h2:first-child 归零
-                <div className="md">
-                  <h2>{req.title}</h2>
-                  {req.background && <><h3>背景</h3><div dangerouslySetInnerHTML={{ __html: renderMarkdown(req.background) }} /></>}
-                  {req.description && <><h3>方案(AI 打磨生成)</h3><div dangerouslySetInnerHTML={{ __html: renderMarkdown(req.description) }} /></>}
-                  {req.acceptance_criteria && <><h3>验收标准</h3><div dangerouslySetInnerHTML={{ __html: renderMarkdown(req.acceptance_criteria) }} /></>}
-                </div>
-              ) : (
-                <div className="empty">需求文档加载中…</div>
-              )}
-            </div>
-          </div>
-          <div className="card-foot">草稿仅存在于任务容器 · 评审通过后才 commit 到 {task.work_branch}(评审人个人 token)</div>
-        </>
-      )}
-      {centerTab === 'files' && (
-        <div className="ed-scroll">
-          <div className="tree">
-            <div className="tnode dir"><FolderOpen size={14} /><span className="nm mono">/workspace/main</span></div>
-            {(filesData?.items ?? []).map((f) => (
-              <div
-                key={f.path}
-                className={`tnode click${selectedPath === f.path ? ' sel' : ''}`}
-                style={{ paddingLeft: 38 + (f.path.split('/').length - 1) * 14 }} // 层级缩进为动态值,保留内联
-                onClick={() => setSelectedPath(f.path)}
-              >
-                <FileText size={14} />
-                <span className="nm mono">{f.path}</span>
+      {/* 20260929_工作区全屏按钮统一右上角:tabs 行右端按激活 Tab 动态切换 */}
+      </>, (centerTab === 'prd' || centerTab === 'files') && (
+        <button
+          type="button" title={centerTab === 'prd' ? 'PRD 草稿全屏' : '工作区全屏'}
+          className="btn btn-sm btn-ghost icon-btn"
+          onClick={() => toggleFullscreen(centerTab)}
+        >
+          <Maximize2 size={13} />
+        </button>
+      ))}
+      {/* 20260929_任务打磨面板全屏:PRD 草稿 pane 支持全屏(portal 到 body 解决层叠上下文陷阱) */}
+      {centerTab === 'prd' && (() => {
+        const pane = (
+          <>
+            <div className="ed-scroll">
+              <div className="card-body">
+                {!req || prdContentLoading ? (
+                  // R3:需求详情未就绪或 hook loading 态(沿用原「需求文档加载中…」文案)
+                  <div className="empty">需求文档加载中…</div>
+                ) : prdContentData?.prd_content ? (
+                  // R3:平台副本非空 → markdown 全文渲染(.md 容器类沿用)
+                  <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(prdContentData.prd_content) }} />
+                ) : (
+                  // R3:副本为空(容器离线/文件未产出)→ 空态引导,不报错
+                  <div className="text-sm text-text-muted mb-2">暂无 PRD,完成首轮打磨后可预览</div>
+                )}
               </div>
-            ))}
-            {(filesData?.items ?? []).length === 0 && <div className="empty">容器暂无文件</div>}
+            </div>
+            <div className="card-foot mt-auto">
+              内容自动同步至平台 · 评审通过后才 commit 到 {task.work_branch}(评审人个人 token)
+            </div>
+          </>
+        )
+        return fullscreen === 'prd' ? (
+          createPortal(
+            <div className="fixed inset-0 z-[70] bg-surface p-2 flex flex-col">
+              <div className="flex justify-end mb-1">
+                <button
+                  type="button" title="退出全屏"
+                  className="btn btn-sm btn-ghost icon-btn"
+                  onClick={() => toggleFullscreen('prd')}
+                >
+                  <Minimize2 size={13} />
+                </button>
+              </div>
+              {pane}
+            </div>,
+            document.body
+          )
+        ) : (
+          <div className="flex-1 min-h-0 flex flex-col">
+            {pane}
           </div>
-        </div>
-      )}
+        )
+      })()}
+      {/* 20260929_任务打磨面板全屏:工作区 pane 支持全屏(portal 到 body 解决层叠上下文陷阱) */}
+      {centerTab === 'files' && (() => {
+        const pane = (
+          <>
+            <div className="ed-scroll">
+              <div className="tree">
+                <div className="tnode dir"><FolderOpen size={14} /><span className="nm mono">/workspace/main</span></div>
+                {/* BUG-070 R4.F6:懒加载文件树(与开发任务「全部文件」Tab 同参同行为)——
+                    rootPath 绝对路径基准 + loadDir 目录懒加载 + refreshNonce 外部刷新。
+                    R39:打磨布局无编辑器 pane,点文件不切 'edit'(会两分支皆空白),
+                    改为树下只读预览(见下方 file-preview) */}
+                <FileTree
+                  mode="task"
+                  files={filesData?.items ?? []}
+                  rootPath="/workspace/main"
+                  loadDir={loadTaskDir}
+                  refreshNonce={treeRefreshNonce}
+                  selectedPath={selectedPath}
+                  onSelectFile={(p) => { setSelectedPath(p); setEnabled(true) }}
+                  onRefresh={refreshFileTree}
+                  isRefreshing={filesFetching}
+                />
+                {(filesData?.items ?? []).length === 0 && <div className="empty">容器暂无文件</div>}
+                {/* R39:打磨任务文件只读预览(树下方;三态与编辑器 pane 同源同款) */}
+                {selectedPath && enabled && (
+                  <div className="file-preview">
+                    <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+                      <FileText size={13} className="flex-shrink-0" />
+                      <span className="mono text-xs truncate flex-1" title={selectedPath}>{selectedPath}</span>
+                      <button type="button" className="btn btn-sm btn-ghost icon-btn" title="关闭预览"
+                        onClick={() => { setSelectedPath(''); setEditorDraft(null) }}>
+                        ×
+                      </button>
+                    </div>
+                    {fileContentLoading && (
+                      <div className="flex items-center gap-2 px-3 py-2 text-sm text-text-muted">
+                        <Loader2 size={14} className="animate-spin" /> 加载文件中…
+                      </div>
+                    )}
+                    {!fileContentLoading && fileContentError && (
+                      <div className="flex items-center gap-2 px-3 py-2 text-sm text-red-500">
+                        文件加载失败(容器不可达或路径无效)
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => refetchFileContent()}>
+                          <RotateCcw size={13} /> 重试
+                        </button>
+                      </div>
+                    )}
+                    {!fileContentLoading && !fileContentError && (
+                      <pre className="mono" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 12, lineHeight: 1.6, padding: '10px 12px', margin: 0 }}>
+                        {fileData?.content ?? ''}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="card-foot mt-auto">
+              工作区文件 · 只读预览(编辑请到编辑器 pane)
+            </div>
+          </>
+        )
+        return fullscreen === 'files' ? (
+          createPortal(
+            <div className="fixed inset-0 z-[70] bg-surface p-2 flex flex-col">
+              <div className="flex justify-end mb-1">
+                <button
+                  type="button" title="退出全屏"
+                  className="btn btn-sm btn-ghost icon-btn"
+                  onClick={() => toggleFullscreen('files')}
+                >
+                  <Minimize2 size={13} />
+                </button>
+              </div>
+              {pane}
+            </div>,
+            document.body
+          )
+        ) : (
+          <div className="flex-1 min-h-0 flex flex-col">
+            {pane}
+          </div>
+        )
+      })()}
     </div>
   )
 
@@ -575,6 +1096,8 @@ export default function TaskDetail() {
         <TaskChat
           taskId={taskId}
           projectId={task.project_id ?? undefined}
+          taskType={task.type}
+          prdFilePath={req?.prd_file_path || ''}
           fullscreen={fullscreen === 'chat'}
           onToggleFullscreen={() => toggleFullscreen('chat')}
         />
@@ -606,7 +1129,13 @@ export default function TaskDetail() {
             <span className="ttl">
               <TypeBadge type={task.type} />
               <span className="truncate">{shortId(task.task_id)} · {task.title}</span>
-              <StatusBadge status={task.status} pulse={isRun} />
+              {/* 20260929_容器状态动态反馈:starting 时徽章前加 Loader2 spinner(加载中视觉反馈) */}
+              {displaySt === 'starting' && <Loader2 size={13} className="animate-spin" />}
+              <StatusBadge status={displaySt} pulse={isRun} />
+              {/* 20260929_容器状态动态反馈:starting/running 时徽章后追加时间 chip(已等多久/运行多久) */}
+              {elapsedFmt && (
+                <span className="small muted mono">· {elapsedFmt}</span>
+              )}
               {/* React 补充:失败信息内联提示(vp 无此元素,保留功能性) */}
               {task.error_message && (
                 <span className="small err-txt">{task.error_message}</span>
@@ -639,13 +1168,44 @@ export default function TaskDetail() {
                 <FileTree
                   mode="task"
                   files={filesData?.items ?? []}
+                  rootPath="/workspace/main"
+                  loadDir={loadTaskDir}
+                  refreshNonce={treeRefreshNonce}
+                  isRefreshing={filesFetching}
                   changes={changesData?.repos ?? []}
                   selectedPath={selectedPath}
                   onSelectFile={(p) => { setSelectedPath(p); setEnabled(true); setCenterTab('edit') }}
                   onSelectDiff={(p) => { setDiffPath(p); setCenterTab('diff') }}
-                  onRefresh={() => { refetchFiles(); refetchChanges() }}
+                  onRefresh={refreshFileTree}
                 />
               </div>
+              {/* R39:git 操作行(tree-foot 之上一行;card-foot 样式)
+                  条件渲染:editor+(owner/editor) 且任务 running;viewer 或终态任务不渲染 */}
+              {showTree && isRun && (myRole === 'owner' || myRole === 'editor') && (
+                <div className="card-foot" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderTop: '1px solid #e4e4e7' }}>
+                  <span style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={gitCommit.isPending || gitPush.isPending}
+                      onClick={handleCommitClick}
+                    >
+                      <GitCommit size={13} />提交
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={gitCommit.isPending || gitPush.isPending}
+                      onClick={handlePushClick}
+                    >
+                      <Upload size={13} />推送
+                    </button>
+                  </span>
+                  <small style={{ color: '#71717a', fontSize: 13 }}>
+                    身份:{identityName} &lt;{identityEmail}&gt;
+                  </small>
+                </div>
+              )}
               {/* tree-foot(vp L1238-1243;字段映射真实任务) */}
               <div className="tree-foot">
                 <span><b>容器</b> {task.container_id ? `${task.container_id.slice(0, 7)} · devbox:v2` : '—'}</span>
@@ -673,6 +1233,117 @@ export default function TaskDetail() {
           </section>
         </div>
       </div>
+      {/* 20260929_任务停止页面置灰:全页遮罩(条件 = stopRequested)
+          复用 globals.css .page-blocking-overlay(fixed inset-0 / z-70 / 半透明灰底 / 拦截点击)
+          遮罩期间停止按钮已 disabled,此处再包一层视觉反馈 */}
+      {stopRequested && (
+        <div className="page-blocking-overlay">
+          <Loader2 size={32} className="animate-spin" />
+          <div className="text-sm text-white/80">正在停止容器…</div>
+        </div>
+      )}
+      {/* 20260929_容器重试页面置灰:全页遮罩(条件 = retryRequested)
+          与停止遮罩同款复用 globals.css .page-blocking-overlay,文案区分 */}
+      {retryRequested && (
+        <div className="page-blocking-overlay">
+          <Loader2 size={32} className="animate-spin" />
+          <div className="text-sm text-white/80">正在启动容器…</div>
+        </div>
+      )}
+      {/* 20260929_任务容器未启动置灰引导:容器门卫遮罩
+          条件:containerGateStarting(正在启动中,轮询到 running 自动撤)
+          复用 .page-blocking-overlay,与停止/重试遮罩同级 z-index;
+          若与停止遮罩交叉(极端轮询间隙),停止遮罩优先(渲染顺序在后) */}
+      {containerGateStarting && (
+        <div className="page-blocking-overlay">
+          <Loader2 size={32} className="animate-spin" />
+          <div className="text-sm text-white/80">容器启动中…</div>
+        </div>
+      )}
+      {/* 20260929_任务容器未启动置灰引导:容器门卫弹框
+          条件:containerGateOpen(非 running/starting + 未跳过)
+          使用 ui/Dialog 组件,文案「任务容器未启动,是否启动容器」
+          按钮:「启动」(primary)/「暂不」(次要)
+          pending 态「启动」按钮 disabled + toast 提示「排队任务等待调度」 */}
+      {containerGateOpen && (
+        <Dialog open={containerGateOpen} onOpenChange={setContainerGateOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>任务容器未启动</DialogTitle>
+            </DialogHeader>
+            <div style={{ padding: '16px 0', fontSize: 14, color: 'var(--text-muted, #71717a)' }}>
+              是否启动容器?
+            </div>
+            <DialogFooter>
+              {/* 20260929 按钮样式统一:暂不→次按钮(默认 .btn,灰底);启动→主按钮 .btn-pri(站点统一主色 var(--primary)) */}
+              <button
+                type="button"
+                className="btn"
+                onClick={handleContainerGateSkip}
+              >
+                暂不
+              </button>
+              <button
+                type="button"
+                className="btn btn-pri"
+                disabled={retryTask.isPending || (task?.display_status ?? task?.status) === 'pending'}
+                onClick={handleContainerGateStart}
+              >
+                {retryTask.isPending ? '启动中…' : '启动'}
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+      {/* R39:commit Dialog — 提交变更弹窗 */}
+      {showTree && isRun && (myRole === 'owner' || myRole === 'editor') && (
+        <Dialog open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>提交变更到 {task.work_branch}</DialogTitle>
+            </DialogHeader>
+            <div style={{ padding: '16px 0' }}>
+              <label style={{ display: 'block', marginBottom: 8, fontSize: 14, fontWeight: 500 }}>
+                提交信息
+              </label>
+              <textarea
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder={defaultCommitMessage}
+                disabled={gitCommit.isPending}
+                rows={4}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #d4d4d9',
+                  borderRadius: 6,
+                  fontSize: 14,
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
+                }}
+              />
+            </div>
+            <DialogFooter>
+              <button
+                type="button"
+                className="btn"
+                disabled={gitCommit.isPending}
+                onClick={() => setCommitDialogOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn btn-pri"
+                disabled={gitCommit.isPending}
+                onClick={handleCommitConfirm}
+              >
+                {gitCommit.isPending ? '提交中…' : '确认提交'}
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
       {ToastEl}
     </BreadcrumbOverrideProvider>
   )

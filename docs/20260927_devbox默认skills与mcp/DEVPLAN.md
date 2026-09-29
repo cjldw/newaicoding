@@ -26,14 +26,15 @@ devbox 基础镜像构建期预装 rd-flow plugin(团队自建研发全流程)�
 
 ## 当前进度
 
-**当前进度: 4/4 (100%) - 全部需求点代码完成并提交;转正遗留:R1 构建冒烟 + R2/R3/R4 v2 镜像真机联调(待 docker/v2 镜像环境)→ 引导 /rd-check**
+**当前进度: 5/5 (100%) - 全部需求点完成(R1 构建冒烟 2026-09-28 转正;R5 container_image 后台可配置补登记)→ 引导 /rd-check。运行时遗留:R2/R3 的 MCP 凭据运营变量配置与 v2 镜像真机任务联调(平台外运营动作)**
 
 | 需求点 | 名称 | 模块 | 状态 | 详情文件 |
 |---|---|---|---|---|
-| R1 | devbox 镜像预装 rd-flow plugin(+平台 skills 目录修正 + tag v2 落地) | M1 镜像构建 | 🔄(代码完成,构建冒烟待 docker) | ./DEVPLAN/R1.md |
-| R2 | devbox 镜像预置 MCP 配置(3 新增 + 3 存量激活) | M1 镜像构建 | ✅(运行时联调判据 2–6 后置) | ./DEVPLAN/R2.md |
+| R1 | devbox 镜像预装 rd-flow plugin(+平台 skills 目录修正 + tag v2 落地) | M1 镜像构建 | ✅(2026-09-28 构建冒烟三场景 + 容器断言实跑转正) | ./DEVPLAN/R1.md |
+| R2 | devbox 镜像预置 MCP 配置(3 新增 + 3 存量激活) | M1 镜像构建 | ✅(镜像内 6 键断言 PASS;凭据变量配置=平台外运营) | ./DEVPLAN/R2.md |
 | R3 | claude_inject 注入链合并逻辑 + 路径基准 /home/node | M2 runner 注入/采集 | ✅(端到端联调验收后置) | ./DEVPLAN/R3.md |
 | R4 | 系统级采集扩展(probe 覆盖 plugin + 路径校准) | M2 runner 注入/采集 | ✅(v2 镜像真机联调后置) | ./DEVPLAN/R4.md |
+| R5 | 容器镜像后台可配置(container_image 设置项)+ 默认镜像切 aliyun registry | M1 镜像构建 | ✅(2026-09-28 直做完成:64 测试全绿 + migration 开发库验证;非 rd-dev 流程,补登记) | ./DEVPLAN/R5.md |
 
 (状态:⬜ 未开始 / 🔄 进行中 / ✅ 完成 / ⚠️ 有问题。这张表是**全流程唯一的续接入口**)
 
@@ -82,3 +83,6 @@ devbox 基础镜像构建期预装 rd-flow plugin(团队自建研发全流程)�
 | 2026-09-27 | R1 审计通过(有条件,0 阻塞):2 Low 已修——F7 四处失效 Red 注释修剪;F8 规格盲区扩入:README.md:54/:118 v1→v2(照抄会产出旧镜像)、frontend TaskDetail.tsx:651 展示标签 devbox:v1→v2(用户可见错标,该文件无其他会话占用;沿「前端文案一致性」技术约定先例)。✅ 状态转正条件:构建冒烟三场景待有 docker 环境补测 | 审计 Low 项处置(自主决策) |
 | 2026-09-27 | R3 完成。审计(code-review 双轴)5 发现 0 阻塞:F2/F3/F4/F5 修复;F1 部分采纳——cat 临时故障(readable=False)仅加告警仍按 {} 兜底,审查建议的「跳过写回」不采(会推翻判据 3 与 v1 存量容器并行期兼容两项已确认规格:runner 无法区分「文件不存在」与「临时通道故障」的 cat 失败)。另:R3 会话中 QA subagent 曾虚报测试结果(解释器用错未跑成),已作废并由主 agent 重跑纠正 | 审计 Low 项处置(自主决策) |
 | 2026-09-27 | R4 开发中契约微调:probe 响应 `skills` 字段保持「平台 skills」存量语义,新增 `plugin_skills`/`plugin_commands` 两字段承载 plugin 条目(替代分片「skills=平台∪plugin」表述),落库按字段来源打 detail.source="plugin",同名条目自然并列两行 | tdd Red 阶段 QA 发现契约缺口(扁平 ∪ list 无法区分同名条目归属,判据 6 与 source 标记需要来源信息),主 agent 自主决策 |
+| 2026-09-28 | **R5 补登记(非 rd-dev 流程,用户直做)**:容器镜像后台可配置——新设置项 `container_image`(vtype image,强制带 tag ≤255);镜像解析链「显式传参 > 设置项 > 常量」落到 schedule_and_start 与 probe collect;默认镜像切 `registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2`(用户已推送)+ 列默认 migration b4f8e2a9c1d7 + 前端全局参数组字段。64 测试全绿,tsc 通过,migration 开发库 upgrade/downgrade 验证。详见 DEVPLAN/R5.md 与 DEPLOY.md R5 节 | 用户需求直做(2026-09-28 会话) |
+| 2026-09-28 | **R1 构建冒烟转正**:docker 环境就绪后实跑三场景全 PASS——A 默认 ARG 构建(镜像 bfd474ce74b2)、B 自定义 ARG 同值、C 不可达 ARG 显式失败(退出码 1,git clone 报错);容器内断言 4/4(skills 3 目录+SKILL.md front-matter、plugin list 含 rd-flow、mcpServers 6 键)。证据 .scratch/R1/smoke-build.md。收口主 agent 直审(零代码 diff 纯验证) | 降级条款到期转正 |
+| 2026-09-28 | 冒烟场景 D.d 断言口径修正:mcpServers 校验从「文件插入序」修正为「sort 后集合相等」(与 Dockerfile 构建期断言同口径;JSON 对象键无序,插入序非规格)。首报 FAIL 判定为 QA 断言缺陷,非镜像缺陷 | 自主决策(断言语义) |

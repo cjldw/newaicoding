@@ -30,6 +30,8 @@ export interface TaskListItem {
   type: TaskType
   title: string
   status: TaskStatus
+  // BUG-063:派生展示状态(区分「启动中」vs「运行中」);旧后端未重启时为 undefined,调用方需 ?? status 兜底
+  display_status?: string
   created_by: TaskUser
   created_at: string
   started_at: string | null
@@ -53,6 +55,8 @@ export interface TaskDetail {
   title: string
   description: string
   status: TaskStatus
+  // BUG-063:派生展示状态;旧后端未重启时为 undefined,调用方需 ?? status 兜底
+  display_status?: string
   base_branch: string
   work_branch: string
   container_id: string | null
@@ -111,6 +115,9 @@ export interface TaskMessage {
 
 export interface TaskMessagesResponse {
   items: TaskMessage[]
+  // R3.F5(BUG-076):容器启动代数 — containers 表该 task 的行数(行数=创建过几个实例)
+  // 前端据此判定容器是否换新,决定是否重发 /rd-prd;旧前端兼容:字段可选
+  container_generation?: number | null
 }
 
 export interface UploadedFile {
@@ -194,6 +201,11 @@ export async function deleteTask(taskId: string): Promise<void> {
 
 export async function retryTask(taskId: string): Promise<void> {
   await api.post(`/tasks/${taskId}/retry`)
+}
+
+/** 20260929_打磨完成按钮:提交打磨成果(后端 commit PRD 到需求分支,任务转 done) */
+export async function finishTask(taskId: string): Promise<void> {
+  await api.post(`/tasks/${taskId}/finish`)
 }
 
 export async function fetchTaskMessages(taskId: string): Promise<TaskMessagesResponse> {
@@ -357,6 +369,15 @@ export function useRetryTask(taskId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => retryTask(taskId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['task', taskId] }),
+  })
+}
+
+/** 20260929_打磨完成按钮 */
+export function useFinishTask(taskId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => finishTask(taskId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['task', taskId] }),
   })
 }

@@ -9,6 +9,7 @@ R8 最小边界:任务流程(R4)尚未建,本服务提供编排函数供 R4 调�
 Runner 注册表为内存态,R16 升级 DB。
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -22,11 +23,17 @@ from app.models.container import Container
 from app.models.project import PlatformSetting, Project
 from app.models.task import Task
 from app.services import runner_service
+from app.services.platform_settings_service import get_setting
 from app.services.runner_service import runner_registry
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_IMAGE = "platform/devbox:v2"
+# F2.a: request_stop 等待 Runner container_stopped 回报的超时秒数
+# 超时后强制置 container.status=destroyed + destroyed_at,防止 DB+docker 双驻留
+STOP_TIMEOUT_SECONDS = 60.0
+
+# 默认任务容器镜像(兜底值;后台设置项 container_image 优先于本常量,见 schedule_and_start)
+DEFAULT_IMAGE = "registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2"
 EXPOSED_PORTS = [5173, 8000]
 
 
@@ -91,7 +98,7 @@ async def schedule_and_start(
     repos: list[dict],
     required_role: str = "general",
     task_tag: Optional[str] = None,
-    image: str = DEFAULT_IMAGE,
+    image: Optional[str] = None,
     cpu_limit: str = "2c",
     mem_limit: str = "4g",
     disk_limit: str = "10g",
@@ -102,8 +109,15 @@ async def schedule_and_start(
     2. 调度器选 Runner(最少负载 + role 匹配;无可用 → 8003)
     3. 登记 containers(status=creating)并下发 start_container
     Runner 回报 container_started 后由 handle_container_started 置 running。
+
+    镜像解析(创建时刻定格,改动不影响存量容器):
+    显式传参 > 后台设置 container_image > DEFAULT_IMAGE 常量兜底。
     """
     logger.info("容器启动入口 project=%s task=%s role=%s", project_id, task_id, required_role)
+
+    # ---- 镜像解析(显式传参优先;设置项未配置返回 None,再回落常量) ----
+    if image is None:
+        image = await get_setting(db, "container_image") or DEFAULT_IMAGE
 
     # ---- 配额 ----
     await check_quotas(db, owner_user_id)
@@ -169,18 +183,49 @@ async def request_stop(db: AsyncSession, container: Container) -> None:
     """
     请求停止容器:下发 stop_container(Runner 销毁前强制 push 未 push commit;
     push 失败 Runner 保留容器 30 分钟由平台重试——R4/R16 联调完善)。
+
+    F2.a:下发后等 Runner container_stopped 回报(超时 STOP_TIMEOUT_SECONDS);
+    超时未回报 → 直接置 container.status=destroyed + destroyed_at,防止 DB+docker 双驻留。
     """
     conn = runner_registry.get(container.runner_id)
     if conn is None:
-        # Runner 离线:标记 stopped 待 Runner 恢复对账(R16)
+        # Runner 离线:标记 stopped 待 Runner 恢复对账(F2.b 补发)
         container.status = "stopped"
         await db.flush()
         logger.warning("Runner 离线,容器标记 stopped container=%s", container.container_id)
         return
+
+    # 下发 stop_container 消息
     await runner_service.send_to_runner(
         conn, runner_service.build_stop_container_message(container.container_id)
     )
     logger.info("stop_container 已下发 container=%s", container.container_id)
+
+    # F2.a:等待 Runner 回报 container_stopped(超时兜底)
+    # 使用 asyncio.Event 等待 handle_container_stopped 回调
+    stop_event = asyncio.Event()
+    _pending_stop_events[container.container_id] = stop_event
+
+    try:
+        await asyncio.wait_for(stop_event.wait(), timeout=STOP_TIMEOUT_SECONDS)
+        # 正常回报:由 handle_container_stopped 处理状态更新
+        logger.info("收到 container_stopped 回报 container=%s", container.container_id)
+    except asyncio.TimeoutError:
+        # 超时未回报:强制置 destroyed,防止 DB+docker 双驻留
+        container.status = "destroyed"
+        container.destroyed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        await db.flush()
+        logger.warning(
+            "等待 container_stopped 超时(%ss),强制置 destroyed container=%s",
+            STOP_TIMEOUT_SECONDS, container.container_id
+        )
+    finally:
+        _pending_stop_events.pop(container.container_id, None)
+
+
+# F2.a:待回报的 container_id → asyncio.Event 映射
+# handle_container_stopped 回调时 set() 对应 event
+_pending_stop_events: dict[str, asyncio.Event] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +310,11 @@ async def handle_container_stopped(db: AsyncSession, docker_container_id: str) -
     container.destroyed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.flush()
 
+    # F2.a:通知 request_stop 等待协程(超时机制已不再需要)
+    stop_event = _pending_stop_events.get(docker_container_id)
+    if stop_event is not None:
+        stop_event.set()
+
     # R10:容器销毁 → 摘除预览路由(URL 失效)
     from app.services import route_service
 
@@ -304,3 +354,134 @@ async def handle_container_event(
         # 调度占用释放(die→failed 不再占用;重启场景由 Runner 重新回报 started 补偿)
         await runner_service.adjust_container_count(db, container.runner_id, -1)
     await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# F2.b: Runner 离线补发 stop(Runner 重连时调用)
+# ---------------------------------------------------------------------------
+async def resend_stop_for_offline_containers(db: AsyncSession, runner_id: str) -> None:
+    """
+    F2.b: Runner 重连后,对该 Runner 上 status=stopped 且 destroyed_at IS NULL 的容器补发 stop。
+    原 request_stop 在 Runner 离线时只标 stopped 不销毁,Runner 恢复后需补发 stop_container。
+    """
+    result = await db.execute(
+        select(Container).where(
+            Container.runner_id == runner_id,
+            Container.status == "stopped",
+            Container.destroyed_at.is_(None),
+        )
+    )
+    containers = result.scalars().all()
+    if not containers:
+        return
+
+    conn = runner_registry.get(runner_id)
+    if conn is None:
+        logger.warning("Runner 重连但连接不在,无法补发 stop runner=%s", runner_id)
+        return
+
+    for container in containers:
+        await runner_service.send_to_runner(
+            conn, runner_service.build_stop_container_message(container.container_id)
+        )
+        logger.info("Runner 重连补发 stop_container container=%s", container.container_id)
+
+
+# ---------------------------------------------------------------------------
+# F2.d: 启动时孤儿对账(lifespan 调用)
+# ---------------------------------------------------------------------------
+async def inspect_container_docker(container_id: str) -> Optional[dict]:
+    """
+    检查 docker 真实状态(经 Runner 或本机 docker SDK)。
+    返回约定:
+      - None: 未知(inspect 调用失败/超时/未实现) → 调用方应 fail-safe 跳过,绝不置 destroyed
+      - {"exists": False}: 明确证据表明 docker 侧不存在 → 可安全置 destroyed
+      - {"exists": True, "status": "running"/"exited"/...}: docker 侧存在
+    当前实现:占位函数(返回 None = 未知),测试时 mock;生产环境需经 Runner WebSocket 查询 docker inspect。
+    """
+    # TODO: 生产实现需经 Runner WebSocket 发 docker_inspect 指令,返回 {"exists": True/False, ...}
+    return None
+
+
+async def reconcile_orphan_containers(db: AsyncSession) -> None:
+    """
+    F2.d: 启动时一次性孤儿对账(fail-safe + 并发补发)。
+    扫描 containers.status IN (running, creating):
+    - inspect 返回 {"exists": False}(明确不存在证据) → 置 destroyed
+    - 否则(exists=True 或 inspect 无结论):若对应 task 已终态 → 后台并发补发 stop(不阻塞 lifespan)
+    - inspect 无结论不阻断补发(状态收敛交给 F2.a 超时兜底)
+    """
+    result = await db.execute(
+        select(Container).where(
+            Container.status.in_(["running", "creating"])
+        )
+    )
+    containers = result.scalars().all()
+    if not containers:
+        return
+
+    from app.models.task import Task
+
+    dispatched = 0
+    for container in containers:
+        # 检查 docker 真实状态
+        try:
+            docker_state = await inspect_container_docker(container.container_id)
+        except Exception as e:
+            # inspect 异常 → 视为未知,不阻断后续补发逻辑
+            logger.warning(
+                "孤儿对账:inspect 异常(视为未知) container=%s: %s",
+                container.container_id, e
+            )
+            docker_state = None
+
+        # 明确证据:docker 侧不存在 → 安全置 destroyed
+        if docker_state is not None and not docker_state.get("exists", True):
+            container.status = "destroyed"
+            container.destroyed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            logger.info("孤儿对账:docker 明确无此容器,置 destroyed container=%s", container.container_id)
+            continue
+
+        # 否则(exists=True 或 inspect 无结论):检查 task 是否已终态 → 补发 stop
+        if container.task_id:
+            task_result = await db.execute(
+                select(Task).where(Task.task_id == container.task_id).limit(1)
+            )
+            task = task_result.scalar_one_or_none()
+            if task is not None and task.status in ("done", "cancelled", "timeout", "failed"):
+                # task 已终态但容器还在 → 后台并发补发 stop(不阻塞 lifespan)
+                asyncio.create_task(_dispatch_stop_in_background(container.container_id))
+                dispatched += 1
+                logger.info(
+                    "孤儿对账:task 已终态,派发补发 stop(后台) container=%s task=%s",
+                    container.container_id, container.task_id
+                )
+
+    if dispatched > 0:
+        logger.info("孤儿对账:已派发 %d 条补发 stop(后台执行)", dispatched)
+
+    await db.flush()
+
+
+async def _dispatch_stop_in_background(container_id: str) -> None:
+    """
+    后台补发 stop:独立 db session,避免阻塞 lifespan 启动。
+    由 reconcile_orphan_containers 调用,并发执行;DB 置 destroyed 由 F2.a 超时回调完成。
+    """
+    from app.database import async_session_factory
+
+    try:
+        async with async_session_factory() as db:
+            # 重新查询容器(避免跨 session 使用 detached 对象)
+            result = await db.execute(
+                select(Container).where(Container.container_id == container_id)
+            )
+            container = result.scalar_one_or_none()
+            if container is None:
+                logger.warning("后台补发 stop:容器不存在 container=%s", container_id)
+                return
+            await request_stop(db, container)
+            await db.commit()
+            logger.info("后台补发 stop 完成 container=%s", container_id)
+    except Exception as e:
+        logger.warning("后台补发 stop 失败 container=%s: %s", container_id, e)

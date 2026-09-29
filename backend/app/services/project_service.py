@@ -562,11 +562,25 @@ async def list_projects(
     q: Optional[str] = None,
 ) -> dict:
     """
-    项目列表(分页)。口径:我创建的项目(成员体系 R12 接入后扩展为成员项目)。
+    项目列表(分页)。口径:我创建的项目 ∪ 我是成员的项目(R12 接入后扩展,BUG-068 修复)。
+    超管可见全部项目(R19 虚拟 owner)。
     status: active(默认)/archived/all(all 排除软删)。
     q: 名称模糊搜索(R3.1,不区分大小写);为空不过滤。
     """
-    conditions = [Project.owner_id == user.user_id]
+    # 构建可见项目范围:owner ∪ 成员行,去重
+    if user.role == "superadmin":
+        # 超管:全部项目,不加 owner 过滤
+        conditions: list = []
+    else:
+        # 普通用户:owner_id = 自己 OR 在 project_members 表中有记录
+        member_subquery = (
+            select(ProjectMember.project_id)
+            .where(ProjectMember.user_id == user.user_id)
+        )
+        conditions = [
+            (Project.owner_id == user.user_id) | (Project.project_id.in_(member_subquery))
+        ]
+
     if status == "all":
         conditions.append(Project.status != "deleted")
     elif status in ("active", "archived", "deleted"):

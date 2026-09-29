@@ -14,7 +14,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.mysql import CHAR
+from sqlalchemy.dialects.mysql import CHAR, MEDIUMTEXT
 
 from app.database import Base
 
@@ -93,7 +93,7 @@ class TaskMessage(Base):
     message_id = Column(CHAR(36), default=lambda: str(uuid.uuid4()), unique=True, nullable=False, comment="对外UUID")
     task_id = Column(CHAR(36), nullable=False, index=True, comment="任务 id")
     role = Column(Enum("user", "assistant", "tool", name="task_msg_role_enum"), nullable=False, comment="角色")
-    content = Column(Text, nullable=False, comment="内容(Markdown;@filename 前端渲染为链接)")
+    content = Column(MEDIUMTEXT, nullable=False, comment="内容(Markdown;@filename 前端渲染为链接)")
     file_refs = Column(JSON, nullable=True, comment='[{file_id, filename, container_path, injected}]')
     tool_calls = Column(JSON, nullable=True, comment="[{name, args, result, duration_ms}]")
     tokens_in = Column(Integer, nullable=False, default=0, server_default="0", comment="输入 token")

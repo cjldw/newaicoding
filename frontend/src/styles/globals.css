@@ -297,6 +297,8 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 /* ===== tabs ===== */
 .twrap{min-width:0}
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+/* 20260929_PRD 草稿全屏按钮右移:tabs 行右端插槽(margin-left:auto 推到行尾) */
+.tabs-right{margin-left:auto;display:inline-flex;align-items:center}
 .tabs::-webkit-scrollbar{display:none}
 .tab{border:none;background:none;padding:8px 13px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
 .tab:hover{color:var(--text)}
@@ -364,6 +366,8 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .dchip .s{font-size:11px}
 .dchip .add{color:var(--green-tx)}
 .dchip .del{color:var(--red-tx)}
+/* R38:Diff 口径开关容器(d-chips 行右端;margin-left auto 推至末尾) */
+.dchip-scope{margin-left:auto;display:inline-flex;gap:4px;align-items:center}
 .dl{display:flex;font-family:var(--mono);font-size:12px;line-height:1.7;white-space:pre}
 .dl .no{width:38px;flex:none;text-align:right;padding-right:10px;color:var(--faint);user-select:none;font-size:11px}
 .dl .tx{padding-right:20px}
@@ -473,6 +477,9 @@ h1,h2,h3,h4{margin:0;font-weight:600;text-wrap:balance}
 .tag{font-size:11px;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted)}
 /* ===== modal ===== */
 .modal-mask{position:fixed;inset:0;background:rgba(9,9,11,.45);display:grid;place-items:center;z-index:60;padding:16px}
+/* 20260929_任务停止页面置灰:全页遮罩(拦截一切点击,层级高于顶栏/侧栏) */
+.page-blocking-overlay{position:fixed;inset:0;background:rgba(9,9,11,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:70;cursor:not-allowed;user-select:none}
+.page-blocking-overlay *{pointer-events:none}
 .modal{width:100%;max-width:520px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-md);max-height:88vh;overflow:auto}
 .m-head{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);font-weight:600}
 .m-head .x{margin-left:auto}
@@ -803,7 +810,7 @@ select.input{cursor:pointer}
 .shell.side-collapsed .sitem{position:relative}
 /* ===== R33.F3:工作台右栏满屏(顶部对齐由 R33.F4 等高 title 条承接,无 -1px hack)=====*/
 /* ===== R29 导览弹窗样式优化(R33;覆盖 L489-491 旧规则,特异性同级靠后生效)===== */
-.tour-dialog .tour-title-ico{display:inline-flex;align-items:center;gap:8px}
+/* icon 已移除(20260929_平台导览简化) */
 .tour-dialog .tour-step{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:var(--vp-radius-sm);background:none;border:1px solid transparent;cursor:pointer;color:var(--text);font-size:13px;font-family:inherit;text-align:left;width:100%;transition:background .12s,border-color .12s}
 .tour-dialog .tour-step:hover{color:var(--text);background:var(--surface-2);border-color:var(--border)}
 .tour-dialog .tour-step .n{width:20px;height:20px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);color:var(--muted);font-size:11px;display:grid;place-items:center;flex:none;font-family:var(--mono);font-weight:500}

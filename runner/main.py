@@ -48,6 +48,9 @@ RUNNER_ROLE = os.environ.get("RUNNER_ROLE", "worker")
 RUNNER_HOST = os.environ.get("RUNNER_HOST", "")
 HEARTBEAT_INTERVAL = 30  # 秒(D13:30s 心跳;平台 60s 未收到判 offline)
 PROBE_CLAUDE_TIMEOUT = 120.0  # R5 probe_claude 整体 wait_for 上限(与平台侧 COLLECT_TIMEOUT 对齐)
+STREAM_TIMEOUT = 120.0  # R8.F6:claude_prompt_stream 单次执行上限;超时 → cancel + stream_timeout 回报
+                         # 触发场景:--session-id 被容器内交互 claude 占用 + --permission-prompt-tool
+                         # 下 bridge.py 阻塞 stdin → sock.recv 无限挂死(详见 hang-analysis.md)
 
 manager = ContainerManager()
 terminals = TerminalManager()
@@ -424,15 +427,47 @@ async def handle_message(ws: Any, msg: dict) -> None:
             await send_result(ws, req_id, False, error=str(e))
 
     elif mtype == "git_commit":
-        # R3 评审通过:PRD commit + push(评审人个人 token)
+        # R39:新格式(message_b64 + author_name_b64/author_email_b64)走 git_commit 方法;
+        # 身份两字段同样走 base64 通道(防引号/分号命令注入,与 message 同口径);
+        # 旧格式(add_path + message + branch + token)保留 R3 commit_push 兼容
+        req_id = msg.get("req_id", "")
+        if msg.get("message_b64") is not None:
+            # R39 新通道:base64 message + base64 身份 + 空检
+            try:
+                data = manager.git_commit(
+                    msg.get("container_id", ""),
+                    msg.get("repo_path", "/workspace/main"),
+                    msg.get("message_b64", ""),
+                    msg.get("author_name_b64", ""),
+                    msg.get("author_email_b64", ""),
+                )
+                await send_result(ws, req_id, True, data)
+            except Exception as e:
+                await send_result(ws, req_id, False, error=str(e))
+        else:
+            # R3 旧通道:commit + push 焊死(保留兼容)
+            try:
+                manager.commit_push(
+                    msg.get("container_id", ""), msg.get("repo_path", "/workspace/main"),
+                    msg.get("add_path", ""), msg.get("message", ""),
+                    msg.get("branch", ""), msg.get("token", ""),
+                )
+            except Exception as e:
+                logger.warning("PRD commit/push 失败: %s", e)
+
+    elif mtype == "git_push":
+        # R39:独立 push(临时注入 oauth2 remote → push → 恢复原 remote)
+        req_id = msg.get("req_id", "")
         try:
-            manager.commit_push(
-                msg.get("container_id", ""), msg.get("repo_path", "/workspace/main"),
-                msg.get("add_path", ""), msg.get("message", ""),
-                msg.get("branch", ""), msg.get("token", ""),
+            data = manager.git_push(
+                msg.get("container_id", ""),
+                msg.get("repo_path", "/workspace/main"),
+                msg.get("branch", ""),
+                msg.get("token", ""),
             )
+            await send_result(ws, req_id, True, data)
         except Exception as e:
-            logger.warning("PRD commit/push 失败: %s", e)
+            await send_result(ws, req_id, False, error=str(e))
 
     elif mtype == "exec_tool":
         # R4 AI 执行(CLI 兜底):claude -p <prompt>;R32.F1:claude_inject 资产注入;R32.F3:claude_prompt_stream 流式
@@ -496,50 +531,97 @@ async def handle_message(ws: Any, msg: dict) -> None:
                         except Exception:
                             pass  # 推送失败不阻断执行(终态 result 仍兜底)
 
-                # R34.F3:权限确认桥接注入 + 请求轮询(注入失败 → 降级不加权限参数,
-                # 维持无确认通道静默拒绝现状,不回归)
+                # R34.F3:权限确认桥接注入 + 请求轮询 —— R5.F3 二修(BUG-072 第 41 轮):
+                # CLI 2.1.280 下 permgate 桥机制实测失效(container_manager.perm_flag 已
+                # 恒空),注入只剩副作用(permgate 白占 mcpServers、每次 headless 白拉一个
+                # python3 进程),不再注入、不再起轮询;需审批工具(Bash/Edit/Write)维持
+                # 静默拒绝,桥接恢复归 CLI 升级/换实现(BUG-072/R34.F3 留档)
                 stream_container = msg.get("container_id", "")
-                perm_ok = await asyncio.to_thread(manager.setup_permission_bridge, stream_container)
-                if perm_ok:
-                    poller_task = asyncio.create_task(
-                        _confirm_poller(ws, req_id, msg.get("task_id", ""), stream_container))
-                    _stream_pollers[req_id] = (poller_task, stream_container)
-                    logger.info("权限确认通道已开启 req_id=%s container=%s", req_id, stream_container)
+                perm_ok = False
 
-                data = await asyncio.to_thread(
-                    manager.claude_prompt_stream,
-                    msg.get("container_id", ""), args.get("prompt", ""),
-                    workdir=args.get("workdir", "/workspace/main"),
-                    session_id=args.get("session_id"),
-                    resume=args.get("resume", False),
-                    model=args.get("model"),
-                    permission_bridge=perm_ok,
-                    on_line=_on_line_threadsafe,
-                )
+                # R8.F6:超时守卫 —— --session-id 被容器内交互 claude 占用时,
+                # --permission-prompt-tool 下 bridge.py 阻塞 stdin,sock.recv 无限挂死
+                # (详见 hang-analysis.md)。wait_for 兜底:超时 → pkill 容器内 claude
+                # 进程树 → 按 error="stream_timeout" 回报,平台侧收到终态而非永久挂起
+                data = None
+                stream_timed_out = False
+                try:
+                    data = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            manager.claude_prompt_stream,
+                            msg.get("container_id", ""), args.get("prompt", ""),
+                            workdir=args.get("workdir", "/workspace/main"),
+                            session_id=args.get("session_id"),
+                            resume=args.get("resume", False),
+                            model=args.get("model"),
+                            permission_bridge=perm_ok,
+                            on_line=_on_line_threadsafe,
+                        ),
+                        timeout=STREAM_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    stream_timed_out = True
+                    logger.warning(
+                        "claude_prompt_stream 超时(%ss),杀容器内 claude req_id=%s container=%s",
+                        STREAM_TIMEOUT, req_id, msg.get("container_id", ""),
+                    )
+                    try:
+                        await asyncio.to_thread(
+                            manager.cancel_claude, msg.get("container_id", ""))
+                    except Exception:
+                        logger.warning("超时后 cancel_claude 失败 container=%s", msg.get("container_id", ""))
+
                 # BUG-060(R32.F8):--resume 的会话在新容器/被清理后不存在 → CLI 报错
                 # 走 stderr(被 2>/dev/null 吞),stdout 零行 → 空 result。识别「带会话
                 # 且零行」自动降级为无会话重跑(新会话);首趟零行,二次上泵无重复。
                 # R34.F1:已取消(零行来自 pkill)不得重跑,直接按 cancelled 结算
-                if args.get("session_id") and data.get("lines") == 0 and req_id not in _cancelled_execs:
+                # R8.F6:超时路径跳过降级(已 pkill,重跑无意义)
+                # R5.F3 三修(BUG-072):CLI 2.1.280 对 resume 不存在会话输出单行
+                # error-result(is_error=true,非零行)——原零行判定漏掉该形态
+                # (BUG-067②),resume_error=True 时同样降级,免毒化会话死循环
+                if (not stream_timed_out and data is not None
+                        and args.get("session_id")
+                        and (data.get("lines") == 0 or data.get("resume_error"))
+                        and req_id not in _cancelled_execs):
                     logger.warning(
                         "claude resume 无会话返回空,降级新会话重跑 container=%s session=%s",
                         msg.get("container_id", ""), args.get("session_id"),
                     )
-                    data = await asyncio.to_thread(
-                        manager.claude_prompt_stream,
-                        msg.get("container_id", ""), args.get("prompt", ""),
-                        workdir=args.get("workdir", "/workspace/main"),
-                        session_id=None,
-                        resume=False,
-                        model=args.get("model"),
-                        permission_bridge=perm_ok,
-                        on_line=_on_line_threadsafe,
-                    )
+                    try:
+                        data = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                manager.claude_prompt_stream,
+                                msg.get("container_id", ""), args.get("prompt", ""),
+                                workdir=args.get("workdir", "/workspace/main"),
+                                session_id=None,
+                                resume=False,
+                                model=args.get("model"),
+                                permission_bridge=perm_ok,
+                                on_line=_on_line_threadsafe,
+                            ),
+                            timeout=STREAM_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        stream_timed_out = True
+                        logger.warning(
+                            "claude_prompt_stream 降级重跑也超时(%ss) req_id=%s container=%s",
+                            STREAM_TIMEOUT, req_id, msg.get("container_id", ""),
+                        )
+                        try:
+                            await asyncio.to_thread(
+                                manager.cancel_claude, msg.get("container_id", ""))
+                        except Exception:
+                            logger.warning("降级超时后 cancel_claude 失败 container=%s", msg.get("container_id", ""))
+
+                # R8.F6:超时 → error="stream_timeout" 回报(优先级:cancelled > stream_timeout)
+                if stream_timed_out and req_id not in _cancelled_execs:
+                    await safe_send_result(ws, req_id, False, error="stream_timeout")
                 # R34.F1:已取消 → 终态按 error="cancelled" 回报(部分行结果丢弃)
-                if req_id in _cancelled_execs:
-                    logger.info("claude_prompt_stream 已取消,按 cancelled 结算 req_id=%s lines=%s", req_id, data.get("lines"))
+                elif req_id in _cancelled_execs:
+                    logger.info("claude_prompt_stream 已取消,按 cancelled 结算 req_id=%s lines=%s",
+                                req_id, (data or {}).get("lines"))
                     await safe_send_result(ws, req_id, False, error="cancelled")
-                else:
+                elif not stream_timed_out and data is not None:
                     await safe_send_result(ws, req_id, True, data)
             else:
                 await safe_send_result(ws, req_id, False, error=f"未知工具: {tool}")

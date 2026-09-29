@@ -108,7 +108,8 @@ RUN printf '%s\n' \
 '  }' > /tmp/mcp-preset.json \
     && node -e 'const fs=require("fs");const p="/home/node/.claude.json";const t=fs.readFileSync("/tmp/mcp-preset.json","utf8");const preset=JSON.parse(t);let cfg=null;try{cfg=JSON.parse(fs.readFileSync(p,"utf8"))}catch(e){}const has=cfg&&typeof cfg==="object"&&Object.keys(cfg).length>0;fs.writeFileSync(p,has?JSON.stringify(Object.assign({},cfg,{mcpServers:preset.mcpServers}),null,2)+"\n":t);' \
     && rm -f /tmp/mcp-preset.json \
-    && node -e 'const c=JSON.parse(require("fs").readFileSync("/home/node/.claude.json","utf8"));const k=Object.keys(c.mcpServers||{}).sort().join(",");process.exit(k==="brave-search,figma,filesystem,github,mysql_beta,mysql_dev"?0:1)'
+    && node -e 'const fs=require("fs");const p="/home/node/.claude.json";let d=JSON.parse(fs.readFileSync(p,"utf8"));d.hasCompletedOnboarding=true;fs.writeFileSync(p,JSON.stringify(d,null,2)+"\n");' \
+    && node -e 'const c=JSON.parse(require("fs").readFileSync("/home/node/.claude.json","utf8"));const k=Object.keys(c.mcpServers||{}).sort().join(",");process.exit(k==="brave-search,figma,filesystem,github,mysql_beta,mysql_dev"&&c.hasCompletedOnboarding===true?0:1)'
 
 WORKDIR /workspace
 # 任务容器需常驻前台进程(docker run -d 后 exec/clone 依赖容器存活;BUG-028:CMD bash 无 TTY 秒退)

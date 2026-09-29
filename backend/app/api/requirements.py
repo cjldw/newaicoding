@@ -106,6 +106,27 @@ async def branch_preview(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/requirements/{req_id}/prd-content - PRD 副本读取(R3 免容器预览)
+# 注意:必须先于 /requirements/{req_id} 注册,否则被路径参数路由吞掉
+# ---------------------------------------------------------------------------
+@router.get("/requirements/{req_id}/prd-content")
+async def get_prd_content(
+    req_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """PRD 副本读取(降级链:db → container → none;HTTP 恒 200)"""
+    req = await requirement_service.get_requirement_or_404(db, req_id)
+    from app.services.project_service import get_project_or_404
+
+    project = await get_project_or_404(db, req.project_id)
+    await project_member_service.require_project_role(db, project, current_user, "viewer")
+
+    content, source = await requirement_service.get_prd_content_with_fallback(db, req)
+    return success(data={"prd_content": content, "source": source})
+
+
+# ---------------------------------------------------------------------------
 # GET /api/requirements/{req_id} - 需求详情
 # ---------------------------------------------------------------------------
 @router.get("/requirements/{req_id}")

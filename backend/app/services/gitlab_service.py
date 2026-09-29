@@ -104,6 +104,34 @@ class GitlabService:
         return {"username": username, "scopes": scopes}
 
     @staticmethod
+    async def get_user_profile(gitlab_token: str, api_base: Optional[str] = None) -> dict:
+        """
+        R39:GET /api/v4/user 返回 {name, email, username}。
+        用于 commit 身份解析链(name/email 优先取 GitLab /user,失败回退 gitlab_username/手机号)。
+        失败不抛异常(返回空 dict),调用方走回退链不阻塞 commit。
+        """
+        headers = {"PRIVATE-TOKEN": gitlab_token}
+        base = (api_base or GITLAB_API_BASE).rstrip("/")
+        client = _get_client()
+        try:
+            try:
+                resp = await client.get(f"{base}/user", headers=headers)
+            except httpx.HTTPError as e:
+                logger.warning("get_user_profile 网络异常: %s", e)
+                return {}
+            if resp.status_code != 200:
+                logger.warning("get_user_profile 返回 %s: %s", resp.status_code, resp.text[:200])
+                return {}
+            data = resp.json() or {}
+            return {
+                "name": data.get("name") or "",
+                "email": data.get("email") or "",
+                "username": data.get("username") or "",
+            }
+        finally:
+            await client.aclose()
+
+    @staticmethod
     def check_required_scopes(scopes: list[str]) -> bool:
         """
         检查 token 是否包含所需 scope（AND 逻辑）。
@@ -550,3 +578,7 @@ async def bot_list_branches(bot_token: str, gitlab_url: str, repo_id: int) -> li
         raise BizError(ErrCode.GITLAB_UNREACHABLE, MSG_GITLAB_UNREACHABLE)
     finally:
         await client.aclose()
+
+
+# 模块级别名(测试 monkeypatch 直接打 gitlab_service.get_user_profile)
+get_user_profile = GitlabService.get_user_profile

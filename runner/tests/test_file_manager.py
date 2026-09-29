@@ -77,7 +77,7 @@ class TestListDir:
         ))
         mgr = make_mgr(c)
         items = mgr.list_dir("fake123", "/workspace/main")
-        assert items[0] == {"path": "src", "type": "tree", "size": 4096, "mtime": 1758412800.0}
+        assert items[0] == {"path": "src", "type": "dir", "size": 4096, "mtime": 1758412800.0}
         assert items[1] == {"path": "main.py", "type": "file", "size": 1234, "mtime": 1758412801.5}
 
 

@@ -73,12 +73,14 @@
 ```bash
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -r requirements-dev.txt   # 默认安装路径(含 -r requirements.txt 运行时依赖);仅跑服务可只装 requirements.txt
 
 cp .env.example .env       # 填入真实 DATABASE_URL / PLATFORM_SECRET_KEY / JWT_SECRET_KEY
 alembic upgrade head       # 迁移数据库(幂等)
 uvicorn app.main:app --reload --port 8000
 ```
+
+> 依赖以 `pyproject.toml` 为源,`requirements.txt` / `requirements-dev.txt` 与其约束同源同步(改依赖先改 pyproject,再同步两个 requirements 文件)。`pip install -e .` 因 setuptools 包发现配置问题暂不可用(2026-09-28 R34.F3 留痕)。
 
 - API 文档:`http://localhost:8000/docs`;健康检查:`/health`
 - 测试:`pytest`(46 个 test_*.py,含 R23-R28 回归用例)

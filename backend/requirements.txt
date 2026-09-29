@@ -1,0 +1,18 @@
+# 旗程后端运行时依赖(与 pyproject.toml [project].dependencies 同源同约束)
+# 默认安装路径:pip install -r requirements.txt
+# 变更依赖时:先改 pyproject.toml,再同步本文件(两处约束必须一致)
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+sqlalchemy[asyncio]>=2.0,<3.0
+asyncmy>=0.2.9
+alembic>=1.13,<2.0
+pydantic>=2.0,<3.0
+pydantic-settings>=2.0,<3.0
+pyjwt>=2.8,<3.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0,<5.0
+cryptography>=42.0
+httpx>=0.27,<1.0
+python-multipart>=0.0.9
+# R34.F1:需求分支默认策略 feat/{需求名首拼}(拼音首字母取字)
+pypinyin>=0.50,<1.0

@@ -128,8 +128,48 @@ async def test_create_terminal_session_success(client, auth_headers, db_session,
     assert msg["cmd"][:2] == ["/bin/bash", "-lc"]
     wrapper = msg["cmd"][2]
     assert wrapper.startswith("command -v claude")
+    # R9.F3:hasCompletedOnboarding 幂等补写(在 claude 启动前、command -v 守卫内)
+    assert "hasCompletedOnboarding" in wrapper
+    assert "grep -q hasCompletedOnboarding" in wrapper
+    assert "node -e" in wrapper
+    # R9.F3:CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT 降噪
+    assert "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1" in wrapper
+    # 补写在 claude 启动之前
+    assert wrapper.index("hasCompletedOnboarding") < wrapper.index("claude --session-id")
     assert "claude --session-id '" in wrapper  # 新任务首建会话
     assert "exec /bin/bash" in wrapper
+
+
+@pytest.mark.asyncio
+async def test_create_terminal_cmd_no_claude_fallback_unchanged(client, auth_headers, db_session, registered_user, monkeypatch):
+    """R9.F3:无 claude 容器落 bash 的兜底行为不变(cmd 以 || exec /bin/bash 收尾)"""
+    project, container = await _setup_running_container(db_session, registered_user)
+    conn = runner_registry.register(container.runner_id, "worker", None, "10.0.0.9")
+
+    sent = []
+
+    async def fake_send(c, message):
+        sent.append(message)
+
+    from app.services import runner_service
+
+    monkeypatch.setattr(runner_service, "send_to_runner", fake_send)
+
+    resp = await client.post(
+        f"/api/tasks/{container.task_id}/terminal-sessions",
+        headers=auth_headers,
+        json={"shell": "/bin/bash"},
+    )
+    data = resp.json()
+    assert data["code"] == 0, data
+
+    msg = sent[0]
+    wrapper = msg["cmd"][2]
+    # 兜底:无论 claude 是否存在,cmd 都以 || exec /bin/bash 收尾
+    assert wrapper.endswith("|| exec /bin/bash")
+    # hasCompletedOnboarding 补写位于守卫内(不会在无 claude 时执行)
+    assert "command -v claude >/dev/null 2>&1" in wrapper
+    runner_registry.unregister(container.runner_id)
     assert msg["container_id"] == container.container_id
     runner_registry.unregister(container.runner_id)
 

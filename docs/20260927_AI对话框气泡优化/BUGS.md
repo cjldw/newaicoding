@@ -27,3 +27,11 @@
 - **问题描述**:项目设置已有多模型配置(R13,`modelConfigsApi`:`GET /projects/{id}/model-configs`,含 name/model/is_default/enabled),但对话框没有切换入口,发送请求也不携带模型选择——用户无法按消息/按会话切换模型。
 - **建议方案**:① 输入区加模型切换下拉(项目已启用配置列表,默认选中 is_default 项);② 发送接口需支持携带 config_id——**现 `POST /tasks/{id}/messages` 是否支持待确认,不支持则需后端加字段**(待开发支持);③ 会话级记忆选择(组件 state 即可,刷新回默认)。
 - **状态**:fixed(前端部分) — 2026-09-27 输入区附件按钮旁加模型切换下拉(启用配置,默认选 is_default,组件 state 记忆);`sendTaskMessage` 请求体携带 config_id(后端消费待契约,R34.F2 占位)
+
+### BUG-UI-093:确认卡事件字段命名不一致,`evt.confirmId` 类型错误(tsc 预存报错)
+
+- **严重程度**:一般(类型层,不影响运行时)
+- **关联页面**:任务详情页 AI 对话框(TaskChat.tsx L253)
+- **问题描述**:`ChatConfirmResolvedEvent` 类型字段为 `confirm_id`(snake_case),代码里访问 `evt.confirmId`(camelCase),`npx tsc -b` 持续报 TS2551。2026-09-29 多行输入框核对时发现,经 stash 本次改动复测确认为预存问题,非新引入。
+- **建议方案**:统一改为 `evt.confirm_id`(与类型定义一致);或类型定义补 camelCase 映射。属确认卡交互(BUG-UI-091)范畴,修复时一并过。
+- **状态**:open(预存,2026-09-29 记录)

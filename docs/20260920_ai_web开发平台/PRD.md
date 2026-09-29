@@ -1,7 +1,7 @@
 # PRD:AI Web 开发平台
 
 > 创建日期:2026-09-20
-> 状态:**已确认**(增量4:R28/R29/R30;增量5:R31;**2026-09-24 增量6:新增 R32 Runner 标签管理与全字段编辑——访谈 Q58–Q62 当轮确认,待确认清单清零**)
+> 状态:**已确认**(增量4:R28/R29/R30;增量5:R31;**2026-09-24 增量6:新增 R32 Runner 标签管理与全字段编辑——访谈 Q58–Q62 当轮确认,待确认清单清零**;**2026-09-29 增量9:新增 R38 Diff 口径切换 / R39 任务内 git 操作——访谈 Q1–Q10 当轮确认(口径双视图/联动/整仓库/身份回退链 gitlab_username@zhanqi.com),待确认清单清零**;**2026-09-29 增量10:新增 R40 code-server 集成(内嵌 devbox/懒启动/1:1,调研报告 report/code-server-integration-research.md)——访谈 Q1–Q3 收口(PoC 放行门禁/editor+ running dev-test 可见/暂缓开发),状态已确认、开发暂缓待排期**,见 R40 节)
 > 参考形态:MonkeyCode(流程) × v0.dev / bolt.new(AI 工作台) × GitHub Codespaces(容器) × rd-flow(需求打磨)
 
 ## 背景与目标
@@ -1845,7 +1845,7 @@
   5. 存量 runner(tags=[])在升级后继续正常接单(兜底回归)
   6. 全部接口非超管 403;tags 非法值 400 拒绝
 
-> 状态:**已确认**(增量4:R28/R29/R30;增量5:R31;2026-09-24 增量6:R32;**2026-09-24 增量7:新增 R33/R34——访谈 Q63–Q70 当轮确认,PRD 待终确认**)
+> 状态:**已确认**(增量4:R28/R29/R30;增量5:R31;2026-09-24 增量6:R32;增量7:R33/R34;**2026-09-27 增量8:新增 R35/R36——基于流式网关调研实测确认,待确认清单清零**)
 
 ### R33:任务工作台 AI 对话 `/` 斜杠调用 Skills/MCP
 
@@ -1903,6 +1903,133 @@
   2. 终端内续聊后,对话面板再次发送可延续终端新增内容(同一会话双向)
   3. AI 生成中开终端 → 拦截提示出现
 
+## 增量8(2026-09-27):AI 对话真流式与思考过程展示
+
+> 调研结论(一手实测,2026-09-27):① 网关(token-console,new-api/one-api 系 + nginx)本身支持流式——对 `Accept: text/event-stream` 请求 771 块渐进到达;对 CLI 默认的 `Accept: application/json` 则缓冲攒发。**2026-09-27 网关已加 `proxy_buffering off`,实测模拟 CLI 请求首块 +1.26s 到达,真流式生效**;② claude CLI(--include-partial-messages)会把模型思考以 `thinking_delta` 增量转发进 stream-json(qwen3.7-plus 实测 57 个/517 字符),平台现有管线正在丢弃该事件;③ 网关非流式期间的历史包袱由 R32.F7 打字机平滑器与 R36 计时器兜底。
+
+### R35:AI 对话真流式与思考过程展示
+
+- **描述**:网关流式打通后,对话增量(含模型思考过程)实时到达平台;平台捕获 thinking_delta 以独立事件推送前端,前端在答案上方以可折叠「思考过程」区展示,思考与答案均逐字流式渲染
+- **触发场景**:任务工作台 AI 对话,用户发送消息等待回应
+- **前置条件**:网关已开启流式(proxy_buffering off,已完成);任务容器内 claude 会话正常(BUG-060 修复后)
+- **边界定义**:
+  - 做什么:① runner/平台捕获 `stream_event/content_block_delta/thinking_delta` → 新增广播事件 `{"type":"chat_thinking","text":...}`;② 前端流式气泡上方新增可折叠「思考过程」区(默认收起,入口显示「已深度思考」),展开实时追加思考文本;③ 思考文本随消息持久化(落点由 rd-plan 定,建议复用 task_messages.tool_calls JSON 列),历史消息刷新后仍可展开;④ 答案文本流式沿用既有 chat_delta(打字机平滑器在真流式下自动直通,R32.F7 既有行为)
+  - 不做什么:不做思考过程实时逐字渲染的开关配置;不做用户级 thinking 开关(V1,推理模型默认行为);不做思考内容编辑/复制导出
+- **依赖**:R32.F3(流式对话链路)、R32.F6(事件 WS 修复)、网关流式配置(已生效)
+- **异常与边界场景**:
+  - 模型不产出思考(非推理模型/网关不支持):折叠区整体不出现,回退纯答案流式
+  - thinking 文本过长:前端折叠区滚动展示,不截断;持久化全量
+  - 思考中途断连:已到达部分随消息落库,无思考则隐藏折叠区
+- **验收标准**:
+  1. 发送消息后,答案以增量逐字渲染(增量到达间隔 < 1s,不再整段瞬现)
+  2. 答案上方出现「思考过程」折叠入口;展开可见思考文本且流式追加
+  3. 刷新页面后历史消息仍带可展开的思考过程
+  4. 网关回退非流式时,平滑器兜底整段呈现(不报错)
+
+### R36:对话等待体验计时器
+
+- **描述**:等待 AI 回应期间,加载气泡显示已等待秒数(如「思考中… 12s」),消除"卡住"感知
+- **触发场景**:同 R35
+- **前置条件**:无(R32.F9 乐观 UI + 加载动效已就绪)
+- **边界定义**:
+  - 做什么:加载动效气泡内加每秒递增计时;首个增量到达即停止计时
+  - 不做什么:不做超时提醒/取消按钮(既有停止链路沿用)
+- **依赖**:R32.F9(乐观 UI 与加载动效)
+- **异常与边界场景**:计时与实际请求解耦(纯前端本地秒表),失败路径(onError)一并清理
+- **验收标准**:
+  1. 等待期气泡内数字每秒递增
+  2. 首个增量到达后计时消失,流式气泡接管
+
+### R38:任务工作台 Diff 口径切换(全部改动 ⇄ 仅未提交)
+
+- **描述**:Diff 视图新增口径开关——「全部改动」(工作区 vs 项目默认分支,含已 commit + 未 commit,现状口径)与「仅未提交」(工作区 vs HEAD,`git diff HEAD` 语义)双视图切换;变更清单与 diff 正文强制同口径
+- **触发场景**:任务工作台 Diff Tab / FileTree「变更文件」Tab,查看 AI 改动;用户需要区分「AI 本任务全部改动」与「尚未固化(未 commit)的改动」
+- **前置条件**:R4 任务工作台;BUG-074/R4.F7 基线解析已落地(基线=项目默认分支)
+- **边界定义**:
+  - 做什么:Diff Tab 内口径开关(默认「全部改动」);开关全局联动——Diff Tab chips、diff 正文、FileTree「变更文件」Tab 同口径刷新;「仅未提交」空态区分文案「无未提交变更(全部已 commit)」+ 一键切回「全部改动」;后端 changes/diff 两端点新增 scope 语义
+  - 不做什么:不做按文件勾选/暂存区管理;不做历史版本对比;不改变任务结束自动 commit+push 链;不做第三个口径(vs 任意 commit)
+- **字段定义**(changes/diff 两端点同参同语义):
+  | 参数 | 类型 | 必填 | 默认值 | 校验规则 | 说明 |
+  |---|---|---|---|---|---|
+  | scope | enum(all/head) | 否 | all | 枚举白名单 | all=工作区 vs 基线分支(现状);head=工作区 vs HEAD(仅未提交) |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 开关切「仅未提交」 | chips 与正文同口径刷新 | 视图一致 |
+  | head 口径下全部已 commit | 空态「无未提交变更(全部已 commit)」+ 切回按钮 | 引导回 all 口径 |
+  | all 口径基线分支不存在 | 保留现状 `\|\|` HEAD 兜底 | 仅未提交可见 |
+  | 容器不可达 | 9001 + R4.F8 错误条重试 | 现状 |
+- **依赖**:R4(工作台);R4.F7(基线解析,all 口径的基线来源)
+- **异常与边界场景**:AI 任务中 commit 过的改动在 head 口径不可见(属预期,all 口径可见);大 diff 超时沿用 15s + 重试
+- **验收标准**:
+  1. 开关切换后 chips 与正文同步换口径(FileTree Tab 同步)
+  2. AI commit 一笔后:all 口径仍含该 commit;head 口径不再含,空态文案正确
+  3. 默认进入为「全部改动」口径(现状行为不变)
+
+### R39:任务工作台 git 操作(commit / push,附 commit 身份策略)
+
+- **描述**:任务工作台底部提供 git 操作——commit(整仓库 add 全部 + commit,可填 message)与 push(独立按钮,推 work_branch);commit 作者身份优先取绑定 GitLab token 的 `GET /user`,缺失按回退链
+- **触发场景**:任务运行中,用户想手动固化/推送 AI 当前改动(与任务结束自动 commit+push 链并存)
+- **前置条件**:任务 running(容器存活);操作者对该项目 editor+;操作者已绑 GitLab token(push 使用操作者个人 token,与既有 push 链同源)
+- **边界定义**:
+  - 做什么:commit 按钮(message 可填,留空默认「AI 任务变更 {任务短ID} {YYYY-MM-DD HH:mm}」,≤500 字符;自动 `add -A` 全部);push 按钮(固定推 work_branch,不可选分支);身份回退链:name = GitLab `/user` 的 name → 回退 `gitlab_username`;email = GitLab `/user` 的 email → 回退 `{gitlab_username}@zhanqi.com`(GitLab v11.7 无 commit_email 字段且 email 可能私有,故必设回退;gitlab_username 为空最终兜底平台手机号)
+  - 不做什么:不做按文件勾选 add;不做 pull/rebase/force push;不改变任务结束自动 commit+push 链(幂等并存,无变更自动跳过);不做操作历史专属 UI(审计日志覆盖)
+- **字段定义**:
+  | 字段 | 类型 | 必填 | 默认值 | 校验规则 | 说明 |
+  |---|---|---|---|---|---|
+  | commit message | string | 否 | AI 任务变更 {短id} {YYYY-MM-DD HH:mm} | ≤500 | 输入框 |
+  | push 目标 | enum | — | work_branch | 不可选 | 固定 |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 点 commit | add 全部 + commit;toast 成功/失败 | 失败保留 message 不重置 |
+  | 无变更点 commit | 提示「无变更可提交」 | 不执行 |
+  | 点 push | push work_branch;非 fast-forward/token 失效 → 明确报错,不自动 pull/rebase/force | 用户自行处理 |
+  | viewer 或非 running | 按钮隐藏 | — |
+  | 并发双击 | 防抖/禁用至返回 | 防重复提交 |
+- **依赖**:R4(工作台);runner `commit_push` 已有(R3 评审链,container_manager.py:457)复用;R37.F2 任务收尾链(幂等并存);R25 审计
+- **异常与边界场景**:token 失效(2013 类文案引导重绑);email 全链缺失 → 占位兜底(链路见上);push 与结束链竞态 → 结束链幂等跳过;authored commit 由容器内 git 执行,身份仅写入 author/committer 字段
+- **验收标准**:
+  1. commit 后切 R38「仅未提交」口径清空、「全部改动」口径不变(联动可见)
+  2. push 后 GitLab work_branch 可见提交,作者 name/email 符合回退链(含 email 私有场景走 @zhanqi.com 兜底)
+  3. viewer 不显示按钮;非 running 隐藏
+  4. 失败场景 toast 明确、输入保留;任务结束后收尾链不因手动 push 报错
+
+### R40:任务工作台集成 code-server(与 claude 同容器;**暂缓开发**)
+
+- **描述**:devbox 任务容器内集成开源 code-server(浏览器版 VS Code),与 claude CLI 共用容器(同 /workspace、同 ~/.claude、同终端 PATH),作为 R11 Monaco 的「重度工程编辑」补充入口;接入走既有 R10 端口暴露通道,懒启动、1:1 每任务实例。**依据调研报告 `report/code-server-integration-research.md`(含改造面清单 §12)**
+- **触发场景**:dev/test 任务运行中,用户需要多文件工程级编辑/内置终端/扩展生态时,点「在 VS Code 中打开」懒启用
+- **前置条件**:
+  - **PoC 实测报告通过(开发放行门禁,Q1 拍板)**——四项实测:镜像增量 ≤500MB、code-server 空闲内存 ≤500MB、启动 ≤10s、WebSocket 长连接 30min 稳定(阈值可经一次评审调整;调研的 code-server 侧数值均未在线核实,PoC 是唯一事实源)
+  - 任务 running(容器存活);操作者 editor+;任务类型 dev/test
+- **边界定义**:
+  - 做什么:devbox 镜像加 code-server 安装层(容器创建时预声明 8080 端口映射);任务工作台 wb-head「在 VS Code 中打开」按钮(editor+ & running & dev/test 可见)→ 点击懒启动(容器内 exec 后台拉起 `code-server --auth password`,任务级随机 token)→ routes 注册 type=editor → 带 token 新标签页跳转;任务销毁同步摘除 route;开启/关闭审计
+  - 不做什么:**不做 sidecar 容器**(/workspace 为容器内部目录,卷化改造 +2~3 天且带存量兼容拍板,V2 备选见调研 §12);**不做多任务共享实例**(跨租户隔离崩塌/挂载重启/多 Runner 拓扑,调研 §11);不做 SSO 集成(token 双认证足够);严禁 `--auth none`;**不替代/不下线** R11 Monaco(轻量内嵌)、R38 diff(双口径评审内嵌)、R9 终端(工作台内嵌 + Runner/宿主场景)——共存分工
+- **字段定义**:
+  | 字段 | 类型 | 必填 | 默认值 | 校验规则 | 说明 |
+  |---|---|---|---|---|---|
+  | 启用接口入参 | task_id(path) | 是 | - | 任务存在且 running | POST 启用 |
+  | code-server token | string(服务端生成) | - | 随机 uuid | 仅加密存储,响应可回显一次 | 注入 --auth password |
+  | containers 表新增列 | - | - | - | 同 R8 端口列模式 | runner_host_port_8080、code_server_token(加密) |
+- **交互规则**:
+  | 场景/条件 | 行为/规则 | 结果/去向 |
+  |---|---|---|
+  | 点「在 VS Code 中打开」 | 懒启动(首次数秒)→ routes 注册 → 带 token 新标签页打开 | 原工作台不动 |
+  | 已启动再次点击 | 直接带 token 打开 | 幂等 |
+  | 启动中 | 按钮 loading | 防重复 |
+  | 启动失败 | toast 错误 + 可重试 | 不跳转 |
+  | 任务销毁 | route 摘除 + 进程随容器消亡 | 复用 R10 销毁联动 |
+- **依赖**:R4(工作台);R10(exposed_ports/routes/网关直连通道);R15(网关 WebSocket 透传,已在 R9/R10 验证);调研报告 PoC 结论
+- **异常与边界场景**:PoC 不达标 → 需求回炉重评(不硬上);端口池(20000-29999)理论耗尽 → allocate_ports 报错沿用;code-server 与 claude 同 cgroup 内存竞争 → 容器 mem_limit 评估上调 4g→5g;容器重建后 token 失效 → 重启用重生成;OpenVSX 无 Microsoft 专有扩展(AI 辅助走 claude CLI,影响可控);code-server 版本 pin(镜像清单可控,D10)
+- **验收标准**:
+  1. PoC 四项实测达标(放行门禁,前置)
+  2. editor+ 在 running dev/test 任务工作台可见按钮;viewer/打磨/发布任务不可见
+  3. 点击懒启动 → 新标签页打开完整 VS Code;内置终端 `claude --version` 可执行、`~/.claude` 同源
+  4. code-server 内编辑文件 → 平台 file watcher/变更清单/R38 head 口径同步可见(文件系统同源实证)
+  5. 任务销毁后 route 摘除、端口释放、code-server 不可达;开启/关闭操作落审计
+
+## 非功能需求
+
 ## 非功能需求
 
 | 类别 | 要求 |
@@ -1958,8 +2085,8 @@
 - [x] R30 主题切换:暗色 CSS 变量值是否需对照 vp 原型或参考 GitHub Dark 风格?——**2026-09-24 自主确认:GitHub Dark 风格**(增量4 Q43 留痕,R30 实施中沿用)
 - [x] R31 全部 7 项已于 2026-09-24 访谈当轮确认(Q51–Q57),**增量5 待确认清零**
 - [x] R32 全部 5 项已于 2026-09-24 访谈当轮确认(Q58–Q62),**增量6 待确认清零**
-- [ ] R33 容器内 claude CLI 对 **headless(-p)模式 slash 语法**的支持度验证(不支持则定降级方案)——rd-plan 期事实核查,rd-arch/rd-plan 清零
-- [ ] R33 R17 既有 Skills/MCP 接口**字段充分性**核实(启用状态/描述是否够菜单用,不足则补只读接口)——rd-plan 期核实,rd-arch/rd-plan 清零
+- [x] R33 容器内 claude CLI 对 **headless(-p)模式 slash 语法**的支持度验证(不支持则定降级方案)——**2026-09-27 rd-plan 期真机探针清零:CLI 2.1.280 实测 `/skill名` 触发 SKILL.md 技能成立(哨兵逐字返回);未知命令 EXIT=0 原文进模型。原生透传成立,无需降级方案**(DEVPLAN R33 分片留痕)
+- [x] R33 R17 既有 Skills/MCP 接口**字段充分性**核实(启用状态/描述是否够菜单用,不足则补只读接口)——**2026-09-27 rd-plan 期核实清零:GET /projects/{pid}/skills(name+description)/ GET /system-assets(name)/ GET /projects/{pid}/mcp-config(server 键)三源齐备,无需新接口**
 
 **待确认问题汇总**(进入 rd-plan 前必须清零):无(清零)
 

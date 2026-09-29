@@ -112,9 +112,15 @@ async def create_terminal_session(
         claude_enter = f"claude --session-id '{sid}' || claude"
     else:
         claude_enter = f"claude --resume '{sid}' || claude"
+    # R9.F3:claude 启动前幂等补写 hasCompletedOnboarding(根因:~/.claude.json 缺该键
+    # → TUI 触发 first-run setup → 连通性检查直连 api.anthropic.com → 403 地域封锁 → 秒退)
+    # 顺带 CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 降噪(BUG-065)
     auto_claude_cmd = (
         f"command -v claude >/dev/null 2>&1 "
-        f"&& (cd /workspace/main 2>/dev/null; {claude_enter}; exec /bin/bash) "
+        f"&& (cd /workspace/main 2>/dev/null; "
+        f"export CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1; "
+        f"grep -q hasCompletedOnboarding ~/.claude.json 2>/dev/null || node -e 'const fs=require(\"fs\");const p=(process.env.HOME||\"/home/node\")+\"/.claude.json\";let d={{}};try{{d=JSON.parse(fs.readFileSync(p))}}catch(e){{}}d.hasCompletedOnboarding=true;fs.writeFileSync(p,JSON.stringify(d,null,2));'; "
+        f"{claude_enter}; exec /bin/bash) "
         f"|| exec /bin/bash"
     )
     cmd = ["/bin/bash", "-lc", auto_claude_cmd]

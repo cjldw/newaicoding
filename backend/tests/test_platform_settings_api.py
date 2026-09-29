@@ -438,3 +438,95 @@ class TestPlatformSettingsImmediateEffect:
         if "gitlab_bot_token" in data.get("data", {}):
             token_value = data["data"]["gitlab_bot_token"]
             assert "•" in token_value or "***" in token_value
+
+
+# ---------------------------------------------------------------------------
+# R5(container_image):任务容器镜像设置项(vtype=image)
+# ---------------------------------------------------------------------------
+class TestContainerImageSetting:
+    """container_image 校验:带 tag 的 docker 镜像引用;PUT/GET 回环"""
+
+    ALIYUN_REF = "registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2"
+
+    @pytest.mark.asyncio
+    async def test_put_valid_registry_ref(self, client, superadmin_headers):
+        """合法 registry 引用(域名/namespace/repo:tag)可写"""
+        resp = await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"container_image": self.ALIYUN_REF},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["code"] == 0, resp.text
+        assert "container_image" in resp.json()["data"]["updated"]
+
+    @pytest.mark.asyncio
+    async def test_put_then_get_roundtrip(self, client, superadmin_headers):
+        """PUT 后 GET 应原样回显(非敏感键不打码)"""
+        await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"container_image": self.ALIYUN_REF},
+        )
+        resp = await client.get("/api/admin/platform-settings", headers=superadmin_headers)
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data.get("container_image") == self.ALIYUN_REF
+
+    @pytest.mark.asyncio
+    async def test_put_missing_tag_rejected(self, client, superadmin_headers):
+        """缺 tag(不带 :v2)→ 2007(tag 强制,保证 pull 确定性)"""
+        resp = await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"container_image": "registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 2007
+
+    @pytest.mark.asyncio
+    async def test_put_docker_scheme_prefix_rejected(self, client, superadmin_headers):
+        """带 docker:// scheme 前缀 → 2007(引用须为裸镜像名)"""
+        resp = await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"container_image": "docker://registry.example.com/ns/repo:v2"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 2007
+
+    @pytest.mark.asyncio
+    async def test_put_empty_rejected(self, client, superadmin_headers):
+        """空串/纯空白 → 2007(清空配置应走「不发送该键」的前端约定)"""
+        for value in ("", "   "):
+            resp = await client.put(
+                "/api/admin/platform-settings",
+                headers=superadmin_headers,
+                json={"container_image": value},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["code"] == 2007
+
+    @pytest.mark.asyncio
+    async def test_put_overlength_rejected(self, client, superadmin_headers):
+        """超 255 字符 → 2007"""
+        long_ref = "registry.cn-hangzhou.aliyuncs.com/" + "a" * 230 + "/devbox:v2"
+        assert len(long_ref) > 255
+        resp = await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"container_image": long_ref},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 2007
+
+    @pytest.mark.asyncio
+    async def test_put_non_string_rejected(self, client, superadmin_headers):
+        """非字符串(数字)→ 2007"""
+        resp = await client.put(
+            "/api/admin/platform-settings",
+            headers=superadmin_headers,
+            json={"container_image": 12345},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 2007

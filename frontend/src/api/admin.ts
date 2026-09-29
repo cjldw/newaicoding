@@ -23,6 +23,7 @@ export interface PlatformSettings {
   // 全局参数
   max_containers_total: number | null
   max_containers_per_user: number | null  // 单用户运行中容器配额(8001 校验)
+  container_image: string | null  // 任务容器镜像(带 tag;未配置时后端回落代码默认 aliyun devbox)
   kb_max_pages_per_kb: number | null
   kb_max_file_mb: number | null
   // 模型默认配置(R23 → R1 多模型)

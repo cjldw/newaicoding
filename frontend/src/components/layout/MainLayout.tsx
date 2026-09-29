@@ -11,7 +11,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FolderKanban, ListChecks, Activity, FlaskConical, Rocket,
   BookOpen, Server, Users, ScrollText, Settings, Bell, LogOut, Blocks,
-  ExternalLink, CheckCheck, Loader2, Play, Sun, Moon, PanelLeftClose, PanelLeftOpen,
+  ExternalLink, CheckCheck, Loader2, Sun, Moon, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { getAvColor, getInitial, isAvatarUrlFailed, markAvatarUrlFailed } from '@/utils/avatar'
@@ -222,7 +222,7 @@ export function MainLayout() {
 
         {/* 侧栏底部:平台导览(对齐 vp 原型 .tour,不再放用户信息);常驻入口,无论是否已完成均可手动打开 */}
         <div className="tour">
-          <b className="small"><Play size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />平台导览</b>
+          <b className="small">平台导览</b>
           <div className="small muted">首次使用?花 2 分钟了解四维管理与任务工作台…</div>
           <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setTourOpen(true)}>开始导览</button>
         </div>

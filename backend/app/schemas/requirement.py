@@ -76,6 +76,9 @@ class RequirementTaskBrief(BaseModel):
     type: str
     title: str
     status: str
+    # BUG-077:补齐 created_at/display_status(前端「创建时间」列与状态徽章渲染依赖)
+    created_at: datetime
+    display_status: str
 
 
 class RequirementDetailData(BaseModel):

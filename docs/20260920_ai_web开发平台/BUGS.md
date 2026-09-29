@@ -1,8 +1,8 @@
 # BUGS.md — 活跃问题清单
 
-> 项目:ai_web开发平台 | 更新:2026-09-26(rd-fix 数据修复:BUG-DATA-001 任务标题乱码——E2E 测试脏数据,就地清理 verified 迁移,非代码 bug;新增移交项 BUG-052/053 登记为 open(归属并发会话 R34.F1,本轮不修);第 28 轮:BUG-051 工作台门槛口径错位修复 verified 迁移——数字对账无误,口径变更诉求归 /rd-plan;第 27 轮:BUG-UI-071/072/073 迁移;⚠ BUG-043 编号两会话各自使用,584 行有让渡标注)
+> 项目:ai_web开发平台 | 更新:2026-09-28(rd-fix 第 35 轮收敛:BUG-065 verified——用户报障对话 9001「未知工具: claude_prompt_stream」,R8.F6 协同修复(runner 容器旧镜像回退热补→镜像重建+容器重建),本会话独立四层探针+生产 parity 复验全过;附带登记 BUG-066(R32 标签代码二次丢失,移交 R32 流)/BUG-067(流式 stderr 吞+瞬态空回复不可回溯+Windows EOF 隐患,防并行双写不自动修)。第 34 轮收敛:BUG-064 verified 迁移 ISSUES.md(R22.F3 打磨任务纳入 /manage/tasks;pytest 23 过+真机 API+无头浏览器 3/3 复验);第 34 轮追加:BUG-053(分支预览真首拼,R34.F1 域)+BUG-068(成员项目列表空,R12.F1)verified 迁移 ISSUES.md。第 33 轮:BUG-063 用户指令——打磨容器启动窗口期页面显示「启动中」,R3.F2 修复闭环 fixed(pytest 5/5+回归 123 过+真机探针 4/4,verified 待用户浏览器复验);编号让渡:初登记 BUG-062 撞第 32 轮占用,改号 BUG-063。第 32 轮:BUG-062 用户指令——生成 requirements.txt 默认安装路径,修复 pip install -e . 不可用 + 本机依赖散装(BUG-061 根因链),已 verified 迁移(升级回归=0,22 个失败经分类全为并行流测试先行/环境噪音);第 31 轮:BUG-061 需求创建 500 环境缺陷——pypinyin 已声明未装入运行时,零代码补装+回归全过,verified 迁移;BUG-052 接线已随 93242f9 解决一并 verified 迁移,BUG-053 仍 open;⚠ 轮次编号让渡:第 29/30 轮已被 2026-09-27 并发会话使用,见 ISSUES.md)
 > 状态流转:open → fixed → verified(verified 后迁移至 ISSUES.md)
-> 已 verified 迁移:第 3 轮 BUG-UI-001/003/004/005/006;第 4 轮 BUG-010;第 5 轮 BUG-009/011/012/013;第 16 轮 BUG-038;第 17 轮 BUG-039;第 18 轮 BUG-040/041;第 27 轮 BUG-UI-071/072/073;第 28 轮 BUG-051;数据修复(2026-09-26)BUG-DATA-001(第 19-26 轮迁移见各行标注;均见 ISSUES.md)
+> 已 verified 迁移:第 3 轮 BUG-UI-001/003/004/005/006;第 4 轮 BUG-010;第 5 轮 BUG-009/011/012/013;第 16 轮 BUG-038;第 17 轮 BUG-039;第 18 轮 BUG-040/041;第 27 轮 BUG-UI-071/072/073;第 28 轮 BUG-051;第 34 轮 BUG-064/BUG-053/BUG-068;数据修复(2026-09-26)BUG-DATA-001(第 19-26 轮迁移见各行标注;均见 ISSUES.md)
 
 | BUG-042 | fixed → 已 verified 迁移 ISSUES.md(2026-09-24 第 21 轮真机删除实证) | R16 | 功能缺陷(拦截口径过宽) | 用户实测报障 2026-09-24(rd-fix 第 19 轮) | 删除 Runner 返回 16001"Runner 上有运行中的容器,不可删除",但容器关联任务已非进行中(cancelled/done):delete_runner 只看 containers.status,不联查任务状态,孤儿容器行(任务取消链路缺容器状态回写)永久卡死删除;用户口径:任务不是进行中可以删除;修复分片 R16.F3(拦截收窄为容器关联 Task.status='running',部署容器 task_id NULL 放行;pytest 11/11,后端已重启) |
 | BUG-043 | fixed → 已 verified 迁移 ISSUES.md(R31.F1;真机 shell-sessions code=0) | — | — | — | — |
@@ -90,8 +90,21 @@
 | BUG-049 | verified → 已迁移 ISSUES.md(R31.F3;真机全链 PASS) | R31(核心机制需求修正) | 需求修正(用户指令,推翻 Q51 负向规格) | 用户指令 2026-09-24(rd-fix 第 26 轮) | 「快速创建(本机)」应为**平台直接在本机以 Docker 容器运行 runner**(零命令复制),而非 python 子进程;实现=镜像缺失自动构建(Dockerfile 参数化 BASE_IMAGE,Docker Hub 不可达时自动回退本地 python:3.10)+ docker run 挂载 sock/env 注入/host.docker.internal 回连 + exec cwd=/app 适配;子进程形态废弃不再新启;分片 R31.F3 |
 | BUG-050 | verified → 已迁移 ISSUES.md(R26.F3;真机容器终端实证) | R9/R26(终端读循环;全部 Linux 容器形态 runner) | 功能缺陷(读循环硬编码 .recv) | 容器形态验证中发现 2026-09-24(rd-fix 第 26 轮) | `_read_loop` 硬编码 `session.sock.recv(4096)`——docker exec_start(socket=True) 在标准 Linux/Docker Desktop 返回 SocketIO(只有 .read()),AttributeError 秒崩零输出;Windows NpipeSocket 有 recv 故历史未暴露(R26 判据 4/8/11「真实 pty 待测」之债);修复=探测式读法(recv 有则用,否则 read,与 BUG-031 写侧探测同思路);分片 R26.F3 |
 | BUG-DATA-001 | open → 已清理并 verified 迁移 ISSUES.md(2026-09-26 数据修复;前置守卫 UPDATE+复检+全库扫尾实证) | —(测试脏数据,非代码 bug) | 数据问题(E2E 客户端编码损坏) | 用户报障「中文汉字首拼音乱码」2026-09-26(rd-fix 数据修复) | tasks 表 id 945/946 标题 `??????`(HEX=字面 ASCII `3F` 字节,非 mojibake):2026-09-23 rd-fix 第 8 轮本地 Runner E2E 时 Windows 控制台(GBK 代码页)在请求侧把中文打成 `?` 写入的测试脏数据,两任务均 cancelled;拼音/分支命名代码无产生 `?` 路径;处置=就地改名保留留痕(禁删行)title→「历史测试数据(已清理)」,rows affected=2 其余行零触碰;全库扫尾其余 0 条 |
-| BUG-052 | open(移交 R34.F1 并发会话,本轮不修) | R34.F1(需求分支默认策略) | 功能缺陷(新策略未接线,死代码) | BUG-DATA-001 归因附带发现 2026-09-26 | create_requirement(requirement_service.py L190)仍是 `req_data.get("req_branch") or f"req-{req_id[:8]}"`——gen_req_branch_slug()/default_req_branch() 为死代码(仅测试引用),DB 最近 12 条分支全部 req-{id8} 或手填,拼音策略从未生效;ISSUES.md R34.F1 行「create_requirement 未填分支走新策略」表述与工作区实际代码不符;修法=L190 回退改 default_req_branch(req_data["title"]),撞名脱撞 L200-204 已备好 |
-| BUG-053 | open(移交 R34.F1 并发会话,本轮不修) | R34.F1(前端分支预览) | UI 观感(占位符易误读) | BUG-DATA-001 归因附带发现 2026-09-26 | RequirementList.tsx L114-128 创建弹窗分支预览把汉字渲染为 `□`(feat/□□□□□20260926)——系有意占位设计(注释注明「汉字以□占位提示,后端权威」),但用户极易误读为「乱码」,可能是本次报「首拼音没有处理好」的直观来源之一;建议=提示文案足够化,或后端 preview 接口返回真首拼 |
+| BUG-052 | open → 已解决并 verified 迁移 ISSUES.md(2026-09-28 第 31 轮:接线已随 93242f9 完成,真机实证 req_branch=feat/hgcsrzwbty20260928 拼音策略产出) | — | — | — | — |
+| BUG-063 | fixed(第 33 轮闭环:pytest 5/5(Red→Green)+ 触碰面回归 123 passed + tsc/build 零错 + 真机探针 4/4——用户今日 2 个卡 creating 的打磨任务由假「运行中」转为「启动中」;verified 待用户浏览器复验徽章;⚠ 编号让渡:初登记 BUG-062,该号已被同日并行会话第 32 轮(依赖安装链 R34.F3)先行占用,后登记方让渡改号) | R3.F2(打磨容器启动状态;波及 R4 工作台/R22 任务列表展示) | 功能偏差(用户指令) | 用户指令 2026-09-28(rd-fix 第 33 轮) | 「需求创建后开始打磨,确保 container 启动好了,没有启动好页面状态显示启动中」:create_polish_task 调度成功即置 task.status=running,但容器经 Runner 异步拉起(container_started 回报前 containers.status=creating、tasks.container_id=NULL),API 不返回容器状态 → 窗口期工作台/列表/需求详情全显示「运行中」;修复=后端派生 display_status(task_service.derive_display_status:running+容器未到 running→starting/failed→failed/其余透传;列表批量查防 N+1)+前端 TaskDetail VP_ST/ProjectTaskList statusMap(+筛选项)/RequirementDetail 三处映射(启动中=b-amber;starting 视同在跑给 pulse+停止按钮),分片 ./DEVPLAN/R3.F2.md;证据 .scratch/R3.F2/{qa-red,fix-report,ui-check,probe}.md |
+| BUG-065 | ✅ verified(2026-09-28 第 35 轮独立复验:真机重放消息 code=0;四层探针全过——容器内裸 claude pong/stream-json 29 行/宿主带桥接 26 行/runner 容器内生产代码 pong5(46826 in/27 out tokens)/生产 parity(bridge=True+--session-id)pong6;详见 DEVPLAN/R8.F6.md 与 .scratch/fix-analysis.md § 35) | R8.F6(runner 运行时;承接第 29 轮遗留「runner 镜像重建」登记) | 功能缺陷(疑似 runner 侧代码/镜像陈旧) | 用户实测报障 2026-09-28(rd-fix 第 35 轮) | AI 对话发消息 `POST /api/tasks/e17584d3-.../messages` 返回 `{"code":9001,"message":"AI 执行失败:未知工具: claude_prompt_stream"}`;确诊=17:04 runner 容器从旧镜像重建,第 29 轮热补(R8.F5 上报/R32.F5 流式)全部回退(md5 不一致实证);同根因症状②=16:58 打磨 start 指令发进濒死连接丢失、占位行挂 creating;修复(协同会话 R8.F6)=按 R31.F3 回退路径重建 runner:v1(BASE_IMAGE=python:3.10)+原参数重建容器(md5 与仓库一致、claude_prompt_stream 在位),占位行经 handle_sync 判 destroyed 自愈,977/978 双任务容器 running+回填实证;复验时顺带确认任务容器 claude 对 qwen3.7-plus 报 unrecognized_model 警告(仅 stderr,不拦截,可 CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 消音) |
+| BUG-066 | open(移交 R32 流,不修) | R32(runner 标签/编辑族) | 功能缺陷(实现缺失,测试先行) | BUG-065 修转发扰 2026-09-28(rd-fix 第 35 轮协同发现) | R32 标签实现(validate_tags/update_runner/create_runner tags 参数)**不在工作区也不在任何 git 提交**(git log -S 双空;第 29 轮 R32.F4「原样恢复」未持久,二次丢失)——test_r32_runner_tags.py 等 13 用例+test_r31_local_runner 4 例+test_r25_audit_p1p2 1 例共 18 红灯的真实根因(此前一度误判 DB 噪音);修法=按已提交测试规格重实现并**务必落提交**;与 BUG-065 同批全量回归时发现,已由 R8.F6 分片留痕 |
+| BUG-069 | fixed(2026-09-29 第 36 轮闭环:R5.F2 四层修复——F1 runner 累积 textDelta 兜底(优先级 result>累积>lines[-1])/F2 后端落库非空校验+占位文案/F3 前端 refetch 新消息落地才清流式气泡/F4 去 2>/dev/null stderr_tail 可回溯;runner 6/6+backend 3/3+tsc/build 零错;镜像 platform/runner:v1 重建(python:3.10-slim 本地回退)+容器原参数重建+后端重启;真机探针 task 830af6e6「登录验证码」发 ping→code=0+assistant content='pong' 非空落库;**verified 待用户浏览器复验长消息场景**(原话复现消息「项目需要登录加上图形验证码」);证据 .scratch/R5.F2/fix-report.md;⚠ TaskMessage 无 error_message 列,占位留痕改走日志) | R5/R32/R35(AI 对话流式链路;疑与 R35 思考过程改动相关) | 功能缺陷(流式后内容消失) | 用户实测报障 2026-09-29(rd-fix 第 36 轮) | AI 对话发送「项目需要登录加上图形验证码」后 AI 流式输出了一段内容,随后消息内容又消失(长消息场景「没有返回」);用户疑点:上次加的思考过程(R35 thinking_content/chat_thinking)改坏——**已排除**(R35 未实现,代码零 thinking 引用);根因=CLI 长消息/中途出错不发 result 事件时 runner lines[-1] 兜底拿错行+空 content 落库+前端 onSuccess 清流式气泡被 refetch 覆盖,三者共因+stderr 被吞不可回溯 |
+| BUG-070 | fixed(2026-09-29 第 39 轮二修浏览器端到端闭环;第 38 轮 R4.F6 门禁全绿但用户复验仍「目录下的文件没有显示」——第 39 轮真浏览器复现抓到**一行根因**:fetchDir 把原始 FileItem 直接存 dirChildren,未归一为 LazyNode → 子级 node.name/fullPath=undefined → 空名行+key 警告+二级展开恒假;修复 F-A=存储前 items.map(toLazyNode(it,dir)) + F-B=打磨布局点文件不再切 'edit'(无编辑器 pane 会白屏)改树下只读预览;**playwright 真浏览器 7/7 PASS**(真实登录+任务 279938f7+真实容器:两级展开 backend→culture-freeroom→pom.xml/点文件预览非空/零 key 警告/零 JS 错误,截图 .scratch/R4.F6/r39-L2-nested.png);tsc/build 过;复盘:第 38 轮验证盲区=只证到 API 层没点过一次真树,教训留痕 .scratch/R4.F6/ui-check.md § 第 39 轮;vite HMR 已载,待用户刷新浏览器复验后 verified 迁移) | R4(任务工作台文件树;波及 R11 编辑器/R10 预览) | 功能缺陷(用户指令,升级=完整文件树管理) | 用户指令 2026-09-29(rd-fix 第 37 轮登记;第 38/39 轮两次复验) | 任务打磨「工作区」+开发「全部文件」文件管理组件:经 37(type 归一化)/38(懒加载树+绝对路径)/39(渲染层数据归一)三轮收敛,完整文件树管理(目录逐层懒加载+文件预览+错误可见)已浏览器实证 |
+| BUG-071 | fixed(2026-09-29 第 39 轮闭环:R9.F3——F2 terminal.py auto_claude_cmd 前置幂等补写 hasCompletedOnboarding+CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1(存量容器**新建终端即生效**);F1 devbox Dockerfile 构建尾预置键治本(镜像重建+推送归发布动作,留痕);pytest terminal 触碰面 8/8+新增断言 2(tsc 不涉,前端零改动);真机四判据全过——B 容器 pty 探针回滚→403 秒退/带补写→TUI 常驻,A 平台 API 建会话→新 wrapper 补写片段在位+**claude --resume 活体子进程**(ps PID 实证)→清理 code=0,C ping→code=0+assistant 非空落库,D 浏览器 TUI 视觉归用户(旧终端 Tab 需关掉重开才吃到修复);⚠ subagent 会话退出连带其拉起的后端死亡,主会话单进程重启(detached)+补齐 A/C;pytest 1 failed=test_r9f1 send_message 13005 fixture 缺失,与 R9.F3 diff 路径不相交定性 pre-existing。**症状①定性非 bug**——模型参数 env 注入完好;custom_env_vars(10:51 配置 5 个 ENV_MCP_*)在 10:54 创建的容器全部注入 ✓,bold_cray/kind_mclaren 系配置前旧容器按设计不回填;附:并发首开 ensure_claude_session 竞态 5 终端 5 sid 登记;证据 .scratch/R9.F3/fix-report.md) | R9(任务终端;波及 R8.F4 env 注入/R9.F1 claude 接线)/R34(增量7 验收型,未实现) | 功能缺陷(终端 env 缺失 + claude 未自启) | 用户实测报障 2026-09-29(rd-fix 第 39 轮;⚠ 轮次让渡:初标第 38 轮已被并行会话 BUG-070 复开分析占用) | 任务终端唤起后:① 对应模型参数(LLM_URL/LLM_MODEL/ANTHROPIC_* 等)与平台「自定义变量」没有注入到终端窗口环境;② 终端没有自动起动 claude(裸 bash)。历史基线:R8.F4(BUG-036)容器创建注入 LLM_URL/LLM_MODEL+custom_env_vars;R9.F1(BUG-037)终端 exec bash -lc 包装自动进 claude(与对话同会话 --session-id/--resume);待分析:终端 exec cmd 现状是否被并行流改动/回退(20260927 并行流 f4fad54 exec_tool_cancel、4dc7d45 permission-prompt-tool 桥接、R4.F5 会话)、env 注入是容器级(docker run -e,exec 应继承)还是包装层丢失、打磨(requirement)任务容器创建路径是否漏 env 构建、command -v claude 在 exec shell PATH 下是否命中、R34 验收型缺口是否在此暴露;⚠ 并行会话防双写:第 37 轮(R4.F5)在 runner/container_manager.py list_dir 有未进镜像改动,本轮若动 runner/terminal 或 backend terminal.py 需函数级避让 |
+| BUG-072 | fixed → ✅ verified → 已 verified 迁移 ISSUES.md(2026-09-29 第 41 轮;端到端实证「查询结果是 1」,档案见 ISSUES.md 同日小节) | — | — | — | — |
+| BUG-074 | fixed(2026-09-29 第 42 轮闭环:R3.F4 纯前端——TaskChat 新增 taskType/prdFilePath 可选 props+isNewSession 判定(无「非空且非占位」assistant 行;占位行不计=失败重开仍重发)+useEffect 自动发 `/rd-prd '+prdFilePath`(sentRef 一次挂载一发,防 StrictMode/3s 轮询重入)+TaskDetail 透传 task.type 与 req.prd_file_path(:299 hook 已有,PRD 预览 :308 同字段同源=路径一致性天然保证);tsc 零错+build 过;真机终验归用户浏览器(新建/打开打磨任务→自动出现 /rd-prd 消息→AI 进 prd 模式→中栏 PRD 预览读到同路径);其余调用点不传 props 行为不变;分片 ./DEVPLAN/R3.F4.md(R3.F3 已被并行第 41 轮占用顺延);ui-check .scratch/R3.F4/) | R3/R4(需求打磨;波及 R33 斜杠技能/R17 skills 注入)  R3/R4(需求打磨;波及 R33 斜杠技能/R17 skills 注入) | 功能增强(用户指令) | 用户指令 2026-09-29(rd-fix 第 42 轮) | 需求打磨页面:检测 AI 会话是否是新的(第一次开/失败后重开),是则第一条消息自动发送 `/rd-prd <PRD文件路径>`(路径取需求详情存的 PRD 路径地址,经 skills 调用)——目的:确保打磨 AI 进入 prd 模式,且 PRD.md 落盘位置与需求详情一致,PRD 预览可找到文件; 待分析:①需求详情 PRD 路径字段名(requirements 表列)与任务详情/需求详情接口是否已下发前端; ②「新会话」判定口径(task_messages 无非占位 assistant 行?claude_session_id NULL?); ③失败后重开的重发防护(占位行识别/只自动发一次标记); ④TaskChat 斜杠技能调用既有机制(R32.F2/R33)复用点; ⑤打磨任务(type=requirement)工作区挂载与 PRD.md 落盘路径的对齐(claude_inject/workdir) |
+| BUG-073 | open(第 40 轮附带登记,环境健壮性批,待排期/用户拍板) | R8/R16(容器生命周期;runner 事件自动重启链) | 功能缺陷(环境健壮性三连) | R5.F3 判据 C 排障附带发现 2026-09-29 | ① **Docker Desktop 残留端口代理致任务容器自动重启失败**:任务容器停止后 runner 事件链自动 start 报 500 "Ports are not available: exposing port TCP 0.0.0.0:21175"(宿主 com.docker.backend PID 14308 持有残留代理,容器 9b13fe6af4a9/任务 830af6e6 实证;容器后经用户侧操作恢复 Up)——候选修法:自动重启失败时降级映射端口重试/提示用户;② **容器移除竞态窗口 exec 秒退**:任务容器被用户移除瞬间,在途 claude_prompt_stream 秒退→零行→R5.F2 占位「请重试」误导真因(可观测但文案不精确;候选:exec 失败区分容器缺席→明确错误文案);③ **任务容器 PID1=sleep infinity 不收割僵尸**:容器内 defunct claude/node/sh 累积(ps 实证多个 zombie;候选:镜像入口换 init/tini 或 bash 收割循环) |
+| BUG-067 | open(2026-09-29 更新:① stderr 吞错已随 BUG-069/R5.F2 F4 协同收口——2>/dev/null 已去,stderr 捕获进 stderr_tail(≤2000 字符)+后端 warning 日志;残余:② R32.F8 零行降级对 --session-id 首用路径的判定核对、③ 流读循环 Windows 命名管道 EOF 109 归一化,继续挂起归 R32 重实现批或下轮) | R5/R32(对话流式链路;波及 BUG-060 降级判定) | 可诊断性缺陷 + 瞬态空回复(BUG-065 复验附带发现) | rd-fix 第 35 轮复验 2026-09-28 | ① 瞬态空回复两例(18:14 用户/18:20 复验,~8-11s 空结算 tokens=0)当时不可回溯——`claude_prompt_stream` cmd 尾 `2>/dev/null` 把 CLI stderr 全吞(unrecognized_model/API error 全不可见),复验时全形态探针(裸/stream-json/带桥接/生产 parity)均通,瞬态真因(gateway 抖动 vs 18:20 后端重启窗口)无法定位;② R32.F8 零行降级仅日志一条「降级新会话重跑」,两例均未触发——`--session-id` 首用路径是否纳入降级判定需核对(main.py:520-525);③ 附带隐患:流读循环 `sock.recv` 对 Windows 命名管道 EOF 抛 pywintypes 109 不当结束(宿主 Windows 直跑 runner 代码即触发,复验中实证),Linux unix socket 不受影响;建议=stderr 捕获落盘并入 result/日志 + 降级条件核对 + EOF 归一化(参照 BUG-031/BUG-050 探测式先例) |
+
+| BUG-074 | fixed(2026-09-29 第 40 轮 R4.F7;⚠ 编号让渡:初登记 BUG-071,该号已被同日并行会话(R9.F3/R5.F3)先行占用,后登记方让渡改号 074。活体取证=全部存活任务 base==work 自指基线→`git diff 自己`恒空「变更文件没有对比效果」;双层根因:创建链 create_task `base_branch or requirement.req_branch` 自指 + diff/changes 端点不读任务基线(空串/硬编码 master)。修复 F1=create_task 基线改 project.default_branch(需求分支从它切出,治本)+ F2=resolve_task_base_branch 解析器(显式参>task.base 非自指>项目默认分支)双端点接入——存量自指任务展示层即时自愈,零数据迁移零 runner 零前端;backend 12/12(5 新用例矩阵+7 回归)+真实自指行活体解析=master 实证+容器 git 真相核对(现存活任务确无变更,空=正确答案);后端已带 --reload 重启;Diff 内容级浏览器复验归用户活跃 dev 任务) | R4(任务工作台 Diff 视图;波及 R11/R6) | 功能缺陷(用户指令) | 用户指令 2026-09-29(rd-fix 第 40 轮,本会话) | 「对应变更文件没有对比效果」——基线自指+端点不读基线双层缺陷;分片 ./DEVPLAN/R4.F7.md |
+
+| BUG-075 | fixed(2026-09-29 第 41 轮 R4.F8;BUG-074 的时序残余) | R4(任务工作台 Diff 视图) | 功能缺陷(用户指令) | 用户指令 2026-09-29(rd-fix 第 41 轮) | 「任务页面,对应变更文件没有对比效果,文件部分有新增减少行数,点击没有文件预览效果」——变更 chips 出行数(R4.F7 生效)但点击无对比。活体+真浏览器取证:后端 changes/diff 双端点路径 2/2 匹配、diff 内容 28KB 真实存在;**playwright 真浏览器当前态全通**(chips=2 带行数→点击→空态 0/DiffViewer 渲染 37390 字符)——用户所见=diffData 在修复前时期被 react-query 缓存为空/错误(容器抖动窗口 BUG-073② 同效),进 Diff Tab 无自动补拉、失败无重试入口,误导为「暂无变更」。修复 R4.F8=① 进 Diff Tab 且 changes 有文件而 diff 为空→自动补拉一次 ② diff 加载失败→可见错误条+重试(替换误导性空态文案);tsc/build 过+浏览器复验不回退;刷新浏览器即生效 |
 
 ## BUG-015
 
@@ -910,22 +923,12 @@
 - **处置记录(2026-09-26 数据修复)**:按分析报告方案 B「就地改名保留留痕」执行(禁删行)——先 SELECT 确认 945/946 仍为 `??????`(HEX=3F…)后 `UPDATE tasks SET title='历史测试数据(已清理)' WHERE id IN (945,946) AND title IN ('??????','??????2')`(带 title 仍是乱码的前置守卫);**rows affected=2,其余行零触碰,未 DELETE 任何行**
 - **验证记录**:① 复检 SELECT:两行 title HEX=`E58E86…`(「历史测试数据(已清理)」合法 UTF-8);② 全库扫尾:`tasks.title LIKE '%?%'` 其余 **0** 条,`requirements.title/req_branch LIKE '%?%'` **0** 条——乱码清零
 
-## R34.F1 移交项(2026-09-26 登记;归属并发会话 R34.F1,数据修复轮不修)
+## R34.F1 移交项(2026-09-26 登记;两项均已解决并 verified 迁移 ISSUES.md)
 
-> BUG-DATA-001 归因时的两个附带发现(分析报告 §1.3):均为 R34.F1(需求分支默认策略)真实缺口,由该并发会话承接修复,本会话不动代码。
+> BUG-DATA-001 归因时的两个附带发现(分析报告 §1.3)均已闭环:BUG-052(接线缺失)由 R34.F1 会话 commit 93242f9 完成接线,第 31 轮真机回归实证(feat/hgcsrzwbty20260928 产出)迁移;BUG-053(前端 □ 占位符观感)由 R34.F1 追加 commit 5c4e4c9(branch-preview 接口 + useBranchPreview hook)解决,2026-09-28 第 34 轮追加浏览器复验(预览 feat/gwcyhqdjsy20260928 无 □,截图 report/rd-fix-r34/03-branch-preview.png)verified 迁移 ISSUES.md,原档案见 ISSUES.md 同日小节。
 
-### BUG-052 | default_req_branch 未接线(死代码) | open(移交 R34.F1)
-
-- **位置**:`backend/app/services/requirement_service.py` L190——`create_requirement` 仍是 `branch = req_data.get("req_branch") or f"req-{req_id[:8]}"`
-- **问题**:R34.F1 新增的 `gen_req_branch_slug()`(L134-159)/ `default_req_branch()`(L162-170)目前**仅测试引用,生产路径死代码**——DB 最近 12 条 req_branch 全部是 `req-{id8}` 或手填(`feat-demo-0924`/`feat-0923`),拼音策略从未生效
-- **连带**:ISSUES.md R34.F1 行「create_requirement 未填分支走新策略」表述与工作区实际代码不符(接线后才成立)
-- **修法建议**:L190 回退改 `default_req_branch(req_data["title"])`(同日同首拼撞名脱撞逻辑 L200-204 已备好);部署注意 pypinyin 需镜像安装(ISSUES.md L284 TLS 失败留痕)
-
-### BUG-053 | 前端分支预览 □ 占位符易误读 | open(移交 R34.F1)
-
-- **位置**:`frontend/src/pages/requirements/RequirementList.tsx` L114-128(WIP)创建弹窗分支预览
-- **问题**:汉字在预览里渲染为 `□`(`feat/□□□□□20260926`)——系有意设计(注释注明「汉字以□占位提示,后端权威」),但用户看到的 `□` 极易被当成「乱码」,可能是本次报「中文汉字首拼音乱码」的直观来源之一
-- **修法建议**:保留 □ 但强化提示文案,或后续加后端 preview 接口返回真首拼
+| BUG-061 | open → 已 verified 迁移 ISSUES.md(2026-09-28 第 31 轮;pypinyin 按清单补装 0.55.0 + pytest 16/16 + 真机重放 code=0、req_branch=feat/hgcsrzwbty20260928 实证) | — | — | — | — |
+| BUG-062 | open → 已 verified 迁移 ISSUES.md(2026-09-28 第 32 轮;requirements 双文件落地+安装闭环+新栈真机重放 code=0;全量 pytest 22 failed 经逐例分类 A 升级回归=0——20 个为 R32 Runner 标签流测试先行未实现、2 个环境噪音,见 `.scratch/R34.F3/pytest-analysis.md`) | — | — | — | — |
 
 ## BUG-059 | 流式体验:上游非流式时增量瞬达,视觉等同同步整段输出 | fixed
 
@@ -963,3 +966,40 @@
 - **问题描述**:自动滚动只监听 messages.length/streamText,乐观用户消息与 AI 加载动效上屏不触发;且为瞬时跳转无平滑
 - **建议方案**:监听源补 pendingUser/thinking,滚动改 smooth;配合气泡美化(12px 大圆角+收音角+软阴影+AI 气泡细描边,亮暗双主题)
 - **状态**:fixed(tsc 0 错+build 过;用户浏览器复验后 verified)
+
+## BUG-061
+
+- **状态**:已 verified 迁移 ISSUES.md(2026-09-28 rd-fix 第 31 轮;完整档案见 ISSUES.md 同轮迁移表)
+- **一句话**:需求创建 500 = R34.F1 拼音分支策略依赖 pypinyin 已声明(pyproject L21)未装入本机运行时;零代码修复=pip 补装 0.55.0,回归=pytest 16/16 + 真机重放 code=0 且 req_branch=feat/hgcsrzwbty20260928(接线实证,BUG-052 一并解决)
+
+
+### BUG-074 | AI 对话流式回复开头重复一行(首包内容双写) | fixed(R5.F4;verified 待真机对话复验)
+- **状态**:fixed(2026-09-29 rd-fix 第 42 轮;单测 3/3+触碰面回归 67/67,已部署重启)
+- **用户报障**:AI 对话消息返回,前面会出现重复行,如:「好的,Q1-Q4 已确认。我先派人去查现有登录代码,同时推进下一轮细节决策。\n\n好的,Q1-Q4 已确认。我先派人去查现有登录代码,同时推进下一轮细节决策。」——同一段开头文本连续出现两遍
+- **根因**:task_service.py `_stream_event_to_chat` 双路径广播(text_delta 增量 + assistant 整块都发 chat_delta),前端无去重累加;DB 落库本就干净
+- **修复**:seen_stream_delta 标志,assistant 整块仅在未见 text_delta 时兜底广播(老 CLI 兼容)
+- **怀疑面**(待诊断证实):① 流式首包在 streamText 累积与落库 refetch 替换处双写(R5.F2 改过「refetch 完成才清流式气泡」链路);② 后端落库把首 chunk 存两次;③ runner 流式切片重复下发;④ 停止生成(stoppedRef)与新一轮流式缓冲互串
+- **关键分叉**:落库 messages.content 是否已含重复——含=后端/runner 层,不含=前端流式渲染层
+- **诊断产物**:`.scratch/fix-analysis.md`(BUG-074 节)
+
+## BUG-075
+
+- **状态**:已 verified 迁移 ISSUES.md(2026-09-29 rd-ui 容器门卫核对轮附带发现;环境缺陷零代码即时修复,完整档案见 ISSUES.md 同节)
+- **一句话**:创建需求 500 = Windows 运行时缺 tzdata(ZoneInfoNotFoundError: Asia/Shanghai),uv pip install + 重启即愈;tzdata 未声明进依赖清单,补声明归 rd-dev
+
+### BUG-076 | AI 对话长消息发送失败 | fixed(R5.F5;verified 待真机长消息复验)
+- **状态**:fixed(2026-09-29 rd-fix 第 43 轮;runner 107 + backend 34 全绿,迁移/后端/runner 已部署生效)
+- **用户报障**:AI 对话,消息长的时候,会出现发送失败的问题
+- **根因(实锤,`.scratch/fix-analysis.md` BUG-076 节)**:P0=prompt 经 shlex.quote 拼 `claude -p` 命令行(container_manager.py:1008),长消息+@附件注入叠加撞 Linux ARG_MAX,容器内 exec 直接失败;P1=task_messages.content TEXT(64KB) 静默截断;P2=SendMessageRequest 无 max_length 无友好拦截
+- **修复(R5.F5 三层)**:P0=prompt 改临时文件+stdin 传递(不占 argv,流式/非流式双路径);P1=content 升 MEDIUMTEXT(迁移 a1b2c3d4e5f6,down 30088c854a08);P2=content max_length=200000 超限 422。tdd:Red 6/6→Green;审计通过(conftest 补 ALTER 判定合理防御);防双写确认(R5.F2/F3/F4 标志未被覆盖)
+- **部署**:迁移已应用(mediumtext 实证)+后端 8000 重启 /docs 200+runner 镜像 e39b84d5 重建容器重建注册成功
+- **待复验**:用户真机发长消息(>128KB 或带 @大附件)确认发送成功、回复完整不截断
+- **复验打回(2026-09-30 诊断轮,用户指令「先别改代码」)**:用户报仍发送失败 → 纯诊断实锤(证据 `.scratch/fix-analysis.md` BUG-076 复验打回节):**环境层因素,非代码回归**——LLM 代理 18765 宿主/容器均无监听,runner 日志 16:34-16:45 四次 `claude_prompt_stream 超时(120s)`,与 BUG-034 同源;DB 侧消息落库正常(16:48-16:49),API/DB 层完好,排除 P0 修复 bug 与 R1-R3 新改动回归。**代码修复维持 fixed 不动,待用户启动 LLM 代理后真机复验**(复验通过 → verified 迁移)
+
+
+### BUG-076 | 打磨任务首次会话未自动发送 /rd-prd 进入打磨,PRD.md 未落需求配置的 PRD 路径 | fixed(R3.F5;verified 待真机重启复验)
+- **状态**:fixed(2026-09-29 rd-fix 第 43 轮;定性=主体已实现断在重启子场景;32/32 pytest+活体 API generation=5=容器行数+prd_content 迁移已 apply+已部署重启)
+- **用户报障(期望行为)**:任务打磨在**第一次会话(含容器异常退出后重新启动后)**默认发送 `/rd-prd` 进入 PRD 打磨阶段;PRD.md 保存到**需求详情中设置的 PRD 路径**;PRD.md 生成后**任务详情要能读到**
+- **怀疑面**(待诊断):① 打磨容器启动链无首会话自动指令注入(或仅在特定入口有);② 打磨提示词未约定 PRD.md 输出路径=需求配置的 PRD 路径;③ 任务详情「PRD 草稿(容器内)」读取路径与写入路径不一致;④ 规格从未定义(分片缺口→分流 rd-plan)
+- **诊断产物**:`.scratch/fix-analysis.md`(BUG-076 节)
+

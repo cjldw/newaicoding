@@ -12,6 +12,7 @@
  *   占位符链接保留下载)/ 元信息行(HH:MM + hover 操作栏:复制/重新生成/引用回复)/
  *   流式呼吸圆点 .chat-cursor-dot + 停止生成 / 空态快捷指令 / 发送失败乐观保留可重试 /
  *   补全下拉键盘导航(ArrowUp/Down 循环 + Enter 选中,skill 引用格式 @→/)
+ * - 思考动效带消耗时间计时(thinking 为 true 时每秒递增,<60s 显示 Ns,≥60s 显示 MmNNs)
  * - R34:头像布局(20260927 头像布局.md)——头像+昵称行(.chat-head)移到消息上方,
  *   用户头像取 auth store 当前用户(占位,待后端 TaskMessage sender 字段做多用户逐人头像)
  * - R34.F1(BUG-UI-090):「停止生成」按钮整个发送 pending 期间常显(流式增量前也有停止入口);
@@ -55,7 +56,15 @@ interface TaskChatProps {
   onToggleFullscreen?: () => void
   /** R32.F2:项目 ID(有值时启用 / skill 补全,数据源为项目已装 Skills) */
   projectId?: string
+  /** R3.F4(BUG-074):任务类型,仅 'requirement'(打磨任务) 触发自动首消息 */
+  taskType?: string
+  /** R3.F4(BUG-074):PRD 文件路径(需求详情 req.prd_file_path),自动首消息 /rd-prd 参数 */
+  prdFilePath?: string
 }
+
+// R3.F4(BUG-074):AI 回复执行中断占位文案 —— 与后端 task_service.py:817 逐字一致。
+// 判定「新会话」时排除此行:失败占位不算有效回复,符合「失败后重开」语义
+const AI_INTERRUPT_PLACEHOLDER = '[AI 回复执行中断,未获取到回复内容,请重试]'
 
 // 渲染消息内容 — 把 @filename 渲染为可点击链接
 function renderContent(content: string, files: UploadedFile[]) {
@@ -128,7 +137,7 @@ function formatTime(iso?: string): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, projectId }: TaskChatProps) {
+export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, projectId, taskType, prdFilePath }: TaskChatProps) {
   const { data: msgData } = useTaskMessages(taskId)
   const { data: uploadsData, refetch: refetchUploads } = useUploadedFiles(taskId)
   const sendMut = useSendTaskMessage(taskId)
@@ -150,9 +159,23 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
   const [sysAssets, setSysAssets] = useState<SystemAssetsData | null>(null)
   // R32.F3:流式增量(发送中的 AI 气泡文本;chat_done 或消息落库后清空)
   const [streamText, setStreamText] = useState('')
+  // BUG-069(F3):记录已渲染的最后一条 assistant message_id,用于检测新 assistant 消息到达
+  // 从而安全清空 streamText(避免 onSuccess 立即清空导致流式气泡与 DB 消息之间的闪烁空档)
+  const lastRenderedAiIdRef = useRef<string | null>(null)
   // R32.F9:乐观 UI——用户消息发送即上屏(pendingUser)+ AI 加载动效(thinking,首个增量前)
   const [pendingUser, setPendingUser] = useState<string | null>(null)
   const [thinking, setThinking] = useState(false)
+  // 思考动效消耗时间(thinking 为 true 时每秒递增,首个增量到达或 thinking 转 false 时归零)
+  const [thinkingElapsed, setThinkingElapsed] = useState(0)
+  useEffect(() => {
+    if (!thinking) {
+      setThinkingElapsed(0)
+      return
+    }
+    setThinkingElapsed(0)
+    const id = window.setInterval(() => setThinkingElapsed((n) => n + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [thinking])
   // R34:发送失败的用户消息乐观保留(红描边气泡 + 「发送失败 · 点击重试」)
   const [failedUser, setFailedUser] = useState<string | null>(null)
   // R34.F3(BUG-UI-091):AI 权限确认卡 —— null=无;status 状态机:
@@ -174,12 +197,20 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
   const listRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // R34:文本输入框 ref(引用回复/快捷指令填入后聚焦)
-  const inputRef = useRef<HTMLInputElement>(null)
+  // R35:改为 textarea ref(多行输入)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   // R34:复制反馈复位定时器(卸载清理)
   const copyTimerRef = useRef<number | null>(null)
   // R34(BUG-UI-086):停止生成闸阀——置 true 后 onDelta 丢弃后续增量(展示层中止),
   // 新一轮 handleSend 复位;用 ref 而非 state,避免 WS 高频回调闭包读到旧值
   const stoppedRef = useRef(false)
+  // R3.F4(BUG-074):自动首消息 /rd-prd 防重发 —— 组件挂载期只发一次,
+  // StrictMode 双挂载/3s 轮询期间重复判定均靠此 ref 兜底;组件重开(失败后重开)即重置
+  const sentRef = useRef(false)
+  // R3.F5(BUG-076):容器重启后重发 /rd-prd —— 追踪上次见到的 container_generation
+  // 初值 = 首次拉到的值(不触发重发);后续拉取发现 generation 变化 → 视为容器换新,
+  // 即使 DB 有历史 AI 回复也重发 /rd-prd(每个 generation 只发一次,StrictMode 防重语义保留)
+  const sentGenerationRef = useRef<number | string | null>(null)
   // R34(补全键盘导航):三组下拉高亮项 ref(scrollIntoView 用)
   const activeACRef = useRef<HTMLButtonElement | null>(null)
   const activeSCRef = useRef<HTMLButtonElement | null>(null)
@@ -187,6 +218,66 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
 
   const messages: TaskMessage[] = msgData?.items ?? []
   const files: UploadedFile[] = uploadsData?.items ?? []
+
+  // BUG-069(F3):新 assistant 消息到达且 content 非空时,安全清空 streamText
+  // 解决:onSuccess 立即清空导致流式气泡消失 → refetch 尚未带回 DB 消息 → 短暂空气泡
+  // 逻辑:追踪最后一条 assistant 消息 id,新 id 出现且 content 非空 → 清空流式文本
+  useEffect(() => {
+    const lastAi = [...messages].reverse().find((m) => m.role === 'assistant')
+    if (lastAi && lastAi.message_id !== lastRenderedAiIdRef.current) {
+      lastRenderedAiIdRef.current = lastAi.message_id
+      if (lastAi.content) {
+        setStreamText('')
+        setThinking(false)
+      }
+    }
+  }, [messages])
+
+  // R3.F4(BUG-074) + R3.F5(BUG-076):需求打磨新会话自动发 `/rd-prd <PRD路径>` 首消息
+  // 触发条件:
+  //   1. taskType === 'requirement'(仅打磨任务)
+  //   2. prdFilePath 非空(老数据无路径不触发)
+  //   3. messages 已加载(msgData !== undefined)
+  //   4. sendMut 未在 pending(避免与手动发送并发)
+  //   5. R3.F5:container_generation 变化 → 容器重启 → 强制重发(绕过 isNewSession)
+  //   6. 原 isNewSession 逻辑保留:无有效 assistant 回复 → 新会话 → 发送
+  // 严禁在 render 期直接 mutate —— 只在 useEffect 内触发
+  useEffect(() => {
+    if (taskType !== 'requirement') return
+    if (!prdFilePath) return
+    if (msgData === undefined) return // messages 尚未加载
+    if (sendMut.isPending) return
+
+    const currentGen = msgData.container_generation ?? 0
+
+    // R3.F5(BUG-076):container_generation 变化 → 容器重启 → 强制重发 /rd-prd
+    // 首拉(sentGenerationRef.current === null):记录初始代数,不触发重发
+    // 后续拉取:若代数变化 → 强制重发(绕过「已有有效 AI 回复」的 isNewSession 限制)
+    if (sentGenerationRef.current === null) {
+      // 首拉 — 记录初始 generation,不触发重发
+      sentGenerationRef.current = currentGen
+    } else if (sentGenerationRef.current !== currentGen) {
+      // generation 变化 → 容器重启 → 强制重发
+      sentGenerationRef.current = currentGen
+      sendMut.mutate({ content: '/rd-prd ' + prdFilePath })
+      return
+    }
+
+    // 原 R3.F4 逻辑:全新任务场景(无有效 AI 回复 → 新会话 → 发送)
+    if (sentRef.current) return
+    // isNewSession:无有效 assistant 回复 → 新/失败会话
+    const hasValidAiReply = messages.some(
+      (m) =>
+        m.role === 'assistant' &&
+        typeof m.content === 'string' &&
+        m.content.trim().length > 0 &&
+        m.content !== AI_INTERRUPT_PLACEHOLDER,
+    )
+    if (hasValidAiReply) return
+    // 条件齐备 → 发送 /rd-prd 首消息
+    sentRef.current = true
+    sendMut.mutate({ content: '/rd-prd ' + prdFilePath })
+  }, [messages, prdFilePath, taskType, msgData, sendMut])
 
   // R34.F2:当前选中的模型配置(选中项失效时回退默认项/首个,兜底 undefined 不渲染名称)
   const currentModelConfig =
@@ -306,6 +397,8 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
   useEffect(() => () => {
     if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
   }, [])
+
+  // 20260929:textarea 固定单行高(34px,与旁发送按钮对齐),超出内部滚动(overflow-y:auto 在 className)
 
   const showToast = (type: 'ok' | 'err', text: string) => setToast({ type, text })
 
@@ -749,7 +842,8 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
             </div>
           </div>
         )}
-        {/* R32.F9:AI 加载动效(头像行 + 三点弹跳;首个增量到达后由流式气泡接管) */}
+        {/* R32.F9:AI 加载动效(头像行 + 三点弹跳;首个增量到达后由流式气泡接管)
+            思考动效带消耗时间计时:三点后跟「思考中… Ns / MmNNs」 */}
         {thinking && !streamText && (
           <div>
             <div className="chat-head justify-start">{aiHead}</div>
@@ -759,6 +853,9 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
                   <span className="chat-dot" />
                   <span className="chat-dot" />
                   <span className="chat-dot" />
+                  <span className="ml-2 text-xs opacity-60">
+                    思考中… {thinkingElapsed < 60 ? `${thinkingElapsed}s` : `${Math.floor(thinkingElapsed / 60)}m${String(thinkingElapsed % 60).padStart(2, '0')}s`}
+                  </span>
                 </span>
               </div>
             </div>
@@ -1017,13 +1114,16 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
               )}
             </div>
           )}
-          <input
-            type="text"
+          {/* 20260929:textarea 固定单行高(34px),超出内部滚动;placeholder 末尾追加操作提示 */}
+          <textarea
+            rows={1}
+            style={{ height: 34 }}
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={(e) => {
               // R34(补全键盘导航):下拉展开且有候选时,方向键循环移动高亮、Enter 选中高亮项
               //(不发送;Escape 关闭已有)。无候选下落回原发送行为
+              // R35:补全下拉优先级最高,与 input/textarea 无关
               if (showAC && filteredFiles.length > 0) {
                 if (e.key === 'ArrowDown') {
                   e.preventDefault()
@@ -1076,15 +1176,39 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
                   return
                 }
               }
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // R35:中文输入法组合中(isComposing)不拦截 Enter/快捷键,
+              // 避免拼音输入过程中误发送或误插入换行
+              if (e.nativeEvent.isComposing) return
+              // R35:Ctrl/Cmd+Enter 在光标处插入换行符(不发送)
+              // 用 selectionStart/selectionEnd 拼接新值,再用 requestAnimationFrame
+              // 恢复光标到插入点之后(React setState 后 input 会重渲染,光标会丢失)
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault()
+                const el = e.currentTarget
+                const start = el.selectionStart ?? input.length
+                const end = el.selectionEnd ?? input.length
+                const before = input.slice(0, start)
+                const after = input.slice(end)
+                const next = before + '\n' + after
+                setInput(next)
+                // 等 React 把新 value 写入 DOM 后再恢复光标
+                requestAnimationFrame(() => {
+                  el.selectionStart = el.selectionEnd = start + 1
+                })
+                return
+              }
+              // R35:Enter 且无 Shift/Ctrl/Meta 修饰键 → 发送
+              if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
                 e.preventDefault()
                 handleSend()
+                return
               }
+              // R35:Shift+Enter 不拦截,走 textarea 原生换行
               if (e.key === 'Escape') { setShowAC(false); setShowSC(false); setShowMC(false); setShowModelDD(false) }
             }}
             ref={inputRef}
-            placeholder={projectId ? '输入消息,@ 引用文件,/ 调用 Skill,/mcp 引用 MCP...' : '输入消息,@ 引用已上传文件...'}
-            className="flex-1 px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary"
+            placeholder={projectId ? '输入消息,@ 引用文件,/ 调用 Skill,/mcp 引用 MCP...(Enter 发送,Ctrl+Enter 换行)' : '输入消息,@ 引用已上传文件...(Enter 发送,Ctrl+Enter 换行)'}
+            className="flex-1 px-3 py-1.5 text-sm bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary resize-none overflow-y-auto"
           />
           <Button type="button" size="sm" onClick={() => handleSend()} disabled={!input.trim() || sendMut.isPending}>
             {sendMut.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}

@@ -10,7 +10,7 @@
  *   (BUG-UI-071 方案②:open 状态显式透传给 useTourSteps 的 enabled,查询层再加一道门)
  */
 import { useNavigate } from 'react-router-dom'
-import { ChevronRight, Play } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/Dialog'
 import { useTourSteps } from '@/hooks/useTourSteps'
 
@@ -65,7 +65,7 @@ export function TourDialog({ open, onClose }: TourDialogProps) {
       >
         {/* R33:标题补图标 + 副标语(原裸标题偏单薄) */}
         <DialogTitle>
-          <span className="tour-title-ico"><Play size={15} />平台导览</span>
+          <span>平台导览</span>
         </DialogTitle>
         <p className="small muted" style={{ margin: '2px 0 12px' }}>
           按顺序走一遍平台核心页面,约 2 分钟;点击任意步骤直接跳转。
@@ -86,7 +86,7 @@ export function TourDialog({ open, onClose }: TourDialogProps) {
         </div>
         <div className="tour-dialog-foot">
           <button className="btn" onClick={handleFinish}>跳过</button>
-          <button className="btn btn--primary" onClick={handleFinish}>完成导览</button>
+          <button className="btn btn-pri" onClick={handleFinish}>完成导览</button>
         </div>
       </DialogContent>
     </Dialog>

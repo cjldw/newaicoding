@@ -57,3 +57,17 @@
 - **静默降级**:任一变量未配置时,对应 MCP 条目仍保留在预置配置中(不裁剪),`${VAR}` 未设按字面透传+告警,该 server 启动/连接失败——**容器创建与任务执行不受阻**,仅对话中使用对应 MCP 时报连接失败(github/brave-search 未配 token 时可启动但调用报错)。补配变量后新起容器即生效
 - **影响范围**:配置后所有新起任务容器自动注入(custom_env_vars 铺底 → 容器 environment,预置配置加载拉起 server 时按当时容器 env 实时展开 `${VAR}`);存量 v1 容器不受影响(无预置配置)
 - **回滚方案**:删除对应变量即可(下次创建容器不再注入;预置配置条目不随之删除,转入静默降级态)
+
+## 2026-09-28 R5 containers.image 列默认切 aliyun registry + container_image 设置项
+
+- **类型**:数据库 + 配置(运营动作)
+- **具体内容**(MySQL;alembic migration 已落地:`backend/alembic/versions/b4f8e2a9c1d7_container_image_default_aliyun.py`,down_revision=`e9b3f7c1a6d4`;本条为等效 SQL):
+  ```sql
+  ALTER TABLE containers ALTER COLUMN image SET DEFAULT 'registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2';
+  ```
+  执行方式:`alembic upgrade head`(仅列默认元数据操作,存量行 image 值不改)
+- **container_image 设置项**:超管后台「全局参数」组新增「任务容器镜像」;值须为**带 tag** 的 docker 引用(≤255)。镜像解析链:`显式传参 > container_image 设置 > 代码默认(同上行 aliyun 地址)`;**留空 = 未配置回落默认**(前端不发空串)。probe 采集(系统级 skills/MCP 列表)走同一设置
+- **生效语义**:镜像在容器创建时刻定格——改设置/默认值只影响之后新起的容器,存量与运行中容器不受影响
+- **前提(平台外运营)**:Runner 机器需可 pull `registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2`(镜像已由用户推送);zhanqinet 命名空间若为私有,各 Runner 机需先 `docker login registry.cn-hangzhou.aliyuncs.com`
+- **影响范围**:所有新起任务容器与 probe 临时容器
+- **回滚方案**:`alembic downgrade -1`(列默认回退 `platform/devbox:v2`);设置项删除即转常量兜底(代码默认随发版已切 aliyun,如需回 v2 语义需回退代码)

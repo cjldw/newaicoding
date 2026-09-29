@@ -55,6 +55,14 @@ async def runner_ws(websocket: WebSocket):
     conn.last_heartbeat_ts = time.time()
     await websocket.send_json({"type": "register_success", "runner_id": runner.runner_id})
 
+    # F2.b: Runner 重连后,对该 Runner 上 status=stopped 且 destroyed_at IS NULL 的容器补发 stop
+    try:
+        async with async_session_factory() as db_resend:
+            await container_service.resend_stop_for_offline_containers(db_resend, runner.runner_id)
+            await db_resend.commit()
+    except Exception as e:
+        logger.warning("Runner 重连补发 stop 失败(不阻塞连接): %s", e)
+
     # ---- 消息循环 ----
     try:
         while True:

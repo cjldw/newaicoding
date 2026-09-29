@@ -100,6 +100,18 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("数据库连接池初始化完成")
 
+    # F2.d: 启动时孤儿对账(扫描 running/creating 容器,对账 docker 真实状态)
+    # 一次性扫描,不周期执行;修复 BUG-073 泄漏路径 4
+    from app.database import async_session_factory  # 修复:启动对账缺 import 导致 lifespan NameError(20260929 rd-fix 41)
+    from app.services import container_service
+    async with async_session_factory() as db:
+        try:
+            await container_service.reconcile_orphan_containers(db)
+            await db.commit()
+            logger.info("启动孤儿对账完成")
+        except Exception as e:
+            logger.warning("启动孤儿对账失败(不阻塞启动): %s", e)
+
     # Runner 心跳超时巡检(R16):每 60s 一轮,>60s 无心跳 → offline
     sweep_task = asyncio.create_task(_runner_offline_sweep())
 

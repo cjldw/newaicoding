@@ -55,6 +55,7 @@ class ErrCode:
     REPO_FORBIDDEN = 2012           # GitLab 查仓库 401/403(平台 bot 无访问权限,归并防枚举)
     REPO_PERM_LOW = 2013            # bot 权限 < Maintainer(40,含 group 继承后仍不足/permissions 全 null)
     GITLAB_UNREACHABLE = 2014       # GitLab 连接失败(httpx 网络异常/其他非 200 状态码)
+    GIT_NO_CHANGES = 2015           # 无变更可提交
 
     # R12 项目成员
     INVITE_USER_NOT_FOUND = 12001  # 用户不存在(手机号未注册)

@@ -175,14 +175,14 @@ def _json_contains(obj, needle: str) -> bool:
 
 def _assert_single_probe(ws: ProbeRunnerWS):
     """平台只下发一次 probe_claude 指令(start→exec→stop 在 Runner 侧单次调用内完成);
-    R1:指令默认镜像应为 v2(路由不传 image,collect 用 DEFAULT_PROBE_IMAGE——
-    钉住生产常量 system_asset_service.py 的 v2 默认)"""
+    R1→R5(container_image):路由不传 image,collect 解析链走「设置项未配置 →
+    DEFAULT_PROBE_IMAGE 常量」——钉住 aliyun 默认(与 container_service.DEFAULT_IMAGE 同值)"""
     assert len(ws.probe_msgs) >= 1, f"未下发 probe_claude 指令,下发消息: {ws.sent}"
     assert len(ws.probe_msgs) == 1, (
         f"probe_claude 应单次调用完成,实际下发 {len(ws.probe_msgs)} 条: {ws.probe_msgs}"
     )
-    assert ws.probe_msgs[0].get("image") == "platform/devbox:v2", (
-        f"probe 指令默认镜像应为 v2,实际: {ws.probe_msgs[0].get('image')}"
+    assert ws.probe_msgs[0].get("image") == "registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2", (
+        f"probe 指令默认镜像应为 aliyun 地址,实际: {ws.probe_msgs[0].get('image')}"
     )
 
 
@@ -615,14 +615,55 @@ class TestR4PluginEntries:
 
 
 class TestR4Constants:
-    def test_default_probe_image_binding_v2(self):
-        """R4 要点4(tag 三层同步):DEFAULT_PROBE_IMAGE 绑定断言。R1 的 D5 批次已把
-        本常量升 v2(代码精查确认)→ 本用例为现状绿护栏(绑定当前值防回退);
-        Red 校验由其余 plugin/落库用例承担"""
+    def test_default_probe_image_binding_aliyun(self):
+        """R4 要点4(tag 三层同步)→ R5(container_image)延续:DEFAULT_PROBE_IMAGE
+        绑定断言。镜像默认已切 aliyun registry(与 container_service.DEFAULT_IMAGE 同值)
+        → 本用例为现状绿护栏(绑定当前值防回退)"""
         try:
             from app.services import system_asset_service as svc
         except ImportError as e:
             pytest.fail(f"app.services.system_asset_service 模块未创建: {e}")
-        assert svc.DEFAULT_PROBE_IMAGE == "platform/devbox:v2", (
-            f"DEFAULT_PROBE_IMAGE 应绑定 v2,实际: {svc.DEFAULT_PROBE_IMAGE}"
+        assert svc.DEFAULT_PROBE_IMAGE == "registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2", (
+            f"DEFAULT_PROBE_IMAGE 应绑定 aliyun 地址,实际: {svc.DEFAULT_PROBE_IMAGE}"
+        )
+
+
+class TestImageResolution:
+    """R5(container_image):probe 镜像解析链三态——显式传参 > 后台设置 > 常量兜底"""
+
+    @pytest.mark.asyncio
+    async def test_setting_overrides_default_probe_image(self, client, superadmin_headers,
+                                                          db_session, asset_env):
+        """后台配置 container_image 后,collect(不传 image)应改用设置值下发 probe"""
+        from app.services import platform_settings_service
+
+        await platform_settings_service.update_settings(
+            db_session, "test", {"container_image": "reg.example.com/ns/repo:v9"}
+        )
+        await db_session.commit()
+
+        resp = await client.post(COLLECT_URL, headers=superadmin_headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["code"] == 0, resp.text
+        ws = asset_env["ws"]
+        assert len(ws.probe_msgs) == 1, ws.probe_msgs
+        assert ws.probe_msgs[0].get("image") == "reg.example.com/ns/repo:v9", (
+            f"probe 应使用后台设置镜像,实际: {ws.probe_msgs[0].get('image')}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_explicit_param_wins_over_setting(self, db_session, asset_env):
+        """显式传参优先级最高:即使后台已配置 container_image,collect(image=...) 仍用传参值"""
+        from app.services import platform_settings_service, system_asset_service as svc
+
+        await platform_settings_service.update_settings(
+            db_session, "test", {"container_image": "reg.example.com/ns/repo:v9"}
+        )
+        await db_session.commit()
+
+        await svc.collect(db_session, "test-user", image="explicit/custom:v1")
+        ws = asset_env["ws"]
+        assert len(ws.probe_msgs) == 1, ws.probe_msgs
+        assert ws.probe_msgs[0].get("image") == "explicit/custom:v1", (
+            f"显式传参应优先于后台设置,实际: {ws.probe_msgs[0].get('image')}"
         )

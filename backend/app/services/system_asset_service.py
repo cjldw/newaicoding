@@ -21,6 +21,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,11 +29,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.response import BizError, ErrCode
 from app.models.system_asset import ClaudeSystemAsset
 from app.services import runner_service
+from app.services.platform_settings_service import get_setting
 
 logger = logging.getLogger(__name__)
 
 COLLECT_TIMEOUT = 120.0                      # probe 回报超时(秒;R5.md 契约)
-DEFAULT_PROBE_IMAGE = "platform/devbox:v2"   # 与 Runner start_container 默认镜像一致
+# 与 Runner start_container 默认镜像一致(container_service.DEFAULT_IMAGE;后台设置项 container_image 优先于本常量)
+DEFAULT_PROBE_IMAGE = "registry.cn-hangzhou.aliyuncs.com/zhanqinet/devbox:v2"
 
 # 进程级互斥:同一时刻只允许一次探测(临时容器起→探→毁不并发)
 _COLLECT_LOCK = asyncio.Lock()
@@ -86,13 +89,15 @@ async def list_system_assets(db: AsyncSession) -> dict:
     }
 
 
-async def collect(db: AsyncSession, operator_user_id: str, image: str = DEFAULT_PROBE_IMAGE) -> dict:
+async def collect(db: AsyncSession, operator_user_id: str, image: Optional[str] = None) -> dict:
     """
     采集镜像内置 skills/MCP 并覆盖入库。返回响应契约:
     {skills: n, mcps: n, collected_at: str, image_tag: str[, warning: str]}
     探测失败/超时 → BizError 502(不写库,旧数据保留)。
     R4:plugin skills/commands 一并以 kind="skill" 落库(detail.source="plugin"
     来源标记),skills 计数含 plugin 条目。
+
+    镜像解析(与 schedule_and_start 同链):显式传参 > 后台设置 container_image > 常量兜底。
     """
     arrival = time.monotonic()
     async with _COLLECT_LOCK:
@@ -121,6 +126,9 @@ async def collect(db: AsyncSession, operator_user_id: str, image: str = DEFAULT_
             )
 
         t0 = time.monotonic()
+        # 镜像解析:显式传参 > 后台设置 > 常量兜底(锁内解析,保证同次采集全程一致)
+        if image is None:
+            image = await get_setting(db, "container_image") or DEFAULT_PROBE_IMAGE
         conn = await _pick_probe_runner(db)
         # pick 只做 SELECT:提交结束当前事务,不把 DB 连接钉在最长 120s 的探测上;
         # 探测后的覆盖入库在下方新事务承接

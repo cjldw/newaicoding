@@ -289,16 +289,60 @@ async def _creator_brief(db: AsyncSession, user_id: str) -> dict:
     }
 
 
-def task_brief(task: Task) -> dict:
+def derive_display_status(task_status: str, container_status: str | None) -> str:
+    """BUG-063:派生展示状态(不修改 task.status 本身,仅用于 API 输出)
+
+    规则:
+      - task.status != "running" → 原值透传
+      - running + 无容器/creating → "starting"
+      - running + container running → "running"
+      - running + container failed → "failed"
+      - running + 其他(destroyed/stopped 等) → 兜底 "running"(不卡 starting)
+    """
+    if task_status != "running":
+        return task_status
+    if container_status is None or container_status == "creating":
+        return "starting"
+    if container_status == "running":
+        return "running"
+    if container_status == "failed":
+        return "failed"
+    # 其他状态(destroyed/stopped 等)→ 兜底 running,避免卡死在 starting
+    return "running"
+
+
+def task_brief(task: Task, container_status: str | None = None) -> dict:
     return {
         "task_id": task.task_id,
         "type": task.type,
         "title": task.title,
         "status": task.status,
+        "display_status": derive_display_status(task.status, container_status),
         "created_at": task.created_at,
         "started_at": task.started_at,
         "finished_at": task.finished_at,
     }
+
+
+async def batch_latest_container_status(db: AsyncSession, task_ids: list[str]) -> dict[str, str]:
+    """BUG-063:批量查询每个 task_id 的最新容器状态(防 N+1)
+
+    同一 task_id 可能有多条容器记录(重建场景),取 id 最大的一条作为最新状态。
+    返回: {task_id: status}
+    """
+    from app.models.container import Container
+    if not task_ids:
+        return {}
+    # 按 task_id 分组取最大 id 对应的 status
+    result = await db.execute(
+        select(Container.task_id, Container.status)
+        .where(Container.task_id.in_(task_ids))
+        .order_by(Container.id.asc())  # 小→大,后覆盖前 = 最终保留最大 id
+    )
+    mapping: dict[str, str] = {}
+    for row in result.all():
+        mapping[row[0]] = row[1]  # 后出现的覆盖前面的,最终留下最大 id 的 status
+    return mapping
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +386,9 @@ async def create_task(
         type=type,
         title=title,
         description=description,
-        base_branch=base_branch or requirement.req_branch,
+        # BUG-074:基线=项目默认分支(需求分支从它切出),diff 它 = 本任务全部改动;
+        # 原 `or requirement.req_branch` 自指(work==base)→ git diff 恒空「没有对比效果」
+        base_branch=base_branch or project.default_branch,
         work_branch=work_branch or base_branch or requirement.req_branch,
         status="pending",
         created_by=operator.user_id,
@@ -708,7 +754,15 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
 
     try:
         delta_state: dict = {}  # R32.F7:打字机平滑节奏状态(同一轮对话共享)
+        # R5.F4 BUG-074:去重标志——CLI --include-partial-messages 下每个 content block
+        # 结束会发一次 assistant 整块事件,与已广播的 text_delta 内容重复。
+        # 见过 text_delta 后跳过 assistant 整块路径;老 CLI 无 partial 事件时标志保持
+        # False,assistant 路径正常广播(兜底不回归)
+        seen_stream_delta = False
         async for evt in stream_iter:
+            # R5.F4:assistant 整块路径仅在未见 text_delta 时走(兜底)
+            if seen_stream_delta and evt.get("type") == "assistant":
+                continue
             delta = _stream_event_to_chat(evt)
             if delta is None:
                 continue
@@ -720,6 +774,12 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
                 choice = await wait_confirm(cid)
                 logger.info("确认已收口(流内路径) task=%s confirm=%s choice=%s", task.task_id, cid, choice)
                 continue
+            # R5.F4:text_delta 广播后标志置位,后续 assistant 整块跳过
+            if evt.get("type") == "stream_event":
+                event = evt.get("event") or {}
+                delta_inner = event.get("delta") or {}
+                if event.get("type") == "content_block_delta" and delta_inner.get("type") == "text_delta":
+                    seen_stream_delta = True
             await _broadcast_delta_smooth(task.task_id, delta["text"], delta_state)
         response = await finalize()
     except claude_service.AICancelled:
@@ -745,8 +805,31 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
 
     duration_ms = int((time.monotonic() - started) * 1000)
 
+    # BUG-069(F2):落库前 content 空 → 用 runner 累积文本兜底;仍空 → 占位文案
+    # 根因:CLI 不发 result 事件时,runner 原兜底取 lines[-1] 解析垃圾(空/残缺);
+    # F1 已让 runner 返回 accumulated_text,此处作为后端第二道防线
+    ai_content = response.get("result") or ""
+    if not ai_content:
+        accumulated = response.get("accumulated_text") or ""
+        if accumulated:
+            ai_content = accumulated
+        else:
+            ai_content = "[AI 回复执行中断,未获取到回复内容,请重试]"
+            logger.warning(
+                "任务消息 AI 回复空(占位兜底) task=%s tokens_in=%d tokens_out=%d lines=%d stderr=%s",
+                task.task_id, response.get('tokens_in', 0), response.get('tokens_out', 0),
+                response.get('lines', 0), (response.get('stderr_tail') or '')[:200],
+            )
+
+    # R5.F3 三修(BUG-072):runner 判定 resume 毒化会话(error-result)已在其侧降级
+    # 重跑自救,但库里残留的 claude_session_id 仍指向不存在的会话——不置空则每条
+    # 消息都先撞一次 resume 失败再降级(双倍耗时)。此处置空,下条消息走 --session-id 首用
+    if response.get("resume_error") and getattr(task, "claude_session_id", None):
+        task.claude_session_id = None
+        logger.warning("resume 会话不存在已重置 claude_session_id task=%s", task.task_id)
+
     ai_msg = TaskMessage(
-        task_id=task.task_id, role="assistant", content=response["result"],
+        task_id=task.task_id, role="assistant", content=ai_content,
         tokens_in=response["tokens_in"], tokens_out=response["tokens_out"],
     )
     db.add(ai_msg)
@@ -761,6 +844,13 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
         "result": response["result"][:500],
     })
     logger.info("任务消息完成(流式) task=%s tokens=%d/%d", task.task_id, response["tokens_in"], response["tokens_out"])
+
+    # R2:PRD 回传(容器 → 平台副本) — docs/20260929_打磨PRD持久化/DEVPLAN/R2.md
+    # fire-and-forget:不阻塞 SSE 收尾,自开 session 独立落库
+    if task.type == "requirement":
+        from app.services.requirement_service import _sync_prd_background
+        asyncio.create_task(_sync_prd_background(task.task_id))
+
     return {"message_id": user_msg.message_id}
 
 
@@ -982,13 +1072,17 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
     完成任务:所有仓库 git add -A + commit([ai:type] title)+ push(创建者 token)
     → status=done → 容器销毁(销毁前强制 push 由 Runner 兜底)。
     """
-    container = (await db.execute(
+    # F2.e:收所有 running 容器(原 limit(1) 只收最新一条,历史行漏网 → BUG-073 泄漏路径 1)
+    containers_result = await db.execute(
         select(Container).where(
             Container.task_id == task.task_id, Container.status == "running"
-        ).order_by(Container.id.desc()).limit(1)
-    )).scalars().first()
+        )
+    )
+    containers = containers_result.scalars().all()
 
-    if container is not None:
+    if containers:
+        # 取第一个容器做 git commit/push(只需一次)
+        container = containers[0]
         runner_conn = runner_registry.get(container.runner_id)
         creator = (await db.execute(
             select(User).where(User.user_id == task.created_by)
@@ -1023,6 +1117,10 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
         # 销毁容器(停止指令;Runner 销毁前强制 push 未 push commit)
         await container_service.request_stop(db, container)
 
+        # F2.e:收所有 running 容器(原 limit(1) 只收最新一条,历史行漏网 → BUG-073 泄漏路径 1)
+        for c in containers[1:]:
+            await container_service.request_stop(db, c)
+
     task.status = status
     task.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
     if status == "cancelled":
@@ -1047,9 +1145,28 @@ async def retry_task(db: AsyncSession, task: Task) -> None:
     重试任务:failed/cancelled/timeout → pending → 立即重新拉起(R35.F3 补语义)。
     原实现只置 pending 无人拉起(僵尸);现 retry 后直接走 start_task 容器链
     (test 型自然落 cases_review;release 型走原调度)。拉不起(8003 无 Runner)维持 pending 排队。
+
+    F2.c:retry 前先清旧容器(status IN (running, creating) → request_stop + destroyed),
+    避免 retry 叠新容器不清旧(BUG-073 泄漏路径 1)。
     """
     if task.status not in ("failed", "cancelled", "timeout"):
         raise BizError(ErrCode.TASK_REQ_STATUS_INVALID, "当前状态不可重试")
+
+    # F2.c:清理旧 running/creating 容器(retry 前收口,防泄漏)
+    old_containers_result = await db.execute(
+        select(Container).where(
+            Container.task_id == task.task_id,
+            Container.status.in_(["running", "creating"]),
+        )
+    )
+    old_containers = old_containers_result.scalars().all()
+    for old_container in old_containers:
+        await container_service.request_stop(db, old_container)
+        old_container.status = "destroyed"
+        old_container.destroyed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        logger.info("retry 清理旧容器 task=%s container=%s", task.task_id, old_container.container_id)
+    await db.flush()
+
     task.status = "pending"
     task.error_message = None
     task.finished_at = None
@@ -1087,12 +1204,14 @@ async def sweep_timeouts(db: AsyncSession) -> int:
         task.status = "timeout"
         task.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
         task.error_message = "任务超时(60 分钟)"
-        container = (await db.execute(
+        # F2.e:收所有 running 容器(原 limit(1) 只收最新一条,历史行漏网 → BUG-073 泄漏路径 1)
+        containers_result = await db.execute(
             select(Container).where(
                 Container.task_id == task.task_id, Container.status == "running"
-            ).limit(1)
-        )).scalars().first()
-        if container is not None:
+            )
+        )
+        containers = containers_result.scalars().all()
+        for container in containers:
             await container_service.request_stop(db, container)
         count += 1
     if count:

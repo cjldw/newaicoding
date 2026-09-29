@@ -14,7 +14,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.mysql import CHAR
+from sqlalchemy.dialects.mysql import CHAR, MEDIUMTEXT
 
 from app.database import Base
 
@@ -30,8 +30,9 @@ class Requirement(Base):
     background = Column(Text, nullable=True, comment="背景(Markdown)")
     description = Column(Text, nullable=False, comment="描述(Markdown)")
     acceptance_criteria = Column(Text, nullable=True, comment="验收标准(Markdown 勾选清单)")
-    req_branch = Column(String(64), nullable=False, index=True, comment="需求分支名(默认 req-{reqId},同 repo 唯一)")
+    req_branch = Column(String(64), nullable=False, default="", server_default="", index=True, comment="需求分支名(默认 req-{reqId},同 repo 唯一)")
     prd_file_path = Column(String(255), nullable=False, default="", server_default="", comment="PRD repo 内路径(打磨任务创建时按 Q26 生成并固定)")
+    prd_content = Column(MEDIUMTEXT, nullable=True, comment="PRD.md 平台副本(最新值);NULL=尚无副本")
     status = Column(
         Enum("draft", "polishing", "reviewing", "approved", "in_progress", "done", "archived", "rejected", name="req_status_enum"),
         nullable=False,
@@ -60,3 +61,5 @@ class Requirement(Base):
 
     def __repr__(self) -> str:
         return f"<Requirement(req_id={self.req_id}, title={self.title}, status={self.status})>"
+
+
