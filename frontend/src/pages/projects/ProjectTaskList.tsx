@@ -16,11 +16,15 @@ import { TaskCreateDialog } from '../manage/TaskCreateDialog'
 
 interface ProjectTaskListProps {
   projectId: string
+  /** R3.F1:按任务类型过滤(dev/test/release);不传时行为与现状完全一致(「任务」Tab 零回归) */
+  typeFilter?: 'dev' | 'test' | 'release'
 }
 
-const statusMap: Record<TaskStatus, { label: string; variant: 'success' | 'default' | 'error' | 'warning' }> = {
+const statusMap: Record<string, { label: string; variant: 'success' | 'default' | 'error' | 'warning' }> = {
   pending: { label: '等待中', variant: 'default' },
   running: { label: '运行中', variant: 'warning' },
+  // BUG-063:容器启动中(amber 黄,与 running 区分)
+  starting: { label: '启动中', variant: 'warning' },
   done: { label: '已完成', variant: 'success' },
   failed: { label: '失败', variant: 'error' },
   cancelled: { label: '已取消', variant: 'default' },
@@ -35,7 +39,7 @@ const typeMap: Record<string, string> = {
   requirement: '需求',
 }
 
-export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
+export function ProjectTaskList({ projectId, typeFilter }: ProjectTaskListProps) {
   const navigate = useNavigate()
   const { data, isLoading } = useProjectTaskList(projectId)
   const [search, setSearch] = useState('')
@@ -50,6 +54,8 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
     if (!data?.items) return []
     const map = new Map<string, { reqId: string; reqTitle: string; tasks: TaskListItem[] }>()
     for (const task of data.items) {
+      // R3.F1:typeFilter 模式下仅保留该 type 任务
+      if (typeFilter && task.type !== typeFilter) continue
       const reqId = task.req_id || 'unknown'
       const reqTitle = task.req_title || '未知需求'
       if (!map.has(reqId)) {
@@ -58,7 +64,7 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
       map.get(reqId)!.tasks.push(task)
     }
     return Array.from(map.values())
-  }, [data])
+  }, [data, typeFilter])
 
   // 过滤
   const filtered = useMemo(() => {
@@ -85,7 +91,12 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
     return <div className="text-center py-12 text-text-muted">加载中...</div>
   }
 
-  const hasTasks = !!data?.items?.length
+  // R3.F1:typeFilter 模式下 hasTasks 以过滤后为准(无该 type 任务时走空态)
+  const hasTasks = typeFilter ? grouped.length > 0 : !!data?.items?.length
+
+  // R3.F1:空态文案适配(typeFilter 模式下去创建引导)
+  const emptyTitle = typeFilter === 'test' ? '暂无测试任务' : typeFilter === 'release' ? '暂无发布任务' : '暂无任务'
+  const emptyHint = typeFilter ? '' : '点击「创建任务」,选择需求后即可创建'
 
   return (
     <div className="space-y-4">
@@ -109,6 +120,7 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
             <option value="all">全部状态</option>
             <option value="pending">等待中</option>
             <option value="running">运行中</option>
+            <option value="starting">启动中</option>
             <option value="done">已完成</option>
             <option value="failed">失败</option>
             <option value="cancelled">已取消</option>
@@ -120,14 +132,17 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
         </div>
         {hasTasks && (
           <div className="text-sm text-text-muted">
-            共 {data.items.length} 个任务
+            共 {(typeFilter ? grouped.reduce((sum, g) => sum + g.tasks.length, 0) : data.items.length)} 个任务
           </div>
         )}
         <div className="flex-1" />
-        <Button variant="primary" onClick={() => setCreateOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          创建任务
-        </Button>
+        {/* R3.F1:typeFilter 模式下隐藏创建按钮(创建入口沿现状:任务 Tab 统一表单/需求页创建发布) */}
+        {!typeFilter && (
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            创建任务
+          </Button>
+        )}
       </div>
 
       {/* 任务列表(按需求分组) */}
@@ -156,7 +171,9 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
               {expandedReqs.has(group.reqId) && (
                 <div className="divide-y divide-border">
                   {group.tasks.map((task) => {
-                    const st = statusMap[task.status] || statusMap.pending
+                    // BUG-063:优先取 display_status(区分「启动中」vs「运行中」);旧后端无字段时回退 status
+                    const ds = task.display_status ?? task.status
+                    const st = statusMap[ds] || statusMap.pending
                     return (
                       <div
                         key={task.task_id}
@@ -164,13 +181,13 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
                         className="flex items-center gap-3 px-4 py-3 hover:bg-surface-strong/50 cursor-pointer transition-colors"
                       >
                         {/* 状态图标 */}
-                        {task.status === 'done' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
-                        {task.status === 'failed' && <XCircle className="w-4 h-4 text-red-500" />}
-                        {task.status === 'running' && <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />}
-                        {(task.status === 'pending' || task.status === 'cancelled' || task.status === 'timeout') && (
+                        {ds === 'done' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+                        {ds === 'failed' && <XCircle className="w-4 h-4 text-red-500" />}
+                        {(ds === 'running' || ds === 'starting') && <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />}
+                        {(ds === 'pending' || ds === 'cancelled' || ds === 'timeout') && (
                           <Clock className="w-4 h-4 text-text-muted" />
                         )}
-                        {task.status === 'cases_review' && <Clock className="w-4 h-4 text-orange-500" />}
+                        {ds === 'cases_review' && <Clock className="w-4 h-4 text-orange-500" />}
 
                         {/* 任务信息 */}
                         <div className="flex-1 min-w-0">
@@ -204,11 +221,11 @@ export function ProjectTaskList({ projectId }: ProjectTaskListProps) {
           )}
         </div>
       ) : (
-        /* 空态:带创建入口 */
+        /* 空态:typeFilter 模式下去创建引导;任务 Tab 保留原创建入口 */
         <div className="text-center py-12 text-text-muted">
           <FolderKanban className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>暂无任务</p>
-          <p className="text-sm mt-1">点击「创建任务」,选择需求后即可创建</p>
+          <p>{emptyTitle}</p>
+          {emptyHint && <p className="text-sm mt-1">{emptyHint}</p>}
         </div>
       )}
 
