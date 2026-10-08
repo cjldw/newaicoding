@@ -140,3 +140,88 @@ class TestPromptTransport:
         assert long_prompt not in cmd_str, (
             "BUG-076:stream 路径同样不应把 prompt 拼进命令行"
         )
+
+
+# ---------------------------------------------------------------------------
+# BUG-077 Red:claude -p 后不得携带「-」占位参数
+# ---------------------------------------------------------------------------
+# 根因(2026-10-08 诊断,实证见容器 5dc41cfaa738 尸检 + 镜像内红/绿差分):
+#   R5.F5 改造把命令写成 `claude -p - ... < prompt_file`,意图用「-」表示
+#   「prompt 从 stdin 读」。但 CLI 2.1.280 实测把「-」当作字面 prompt 文本,
+#   再把 stdin 内容追加其后 —— 所有消息实际变为 "-\n<原文>"。
+#   后果:消息永远不以 "/" 开头 → 斜杠命令/技能(/rd-prd 等)全部无法触发,
+#   打磨任务自动首消息(R3.F4/R3.F5)失效,AI 回复「技能不存在」。
+# 修复:`claude -p --output-format ... < file`(-p 无位置参数时 stdin 即完整 prompt)。
+class TestNoDashPromptArg:
+    def test_claude_prompt_no_dash_positional(self):
+        """claude_prompt:命令应为 `claude -p --output-format`,不得出现 `-p -`"""
+        fake = FakeClient()
+        mgr = ContainerManager(client_factory=lambda: fake)
+
+        mgr.claude_prompt(
+            container_id="abc123def456",
+            prompt="普通短消息",
+            workdir="/workspace/main",
+        )
+
+        executed_cmd = fake.containers.container.last_cmd
+        assert executed_cmd is not None, "应当触发了一次 exec"
+        assert "-p - " not in executed_cmd and "-p -" not in executed_cmd.replace(
+            "-p --output-format", ""
+        ), "BUG-077:`-` 会被 CLI 当作字面 prompt,污染 stdin 内容(消息变成 -\\n<原文>)"
+        # 正形态锚定:claude -p 后直接跟 --output-format(prompt 纯走 stdin)
+        assert "claude -p --output-format" in executed_cmd, (
+            "BUG-077:应为 `claude -p --output-format ...`(stdin 传 prompt)"
+        )
+
+    def test_claude_prompt_stream_no_dash_positional(self):
+        """claude_prompt_stream:命令应为 `claude -p --output-format stream-json`"""
+        fake = FakeClient()
+        mgr = ContainerManager(client_factory=lambda: fake)
+
+        captured_cmd = {}
+
+        class FakeAPI:
+            def exec_create(self, cid, cmd, tty=False, stdin=False):
+                captured_cmd["cmd"] = cmd
+                return "exec-1"
+
+            def exec_start(self, exec_id, tty=False, socket=True, demux=False):
+                class FakeSock:
+                    def recv(self, n):
+                        return b""
+
+                    def read(self, n=-1):
+                        return b""
+
+                    def close(self):
+                        pass
+
+                    def makefile(self, *a, **kw):
+                        import io
+
+                        return io.BytesIO(b"")
+
+                return FakeSock()
+
+        fake.api = FakeAPI()
+
+        try:
+            mgr.claude_prompt_stream(
+                container_id="abc123def456",
+                prompt="普通短消息",
+                workdir="/workspace/main",
+            )
+        except Exception:
+            # 空响应解析报错不影响 cmd 断言
+            pass
+
+        cmd = captured_cmd.get("cmd")
+        assert cmd is not None, "exec_create 应被调用"
+        cmd_str = " ".join(cmd) if isinstance(cmd, list) else cmd
+        assert "-p - " not in cmd_str, (
+            "BUG-077:stream 路径同样不得携带 `-` 位置参数(斜杠命令全灭的根因)"
+        )
+        assert "claude -p --output-format" in cmd_str, (
+            "BUG-077:stream 路径应为 `claude -p --output-format stream-json ...`"
+        )

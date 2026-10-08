@@ -176,7 +176,12 @@ class ContainerManager:
     def _default_client_factory() -> Any:
         import docker  # Runner 机器安装:pip install docker
 
-        return docker.from_env()
+        # BUG-078:必须显式长读超时——from_env() 默认 APIClient timeout=60s 会被
+        # exec 流 socket 继承,claude 生成静默段 >60s → socket.timeout("timed out")
+        # 从执行线程炸出(通用 except 原样回报),R8.F6 的 120s 看门狗(stream_timeout
+        # +pkill)永远轮不到,容器内 claude 成孤儿继续跑。取值须 > 120s(流式看门狗)
+        # 且 > 600s(平台非流式超时;json 模式全程无输出,整段生成都是一次静默读)
+        return docker.from_env(timeout=3600)
 
     @property
     def client(self) -> Any:
@@ -620,13 +625,15 @@ class ContainerManager:
         # BUG-069(F4):去末尾 2>/dev/null,stderr 走 docker demux 分离(帧 stream=2)
         # cd 的 2>/dev/null 保留(目录切换失败静默合理)
         # R5.F5(BUG-076):prompt 走临时文件 + stdin 重定向,不占 argv(避 ARG_MAX)
+        # BUG-077:不得写 `claude -p -`——CLI 2.1.280 把「-」当字面 prompt 与 stdin 拼接,
+        # 所有消息变成 "-\n<原文>",斜杠命令/技能(/rd-prd 等)永远无法触发(实证:差分 + 尸检)
         import uuid as _uuid
         prompt_file = f"/tmp/prompt_{_uuid.uuid4().hex}.txt"
         self.write_file(container_id, prompt_file, prompt)
         cmd = (
             f"cd {workdir} 2>/dev/null; "
             # BUG-058:--include-partial-messages 输出 stream_event/text_delta 增量(逐字流式)
-            f"claude -p - --output-format stream-json --verbose "
+            f"claude -p --output-format stream-json --verbose "
             f"--include-partial-messages{session_flag}{model_flag}{allowed_tools_flag}{perm_flag} "
             f"< {_shlex.quote(prompt_file)}; "
             f"_rc=$?; rm -f {_shlex.quote(prompt_file)}; exit $_rc"
@@ -1010,12 +1017,13 @@ class ContainerManager:
         model_flag = f" --model {_shlex.quote(model)}" if model else ""
 
         # R5.F5(BUG-076):prompt 走临时文件 + stdin 重定向,不占 argv(避 ARG_MAX)
+        # BUG-077:同流式路径,`claude -p -` 的「-」会被 CLI 当字面 prompt(斜杠命令全灭),去掉
         import uuid as _uuid
         prompt_file = f"/tmp/prompt_{_uuid.uuid4().hex}.txt"
         self.write_file(container_id, prompt_file, prompt)
         cmd = (
             f"cd {workdir} 2>/dev/null; "
-            f"claude -p - --output-format json{session_flag}{model_flag} < {_shlex.quote(prompt_file)} 2>/dev/null; "
+            f"claude -p --output-format json{session_flag}{model_flag} < {_shlex.quote(prompt_file)} 2>/dev/null; "
             f"_rc=$?; rm -f {_shlex.quote(prompt_file)}; exit $_rc"
         )
         code, out = self.exec_capture(container_id, cmd)

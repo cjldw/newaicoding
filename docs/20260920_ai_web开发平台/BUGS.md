@@ -1003,3 +1003,19 @@
 - **怀疑面**(待诊断):① 打磨容器启动链无首会话自动指令注入(或仅在特定入口有);② 打磨提示词未约定 PRD.md 输出路径=需求配置的 PRD 路径;③ 任务详情「PRD 草稿(容器内)」读取路径与写入路径不一致;④ 规格从未定义(分片缺口→分流 rd-plan)
 - **诊断产物**:`.scratch/fix-analysis.md`(BUG-076 节)
 
+### BUG-077 | AI 对话调用 /rd-prd 等斜杠技能全部失效(「技能不存在」),打磨自动首消息连带失灵 | fixed → ✅ verified(2026-10-08 真机复验通过)
+- **状态**:fixed + verified(2026-10-08 诊断轮;runner 109 pytest 全绿含新增 2 例回归;runner 镜像已重建 fbcf611a9d4d + 容器已换新注册成功;真机复验:timeout 打磨任务 228e6d07 发 `/rd-prd` → AI 正常进入需求访谈/PRD 流程,非「技能不存在」)
+- **用户报障**:AI 对话,调用 /rd-prd skills 会出现发送失败问题
+- **真实症状**(非 HTTP 报错):容器内 AI 回复「`/rd-prd` 技能在当前可用技能列表中不存在」(现场:需求 0d227c83「后台用户登录」打磨任务 f966583f,9/30 00:52-00:55 四连失败);同会话 `@mcp:mysql_dev` 不可用属另一回事(MCP 缺变量/连接降级,与本 bug 无关)
+- **根因(实锤,三层证据闭环)**:R5.F5(BUG-076)stdin 传输改造把命令写成 `claude -p - < /tmp/prompt_xxx`,意图「-」表示读 stdin;但 CLI 2.1.280 把「-」当**字面 prompt** 再追加 stdin → 所有消息实为 `-\n<原文>` → 永不以 `/` 开头 → 斜杠命令/技能全灭(含 R3.F4/R3.F5 自动首消息)。证据:① 尸检退出容器 5dc41cfaa738 的 CLI 会话转录(user 消息带 `-\n` 前缀,DB 原文无);② 同镜像同 env 差分实测:`-p -` 逐字复现「技能不存在」/去 `-` 后 rd-prd 正常进入 PRD 流程;③ 时间线咬合(9/29 21:03 旧 runner 容器内 /rd-prd 正常,23 时 R5.F5 部署后新建容器全灭)
+- **修复**:container_manager.py 两处(stream :629 / 非流式 :1018)`claude -p -` → `claude -p`(-p 无位置参数时 stdin 即完整 prompt);回归测试 test_prompt_transport.py::TestNoDashPromptArg 锁定命令形态
+- **部署**:已执行(2026-10-08,`--build-arg BASE_IMAGE=python:3.10` 本地基础镜像构建,docker.io 不可达场景同 R31.F3/BUG-049)+ 真机复验通过(见状态行)
+
+### BUG-078 | runner docker exec 流读超时 60s:LLM 静默段 >60s 即「执行失败:timed out」且孤儿 claude 继续跑 | fixed(BUG-078;随 BUG-077 同批部署)
+- **状态**:fixed(2026-10-08 复验 BUG-077 首轮撞出;runner 110 pytest 全绿含新增 1 例回归;与 BUG-077 同批重建部署)
+- **发现现场**:BUG-077 复验首次发送 115s 后 9001「AI 执行失败:timed out」;但容器内 CLI 会话转录仍在持续增长(孤儿进程),runner 日志零异常零看门狗告警
+- **根因(实锤)**:`ContainerManager._default_client_factory` 用 `docker.from_env()` 裸构造,APIClient **timeout=60s**(docker-py 默认)经 `_get_raw_response_socket` 被 exec 流 socket 继承(docker-py 不重设);LLM 生成静默段 >60s → `socket.timeout`(py3.10 `str(e)` 恰为 `"timed out"`)从执行线程抛出 → main.py exec_tool 通用 `except Exception` 原样回报 `error="timed out"`。**连带后果**:① R8.F6 的 120s 看门狗(stream_timeout + pkill)永远轮不到执行;② 容器内 claude 成孤儿继续烧 token
+- **定性**:预先存在的潜在缺陷(BUG-034/R8.F6 同族),非 BUG-077 修复引入——新旧 runner 镜像依赖版本完全一致(docker 7.2.0/websockets 16.1.1/py3.10.21 实证比对),此前仅因未遇 >60s 静默而未暴露
+- **修复**:`_default_client_factory` → `docker.from_env(timeout=3600)`(> 120s 流式看门狗且 > 600s 平台非流式超时;json 模式全程无输出,整段生成都是一次静默读);回归测试 test_docker_client_timeout.py 锁定 factory 必须显式传 timeout 且大于两级守卫
+- **验证边界**:35s 流式会话跑通;>60s 静默场景由回归测试 + 机制分析锁定(真实长静默生成待自然发生观察)
+
