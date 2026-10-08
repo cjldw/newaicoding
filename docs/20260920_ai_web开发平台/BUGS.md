@@ -996,6 +996,14 @@
 - **待复验**:用户真机发长消息(>128KB 或带 @大附件)确认发送成功、回复完整不截断
 - **复验打回(2026-09-30 诊断轮,用户指令「先别改代码」)**:用户报仍发送失败 → 纯诊断实锤(证据 `.scratch/fix-analysis.md` BUG-076 复验打回节):**环境层因素,非代码回归**——LLM 代理 18765 宿主/容器均无监听,runner 日志 16:34-16:45 四次 `claude_prompt_stream 超时(120s)`,与 BUG-034 同源;DB 侧消息落库正常(16:48-16:49),API/DB 层完好,排除 P0 修复 bug 与 R1-R3 新改动回归。**代码修复维持 fixed 不动,待用户启动 LLM 代理后真机复验**(复验通过 → verified 迁移)
 
+### BUG-077 | Runner 重启提示「Runner 依赖未安装」(16002 deps_missing) | fixed(R31.F4;verified 待用户下次重启复验)
+- **状态**:fixed(2026-10-08 rd-fix 第 44 轮;诊断+修复同轮,测试 3/3 新增+R31 回归 27 过)
+- **用户报障**:runner 重启,提示「Runner 依赖未安装,请在平台运行环境执行 pip install -r runner/requirements.txt」
+- **根因(实锤)**:**超时误报,非真缺包**——后端 8000 同款解释器(E:\services\python310)`import docker, websockets` 实测通过(1.06-1.38s,阈值 5s);`local_runner_service.preflight` 探测子进程超时分支与真缺包分支共用「未安装」文案,假期后冷启动 import 偶发超 5s 即误报。佐证:docker runner rd49-docker 在线心跳正常;当天探测已恢复 1.1s
+- **修复(R31.F4,主 agent 直修留痕——subagent 通道 429 两次,按 9-29 先例兜底)**:①探测超时重试 1 次再判 ②文案区分:超时→「依赖探测超时(冷启动/磁盘忙时偶发),请重试;若持续失败请检查运行环境」,真缺包(returncode≠0)保留原「未安装,请执行 pip install」;错误码 16002 不变 ③Docker ping 分支零改动
+- **验证**:新用例 Red 2→Green 3/3(重试/超时文案/缺包文案回归保护);test_r31_local_runner.py 全量 27 过+4 失败=BUG-066(validate_tags 缺失,R32 流)既有问题非本轮引入
+- **部署注记**:8000 无 --reload,改动待后端下次重启生效;**当前用户重试重启即可成功**(依赖本就齐全,原误报系瞬时超时)
+
 
 ### BUG-076 | 打磨任务首次会话未自动发送 /rd-prd 进入打磨,PRD.md 未落需求配置的 PRD 路径 | fixed(R3.F5;verified 待真机重启复验)
 - **状态**:fixed(2026-09-29 rd-fix 第 43 轮;定性=主体已实现断在重启子场景;32/32 pytest+活体 API generation=5=容器行数+prd_content 迁移已 apply+已部署重启)
@@ -1018,4 +1026,12 @@
 - **定性**:预先存在的潜在缺陷(BUG-034/R8.F6 同族),非 BUG-077 修复引入——新旧 runner 镜像依赖版本完全一致(docker 7.2.0/websockets 16.1.1/py3.10.21 实证比对),此前仅因未遇 >60s 静默而未暴露
 - **修复**:`_default_client_factory` → `docker.from_env(timeout=3600)`(> 120s 流式看门狗且 > 600s 平台非流式超时;json 模式全程无输出,整段生成都是一次静默读);回归测试 test_docker_client_timeout.py 锁定 factory 必须显式传 timeout 且大于两级守卫
 - **验证边界**:35s 流式会话跑通;>60s 静默场景由回归测试 + 机制分析锁定(真实长静默生成待自然发生观察)
+
+### BUG-079 | 后台探索 Agent 静默期被 120s 看门狗误杀:打磨对话死循环「等待确认,无法回答」 | fixed(BUG-079;已部署,真机复验通过)
+- **状态**:fixed + 真机复验通过(2026-10-08;runner 112 pytest 全绿含新增 2 例回归;runner 镜像重建+容器换新;任务 228e6d07 发访谈消息 **263s 成功返回**,AI「代码探索已完成」继续出题)
+- **用户报障**:AI 对话过程中,出现等待确认的情况,对话没办法确认
+- **真实机制**(任务 228e6d07 现场,16:17-16:21 两次被杀,runner 日志+容器转录实证):rd-prd 技能用 Agent 工具启动**异步后台探索子代理**("Async agent launched successfully"),主回合 end_turn 后 CLI 等待 task-notification 期间 stream-json **零输出** → R8.F6 看门狗 120s pkill → 该消息按 stream_timeout 失败(前端:已流出文字被清、消息标发送失败);用户重发 → AI 再启一个探索 Agent → 再被杀 → 死循环。**期间 POST 一直 pending,前端输入锁死**,用户的访谈回答发不进去(「没办法确认」的体感来源;后端 confirm 卡链路日志零条,与 R34.F3 权限确认无关)
+- **修复(双管)**:① `runner/main.py` STREAM_TIMEOUT 120→540(≥分钟级后台探索;<600s 平台守卫,runner 先 pkill 收口);② 流式命令追加 `--forward-subagent-text`(仅 --print+stream-json 生效,正是本链路;子代理文本/思考转发为主流事件,探索期不再全静默)
+- **回归测试**:test_bug079_bg_agent_stream.py(看门狗区间断言 + 流式命令旗标断言)
+- **备注**:探索期 POST 持续 pending、前端输入锁定属 rd-prd 异步探索设计的固有形态(回复文本已声明「等待探索结果」);若要探索期可继续输入,需会话级并发改造(另立需求)
 

@@ -48,7 +48,12 @@ RUNNER_ROLE = os.environ.get("RUNNER_ROLE", "worker")
 RUNNER_HOST = os.environ.get("RUNNER_HOST", "")
 HEARTBEAT_INTERVAL = 30  # 秒(D13:30s 心跳;平台 60s 未收到判 offline)
 PROBE_CLAUDE_TIMEOUT = 120.0  # R5 probe_claude 整体 wait_for 上限(与平台侧 COLLECT_TIMEOUT 对齐)
-STREAM_TIMEOUT = 120.0  # R8.F6:claude_prompt_stream 单次执行上限;超时 → cancel + stream_timeout 回报
+# BUG-079:120 → 540 —— rd-prd 等技能用 Agent 工具启动**异步后台探索子代理**,
+# 主回合 end_turn 后 CLI 等待 task-notification 期间 stream-json 零输出,
+# 120s 看门狗误杀(实测探索 ~2min,Very-thorough 更长)→ 对话死循环。
+# 取值:≥300s 盖过分钟级探索;<600s(平台 request_runner_stream 守卫)让
+# runner 侧先 pkill 收口(error=stream_timeout),真挂死仍在 10min 内被杀
+STREAM_TIMEOUT = 540.0  # R8.F6:claude_prompt_stream 单次执行上限;超时 → cancel + stream_timeout 回报
                          # 触发场景:--session-id 被容器内交互 claude 占用 + --permission-prompt-tool
                          # 下 bridge.py 阻塞 stdin → sock.recv 无限挂死(详见 hang-analysis.md)
 

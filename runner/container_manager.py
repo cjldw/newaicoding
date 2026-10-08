@@ -633,8 +633,11 @@ class ContainerManager:
         cmd = (
             f"cd {workdir} 2>/dev/null; "
             # BUG-058:--include-partial-messages 输出 stream_event/text_delta 增量(逐字流式)
+            # BUG-079:--forward-subagent-text 把子代理文本/思考转发为主流事件——
+            # 后台探索期主流不再零输出(仅 --print + stream-json 生效,正是本链路)
             f"claude -p --output-format stream-json --verbose "
-            f"--include-partial-messages{session_flag}{model_flag}{allowed_tools_flag}{perm_flag} "
+            f"--include-partial-messages --forward-subagent-text"
+            f"{session_flag}{model_flag}{allowed_tools_flag}{perm_flag} "
             f"< {_shlex.quote(prompt_file)}; "
             f"_rc=$?; rm -f {_shlex.quote(prompt_file)}; exit $_rc"
         )
