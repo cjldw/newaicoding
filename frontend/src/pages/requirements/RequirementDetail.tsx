@@ -604,11 +604,12 @@ export function RequirementDetail() {
           onSuccess={(taskId) => { setReleaseDialog(false); navigate(`/tasks/${taskId}/deploy`) }}
         />
       )}
-      {/* R22.F4(BUG-088):创建开发/测试任务弹窗(与 release 同款组件) */}
+      {/* R22.F4(BUG-088):创建开发/测试任务弹窗(与 release 同款组件);reqBranch=需求分支预填工作分支 */}
       {createTaskType && (
         <TaskCreateDialog
           reqId={reqId ?? ''}
           type={createTaskType}
+          reqBranch={requirement?.req_branch}
           open
           onClose={() => setCreateTaskType(null)}
           onSuccess={(taskId) => { setCreateTaskType(null); navigate(`/tasks/${taskId}`) }}

@@ -29,6 +29,8 @@ interface TaskCreateDialogProps {
   onClose: () => void
   onSuccess: (taskId: string) => void
   initialDeployHost?: string
+  /** R22.F4:需求分支(基于需求创建时预填 work_branch,默认用需求对应分支) */
+  reqBranch?: string
 }
 
 const titleMap: Record<string, string> = {
@@ -38,7 +40,7 @@ const titleMap: Record<string, string> = {
 }
 
 export function TaskCreateDialog({
-  reqId, type, open, onClose, onSuccess, initialDeployHost,
+  reqId, type, open, onClose, onSuccess, initialDeployHost, reqBranch,
 }: TaskCreateDialogProps) {
   const createTask = useCreateTask(reqId)
   const [title, setTitle] = useState('')
@@ -55,13 +57,14 @@ export function TaskCreateDialog({
   const [portToCheck, setPortToCheck] = useState<number | null>(null)
   const portQuery = useCheckPort(portToCheck)
 
-  // 打开时重置表单
+  // 打开时重置表单;R22.F4:work_branch 预填需求分支(用户语义「基于需求创建的任务
+  // 默认使用需求对应的分支」);留空时后端同样回落 req_branch,双保险
   useEffect(() => {
     if (open) {
       setTitle('')
       setDescription('')
       setBaseBranch('')
-      setWorkBranch('')
+      setWorkBranch(reqBranch ?? '')
       setError('')
       setDeployPort('')
       setDeployHost(initialDeployHost ?? '')
@@ -69,7 +72,7 @@ export function TaskCreateDialog({
       setHostError('')
       setPortToCheck(null)
     }
-  }, [open, initialDeployHost])
+  }, [open, initialDeployHost, reqBranch])
 
   // 端口冲突检查结果
   useEffect(() => {
@@ -168,16 +171,16 @@ export function TaskCreateDialog({
             />
           </div>
 
-          {/* work_branch */}
+          {/* work_branch(R22.F4:基于需求创建默认=需求分支,可改) */}
           <div>
             <label className="block text-sm font-medium text-text mb-1.5">
-              工作分支 <span className="text-text-muted text-xs">(可选)</span>
+              工作分支 <span className="text-text-muted text-xs">(可选,默认需求分支)</span>
             </label>
             <input
               type="text"
               value={workBranch}
               onChange={(e) => setWorkBranch(e.target.value)}
-              placeholder="自动生成"
+              placeholder="默认使用需求对应分支"
               className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary font-mono"
             />
           </div>

@@ -64,6 +64,9 @@ export function TaskCreateDialog({ open, onClose, projectId }: TaskCreateDialogP
   // R4:公共字段(标题可选,留空取需求标题;描述可选,留空后端生成默认)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  // R22.F4(BUG-088):分支可选输入(独立创建可指定;留空 → base=项目默认分支,work=需求分支)
+  const [baseBranch, setBaseBranch] = useState('')
+  const [workBranch, setWorkBranch] = useState('')
   // R5:release 类型特有字段(部署端口,字符串暂存便于输入)
   const [deployPort, setDeployPort] = useState('')
   // R4:错误提示(校验失败 / 接口失败统一走 Alert)
@@ -90,6 +93,8 @@ export function TaskCreateDialog({ open, onClose, projectId }: TaskCreateDialogP
       setType('')
       setTitle('')
       setDescription('')
+      setBaseBranch('')
+      setWorkBranch('')
       setDeployPort('')
       setErrorMsg(null)
     }
@@ -129,6 +134,9 @@ export function TaskCreateDialog({ open, onClose, projectId }: TaskCreateDialogP
         title: title.trim(),
         description: description.trim(),
       }
+      // R22.F4(BUG-088):分支可选,填了才带(留空 → 后端默认 base=项目默认分支,work=需求分支)
+      if (baseBranch.trim()) payload.base_branch = baseBranch.trim()
+      if (workBranch.trim()) payload.work_branch = workBranch.trim()
       if (type === 'release') payload.deploy_port = Number(deployPort)
       return createTask(requirement!.value, payload)
     },
@@ -250,6 +258,31 @@ export function TaskCreateDialog({ open, onClose, projectId }: TaskCreateDialogP
               onChange={(e) => setDescription(e.target.value)}
               placeholder="本次要让 AI 做什么?"
               rows={3}
+              disabled={submitting}
+            />
+          </div>
+          {/* R22.F4(BUG-088):分支可选输入(独立创建可指定;留空 → base=项目默认分支,work=需求分支) */}
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">
+              基准分支 <span className="text-text-muted text-xs">(可选,留空用项目默认分支)</span>
+            </label>
+            <Input
+              type="text"
+              value={baseBranch}
+              onChange={(e) => setBaseBranch(e.target.value)}
+              placeholder="例如: master"
+              disabled={submitting}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-sm font-medium text-text">
+              工作分支 <span className="text-text-muted text-xs">(可选,留空用需求分支)</span>
+            </label>
+            <Input
+              type="text"
+              value={workBranch}
+              onChange={(e) => setWorkBranch(e.target.value)}
+              placeholder="留空默认使用需求对应分支"
               disabled={submitting}
             />
           </div>

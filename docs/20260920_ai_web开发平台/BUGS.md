@@ -1092,3 +1092,9 @@
 - **根因**:RequirementDetail approved 态的「创建开发任务/创建测试任务」按钮 `navigate('/tasks/create?type=x')`——该路由无页面无注册(项目里只有对话框组件 `pages/tasks/TaskCreateDialog`,且同文件已 import、release 按钮已在用),落进坏路由后前端还打出 GET /api/tasks/create → 404
 - **修复**:两按钮改本页弹窗(与 release 完全同款):`setCreateTaskType('dev'|'test')` + 渲染 `<TaskCreateDialog reqId type onSuccess→/tasks/{id}>`;撤销误改的 manage 版弹窗
 - **测试**:tsc/build 零错;创建接口本体(POST /requirements/{req_id}/tasks)为 R4 生产在用链路,无需新验证
+
+### BUG-089 | 任务创建分支策略:基于需求创建默认需求分支,独立创建可选分支可留空 | fixed(R22.F4.b;verified 待用户浏览器复验)
+- **状态**:fixed(2026-10-09 晚;用户行为规格「基于需求创建的任务默认使用需求对应的分支,只有单独创建的任务可以选择对应的分支,也可以不填」)
+- **现状核对**:后端语义本就符合(创建分支为空 → base=项目默认分支、work=需求分支,task_service:391-393 且刻意 work≠base 保 diff 有效);缺的是前端两处
+- **修复**:① 需求详情页弹窗(tasks/TaskCreateDialog)work_branch **预填需求分支**可改(新增 reqBranch prop,详情页传 requirement.req_branch);② 独立创建弹窗(manage/TaskCreateDialog)补**基准分支/工作分支可选输入**(留空即后端默认),payload 填了才带
+- **测试**:tsc/build 零错;后端默认语义为 R4 生产在用逻辑
