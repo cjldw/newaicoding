@@ -1,0 +1,87 @@
+# CODEBASE.md — 代码库底账
+
+> 项目:旗程 · AI Web 研发流程协作平台(monorepo)
+> 更新:2026-09-24(合并 CODEBASE 素材 agent 一手扫描 + 主 agent 一手提取)
+> 代码位置:backend/ + frontend/ + gateway/ + runner/ + docker/
+
+## 技术栈与版本
+
+| 端 | 栈 | 版本 |
+|---|---|---|
+| 后端 | Python FastAPI | requires >=3.10(实测 3.10);fastapi>=0.110,<1.0 |
+| 后端 ORM/迁移 | SQLAlchemy[asyncio] 2 + alembic | >=2.0,<3.0 / >=1.13,<2.0;asyncmy(MySQL 异步驱动) |
+| 后端 | pydantic 2 + pydantic-settings | pyjwt、passlib[bcrypt] 1.7.4、bcrypt<5、cryptography、httpx、python-multipart |
+| 前端 | Vite6 + React18 + TS5.6 | react-router 6、@tanstack/react-query 5、zustand 5、zod+react-hook-form、monaco 0.55、xterm 5.3、lucide-react、react-diff-viewer-continued |
+| 前端样式 | Tailwind3 + 自研 shadcn 风格组件(无 Radix) | globals.css 37KB 唯一样式文件 |
+| 网关 | 自研 Python 反代(复用 backend app) | httpx 流式 + websockets 桥 + 直查 routes 表;QPS_LIMIT_DEFAULT=100 |
+| Runner | Python + docker SDK | requirements 仅 docker>=6.0、websockets>=11.0 |
+
+**注意**:前端**无 axios**,请求层为原生 fetch。
+
+## 目录结构
+
+### backend/app
+
+| 目录 | 职责 | 文件 |
+|---|---|---|
+| api/ | HTTP/WS 路由层 | auth/users/projects/requirements/tasks/skills/knowledge/knowledge_bases/notifications/dashboard/dashboard_views/files/previews/terminal/runner_ws + admin/{platform_settings,runners,skills,users_admin} |
+| core/ | 横切:统一响应/异常、JWT、加密、网关、安全 | auth.py/encryption.py/gateway.py/response.py/security.py |
+| models/ | SQLAlchemy ORM(每表一文件) | 15 模型 |
+| schemas/ | Pydantic 请求/响应 | — |
+| services/ | 业务逻辑层(26 文件) | *_service.py 按模块 |
+| 顶层 | 入口/配置/DB | main.py/config.py/database.py |
+
+其它:alembic/(20 个迁移文件,`*_r{编号}_*.py` 命名)、tests/(conftest + 46 个 test_*.py)、pyproject.toml、.env.example
+
+### frontend/src
+
+api/(19 文件:client.ts 核心 + 各模块;api/admin/runners.ts 子目录)、components/(业务 18 + layout 3 + ui 12)、hooks/(useDragSash/useToast)、pages/(按域子目录,37 文件)、stores/(仅 authStore.ts)、styles/(globals.css)、utils/(avatar.ts)、顶层 main.tsx/App.tsx/router.tsx
+
+### gateway/ / runner/
+
+gateway/ 仅 main.py(21 行);runner/: main.py(486 WS 客户端主循环)、container_manager.py(495)、file_watcher.py(81)、terminal_manager.py(192)、requirements.txt、tests/
+
+## 请求封装与统一错误处理
+
+### 后端(response.py)
+
+- 业务异常类 **`BizError(code,message,status_code=200,data)`**(非 ApiError);错误码常量类 `ErrCode`
+- 统一响应 **三键 `{code, data, message}`,无 status 键**;`success` → `{code:0,...}`,`error` → 业务 code
+- 全局 handler(`register_exception_handlers(app)`,main.py 调用):BizError → `status_code=exc.status_code`(**默认 200,业务失败也可 HTTP 200**);RequestValidationError → 422 + 剥离 `"Value error, "` 前缀;裸 Exception → 500 + logger.exception
+- 错误码数字段(R1 定义):1xxx 认证 / 2xxx 项目平台 / 3xxx 需求 / 4xxx 任务 / 6xxx Runner 终端 / 7xxx 发布 / 8xxx 容器 / 9xxx 终端 / 12xxx 成员 / 13xxx 模型 / 15xxx 网关 / 16xxx Runner / 17xxx Skills·MCP / 19xxx 权限 / 20xxx 知识库
+- ⚠️ 4001/4002 双重语义(R4 任务 vs R28 头像),源码明文承认,前端按 message 展示
+
+### 前端(client.ts)
+
+- 原生 fetch,`BASE_URL='/api'`,逻辑在 `request<T>()`;Bearer 从 `authStore.getState().token` 读;FormData 交浏览器设 Content-Type
+- 401 → `logout()` + 跳 `/login` + 抛 ApiError(401);`json.code !== 0` → 抛 `ApiError(code, message)`
+- 导出 `api={get,post,put,patch,delete}`;两种用法并存:多数 api 文件 `xxxApi` + `useXxx` react-query hooks(projects.ts 28 个 use*);少数(terminal/auth/admin/knowledgeBases/testTasks)为裸 async function
+
+## 路由注册
+
+- **后端 main.py**:22 个 `app.include_router(...)`;REST 走 `/api/*`,4 条 WS `/ws/*` 无 `/api` 前缀(`/ws/runner`、`/ws/terminal/{session_id}`、`/ws/tasks/{task_id}/events`、`/ws/tasks/{task_id}/files`);lifespan `init_db()` + 60s `_runner_offline_sweep()`;CORS `allow_origins=["*"]` + `allow_credentials=True`(**源码自认生产需白名单**);OpenAPI enum monkey-patch;`/health` `/docs` `/redoc`
+- **前端 router.tsx**:createBrowserRouter,**全部静态 import 无懒加载**;4 裸页面 + `/settings`(SettingsLayout 3)+ `/`(MainLayout + 全部业务 + 5 个 admin/* 均 RequireRole superadmin);`*` → `/`;路径参数 :projectId/:reqId/:taskId/:kbId;admin 守卫无 token → `/login state={{from}}`、hydrate 中 → 加载中、角色不符 → `/`
+
+## 状态管理
+
+- 仅 1 个 zustand store `authStore`(token/refreshToken/user + setAuth/setUser/logout/hydrate;localStorage access_token/refresh_token)
+- 服务端状态全交 react-query(不进 zustand);UI 局部用 useState/useToast
+
+## 命名规范(从代码归纳)
+
+1. **双主键**:`id BigInteger 自增`(内部)+ `{res}_id CHAR(36) uuid4 对外`;UUID 是对外唯一列,⚠️ 不是主键
+2. **表名复数蛇形**:23 张(users…platform_settings,grep __tablename__ 实测)
+3. **接口路径** `/api/{resource}/{id}` 蛇形多段;子操作动词后缀(archive/transfer-ownership/reset-token/reject-to-dev/test-connection);admin 域连字符
+4. **错误码 4~5 位数字段按域分段**(见上)
+5. Python service 一律 `*_service.py`;常量大写蛇形附业务上限注释(MAX_PROJECTS_PER_USER=50);文案常量前缀 `MSG_`
+6. 前端组件 PascalCase 页面同名;hook `use` 开头;api 文件 camelCase;TS 接口 **snake_case 对齐后端 JSON**(不转 camelCase)
+7. 需求编号 R 前缀贯穿迁移/测试/注释(BUG-XXX/REQ)
+8. CSS 设计令牌走 CSS 变量 + tailwind.config 映射(语义色三件套 bg/fg/border)
+9. 配置:backend pydantic-settings(config.py);runner 纯环境变量
+
+## ⚠️ 待办/存疑
+
+- `api/admin.ts` 与 `api/admin/runners.ts` 职责重叠;api 层 hooks 化程度不一致
+- 两端异常命名不对称(BizError vs ApiError)
+- models/schemas `__init__.py` 为空(无集中导出)
+- CORS 生产需白名单;frontend 根 `_sels.json` 疑似生成产物

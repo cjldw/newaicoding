@@ -1,0 +1,101 @@
+# DEPLOYMENT.md — 发布部署字典
+
+> 项目:旗程 · AI Web 研发流程协作平台
+> 更新:2026-09-24 | 来源:docs/20260920_ai_web开发平台/DEPLOY.md + 主 agent 一手核对(DEPLOYMENT 素材 subagent 返回)
+> 状态:待用户逐条确认后落盘正式文件
+
+## 环境与服务(6 类,纯手动无 CI)
+
+| 服务 | 入口/命令 | 端口 | 代码位置 |
+|---|---|---|---|
+| 后端 API | `uvicorn app.main:app`(仓库无启动脚本) | 8000(vite proxy 目标) | backend/app/main.py(lifespan 挂 Runner 心跳巡检+审计异步写;/health,/docs,/openapi.json) |
+| 网关 | `GATEWAY_PORT=80 python3 gateway/main.py` | 默认 80 | gateway/main.py + backend/app/core/gateway.py(实时查 routes 表;单 host QPS 默认 100;WS 透传;仅 HTTP) |
+| Runner | 容器 `platform/runner:v1` 或裸机 pip+`python3 main.py` | 出站 WS /ws/runner;宿主暴露 preview 20000-29999、deploy 10000-10099 | runner/{main,container_manager,terminal_manager,file_watcher}.py |
+| 前端 | `npm run build`(= tsc -b && vite build)→ 静态托管+反代 /api、/ws | dev 5173 | frontend/vite.config.ts(proxy → localhost:8000,ws:true) |
+| devbox 任务镜像 | `docker build -t platform/devbox:v1 -f docker/devbox/Dockerfile .`(context=仓库根) | 容器内 5173/8000 | mcr devcontainers/typescript-node:dev-bookworm;默认用户 node;装 python3/pip/inotify-tools/claude-code CLI/vite/3 MCP(filesystem/github/brave-search);COPY skills→/home/node/.claude/skills;CMD sleep infinity |
+| runner 镜像 | `docker build -t platform/runner:v1 -f docker/runner/Dockerfile runner/` | - | python:3.12-slim+fastapi/uvicorn/websockets/docker |
+
+## 依赖中间件
+
+- **MySQL(唯一真实依赖)**:`DATABASE_URL=mysql+asyncmy://user:pass@120.27.217.194:3306/aicoding?charset=utf8mb4`;dev 库=目标库。引擎 pool_size=10/max_overflow=20/pool_pre_ping + `init_command SET time_zone='+08:00'`(backend/app/database.py)
+- **Redis**:`REDIS_URL` 仅占位,代码 0 处使用(仅 mcp_service 模板串)——勿误配成依赖
+- **文件存储**:头像本地盘 `./data/avatars/{user_id}/{uuid4}.{ext}`(AVATAR_UPLOAD_DIR,≤2MB,JPG/PNG/WebP,公开 URL /api/files/avatars/{filename});任务附件落容器 task_uploaded_files.container_path。**无对象存储**
+
+## 发布流程(手动,无 CI — DEPLOY.md §0/§4 明确)
+
+1. 生产密钥重生成(PLATFORM_SECRET_KEY + JWT_SECRET_KEY,各 64 hex)
+2. DB:`alembic upgrade head`(幂等;开发库历史为 create_all+stamp,全新环境**严禁混用两种方式**)
+3. backend/.env → `uvicorn app.main:app`
+4. 前端 `npm run build` → 静态托管+反代
+5. 网关 `GATEWAY_PORT=80 python3 gateway/main.py`
+6. 构建 devbox + runner 两镜像推仓库
+7. 每台 Runner 部署(→ §Runner)
+8. DNS 泛域名 `*.{preview_base_domain}`、`*.{deploy_base_domain}` A 记录指网关
+9. 平台内配置 platform_settings(录 GitLab 四键)
+10. 验证:/health → /docs → 登录双 token → 核心链路(建项目→需求→打磨容器→终端→预览→测试→发布→归档)→ 前端五页 → WS(TTY/toast)
+
+回滚:四组件独立,可单独回退镜像/产物重启。
+
+## 配置变更清单
+
+### backend/.env(pydantic-settings,backend/app/config.py,11 组)
+
+| 变量 | 用途 | 默认 |
+|---|---|---|
+| DATABASE_URL | MySQL asyncmy(密码特殊字符需 URL 编码,如 %40) | localhost/aicoding |
+| REDIS_URL | 占位未用 | redis://localhost:6379/0 |
+| PLATFORM_SECRET_KEY | AES-256-GCM 密钥(hex64=32B;否则 SHA-256 派生);加密 gitlab_token/mcp/api_key;**生产必换;轮换必须重启长驻进程(BUG-038)** | change-me-… |
+| JWT_SECRET_KEY | JWT 签名;换值使全部登录态失效(预期) | change-me-… |
+| JWT_ACCESS_TOKEN_EXPIRE_MINUTES | 120(2h) | 120 |
+| JWT_REFRESH_TOKEN_EXPIRE_DAYS | 7 | 7 |
+| LOGIN_MAX_WRONG_ATTEMPTS / LOGIN_LOCK_MINUTES | 登录锁定 5 次/10 分钟(代码存在,.env.example 未列,可不配) | 5 / 10 |
+| RUNNER_TOKEN | R16 已废弃(改 per-runner token plt-runner-*) | change-me-runner-token |
+| RUNNER_PORT_RANGE_START/END | preview 端口映射范围 | 20000 / 29999 |
+| AVATAR_UPLOAD_DIR | 头像落盘(R28) | ./data/avatars |
+| ENVIRONMENT | development/production(控制 SQL echo) | development |
+
+### gateway
+
+GATEWAY_PORT(默认 80)+ 复用 DATABASE_URL。
+
+### runner(5 键,runner/main.py:37-41)
+
+PLATFORM_URL(开发 ws://localhost:8000/ws/runner,生产 wss://域名/ws/runner;用户真实环境仅 http 则 ws://)+ RUNNER_TOKEN(per-runner 一次性,身份=token)+ RUNNER_ID(日志标识)+ RUNNER_ROLE(worker|deploy;deploy 需真实公网 IP)+ RUNNER_HOST(网关访问 IP);另读 HOSTNAME。
+
+### 镜像注入容器 env(非 .env,部署时注入容器)
+
+- 项目级 LLM:`LLM_BASE_URL/LLM_API_KEY/LLM_MODEL` + Claude 兼容 `ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY`(LLM_ENV_KEYS 白名单,base_url 回环地址改写 host.docker.internal)
+- 容器白名单另有 `ANTHROPIC_MODEL(必配,claude CLI 读它,BUG-034)/TASK_ID/PROJECT_ID/REQ_ID/PRD_FILE_PATH`
+- R8.F4 `custom_env_vars` 全量注入;R23 平台默认 LLM 三键(llm_base_url/llm_api_key/llm_model)
+- ⚠️ **GITLAB_* 环境变量不存在**——GitLab 配置全走 DB(platform_settings 表)
+
+### platform_settings 表(非 env,GitLab 配置源)
+
+gitlab_url/gitlab_bot_token(scope=api)/gitlab_bot_group_id/gitlab_webhook_secret(不配则建项目全局禁用 2001)+ preview_base_domain/deploy_base_domain + max_containers_total/kb_max_pages_per_kb/kb_max_file_mb
+
+## 回滚要点
+
+- 23 张表**全部纯新增**(CREATE TABLE IF NOT EXISTS/加列),回滚不需逆向 DDL;仅废弃时按建表逆序 DROP(先备份)
+- **唯一非纯新增**:`tasks.status` 枚举扩展(R6,f2a7c9e4b8d1)——必须先归并数据 `UPDATE tasks SET status='pending' WHERE status='cases_review'; UPDATE tasks SET status='done' WHERE status='passed';` 再 `alembic downgrade`(否则 ALTER 失败)
+- **多表回滚顺序**:projects←project_repos←platform_settings;tasks←task_uploaded_files←task_messages;skills←project_skills;notifications 回滚须先 `ALTER TABLE projects DROP COLUMN dingtalk_enabled, DROP COLUMN dingtalk_webhook`;audit_logs←invitations;knowledge_bases←knowledge_docs
+- **敏感字段换钥即重录**:users.gitlab_token_encrypted、model_configs.api_key_encrypted、platform_settings(敏感 `{"__encrypted":...}`)均 AES-256-GCM 绑 PLATFORM_SECRET_KEY → 换钥后需重录 GitLab token/模型 api_key/MCP 配置
+- **alembic 链 19 笔(head=b2e8f4a6c9d1,R28)**:2c13321fa03e→b7e2a1c3d4f5→a7d21c9e5f40→c2e8b4d7a910→d4f9a1e2b6c8→e5a8c3f1d2b7→f6b9d2e4a1c3→a9c1e5f7b2d4→b3d7f9a1c5e2→c8e2a6d9f1b4→d9b4f8e2a6c1→e1f6b3a8d5c2→f2a7c9e4b8d1→a3c8e7f2b9d4→b5d9e1f4a7c3→c4b1d7e9f2a6→d6e3f9a1c8b5→a7b2c8d9e1f3→b2e8f4a6c9d1
+- GitLab 侧建仓/删分支不可逆,不在平台回滚范围
+
+## Runner 部署专项
+
+- 注册 register→register_success;心跳 30s;平台 60s 判 offline;>5min 漂移拒收;断线指数退避重连 + `sync` 对账(状态以 Runner 为准)
+- 容器化部署挂载 /var/run/docker.sock;deploy 角色需放行 10000-10099 公网入站
+- runner env 备份在 `~/qicheng/runner_env.txt`(仓库外,token 卫生)
+
+## 发布检查单要点(DEPLOY.md §0-§10)
+
+- 阻塞项:BUG-007(runner COPY 补全)已修复;首次 build 成功后 verified
+- 上线后:首个注册用户自动 superadmin;超管录 GitLab 四键(platform_settings 当前 0 行);确认两域名;创建 Runner 复制一次性 token
+- 遗留:claude-agent-sdk 未装(V1 容器内 `claude -p` CLI 兜底);R20 导入通知仅 logger;网关 V1 仅 HTTP;Runner 机不部署反代
+
+## 存疑(需人工核对)
+
+- ⚠️ `LOGIN_MAX_WRONG_ATTEMPTS/LOGIN_LOCK_MINUTES`:config.py 有,env 清单未列(推测可不配)
+- ⚠️ deploy 段端口 10000-10099:DEPLOY.md §5 提及,runner 代码未见 → 推测硬编码或未实现
+- ⚠️ backend 8000 无启动脚本;DEPLOY.md §2 目标库版本 d6e3f9a1c8b5 落后代码 head b2e8f4a6c9d1(文档滞后,非代码矛盾)

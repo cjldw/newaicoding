@@ -1,0 +1,216 @@
+# DATABASE.md — 数据库结构字典
+
+> 项目:旗程 · AI Web 研发流程协作平台
+> 库:aicoding(MySQL 8,utf8mb4);测试库 aicoding_test(R1.F1 隔离)
+> 核对:2026-09-24(实际库 information_schema + alembic/versions 19 笔迁移对账)
+> 连接:backend/.env DATABASE_URL;时区钉死东八区(database.py time_zone='+08:00',R19.F5)
+
+## 约定
+
+- 主键:id bigint 自增 + {table}_id char(36) 对外 UUID 唯一键(平台所有实体)
+- 敏感字段:AES-GCM 加密存储(列名含 _encrypted / value 内 `{"__encrypted":<base64>}`)
+- 删除:projects 软删(projects.deleted_at + 7 天后物理清理);其余硬删为主
+- 时间列:datetime,func.now() 写 +08:00 墙钟
+
+## 模块 M1:基础设施(users / projects / project_repos / project_members)
+
+### users — 用户与账号
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| user_id | char(36) UNI | 对外 UUID |
+| phone | varchar(11) UNI | 登录名(本地认证,V1 无短信) |
+| password_hash | varchar(255) | bcrypt(BUG-008 换用 bcrypt 4.x) |
+| nickname | varchar(32) | 显示名,可空可清空(R28) |
+| avatar_url | varchar(255) | R28:本地上传头像公开 URL |
+| avatar_file_path | varchar(255) | R28:本地路径 ./data/avatars/{user_id}/{filename} |
+| role | enum(superadmin/user) | 平台角色(R19) |
+| status | enum(active/disabled) | 禁用(R19) |
+| token_version | int | JWT 失效版本(R19 D17) |
+| login_fail_count / locked_until | int / datetime | 登录锁定(R1 用 DB 字段非 Redis) |
+| gitlab_username | varchar(64) | GitLab 用户名 |
+| gitlab_token_encrypted | text | AES-GCM 加密 GitLab PAT |
+| gitlab_token_scopes | json | token scope 列表 |
+| gitlab_token_bound_at | datetime | 绑定时间 |
+
+索引:UNI user_id/phone;迁移:2c13321fa03e(b7e2a1c3d4f5 补锁定字段,b2e8f4a6c9d1 R28 补头像)
+
+### projects — 项目
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| project_id | char(36) UNI | 对外 UUID |
+| name / slug | varchar(64) | name 同用户下唯一(服务层);slug 全局唯一(子域/主仓名) |
+| default_branch | varchar(64) | 默认 master,需求分支从这切 |
+| visibility | enum(private,internal) | R2.F6:internal 兼容私有组 |
+| status | enum(active,archived,deleted) | 软删标记 |
+| owner_id | char(36) | 创建者 |
+| mcp_config_encrypted | text | 项目级 MCP JSON(R17) |
+| dingtalk_webhook / dingtalk_enabled | varchar / tinyint | 项目钉钉(R18) |
+| deleted_at | datetime | 软删时间 |
+
+### project_repos — 项目仓库绑定
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| repo_id | char(36) UNI | 平台内部对外 UUID |
+| project_id | char(36) MUL | 所属项目 |
+| role | enum(main,test,docs,other) | main 每项目唯一 |
+| gitlab_repo_url / gitlab_repo_id | varchar(255) / int | GitLab 定位 |
+| gitlab_bind_type | enum(auto,manual) | auto=平台建/manual=用户绑(R27 修复重点) |
+| created_by | char(36) | 绑定操作人 |
+
+### project_members — 项目成员
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| project_id / user_id | char(36) MUL | (project_id,user_id) 服务层唯一 |
+| role | enum(owner,editor,viewer) | 三级角色(R12,D16) |
+| invited_by | char(36) | 邀请人(owner 初始回填自身) |
+| joined_at | datetime | 加入时间 |
+
+注:超管=虚拟 owner,不落成员行(R12)。
+
+## 模块 M2:平台设置(platform_settings)
+
+### platform_settings — 单例 key-value
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| key | varchar(64) PRI | 白名单键(R2:gitlab_url/gitlab_bot_token/preview_base_domain/deploy_base_domain 等;R23 +llm_base_url/llm_api_key/llm_model) |
+| value | json | 敏感项 `{"__encrypted":<base64>}`(AES-GCM) |
+| updated_by | char(36) | 最近修改超管 |
+| updated_at | datetime | — |
+
+注:R23 后敏感键失效密文可逐键容错(R2.F9,BUG-038)。
+
+## 模块 M3:AI 能力(model_configs / skills / project_skills)
+
+### model_configs — 项目级模型配置(R13)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| config_id | char(36) UNI | 对外 UUID |
+| project_id | char(36) MUL | 所属项目 |
+| name / base_url | varchar | 配置名 / OpenAI 兼容 endpoint |
+| api_key_encrypted | text | AES-GCM |
+| model | varchar(64) | 模型名 |
+| is_default / enabled | tinyint | 默认(同项目最多一个,服务层)/ 启用 |
+
+### skills / project_skills — Skills(R17)
+
+skills:skill_id + name(kebab)/description/content(.md 正文)/scope(platform.project)/project_id(project 时必填)/created_by
+project_skills:project_id + skill_id + installed_by/installed_at(项目安装关联)
+
+## 模块 M4:流程引擎(requirements / tasks / task_messages / task_uploaded_files)
+
+### requirements — 需求(R3)
+
+req_id UNI;project_id MUL;title/background/description/acceptance_criteria(Markdown);req_branch(varchar 默认 req-{reqId});prd_file_path(Q26 路径);status enum(draft,polishing,reviewing,approved,in_progress,done,archived,rejected);priority enum;created_by/reviewed_by/reviewed_at;reject_reason;polish_task_id(打磨任务)
+
+### tasks — 任务统一执行单元(R4,R6)
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| task_id | char(36) UNI | 对外 UUID |
+| req_id / project_id | char(36) MUL | 需求 / 项目 |
+| type | enum(requirement,dev,test,release) | 四类型 |
+| base_branch / work_branch | varchar(64) | 基础 / 工作分支 |
+| status | enum(pending,running,cases_review,passed,done,failed,cancelled,timeout) | R6 扩展 cases_review/passed |
+| container_id / runner_id | varchar(64) / char(36) | 运行定位(R8.F3 回填) |
+| conversation_id | char(36) | Claude 会话 id |
+| claude_session_id | char(36) | R9.F1:任务级 claude CLI 会话(懒生成,对话/终端共用) |
+| extended_attributes | json | test_cases/deploy_port 等扩展 |
+| error_message / last_commit_sha | text / varchar(40) | 失败信息 / 提交 |
+| total_tokens_in/out | int | token 统计 |
+
+### task_messages — 对话消息(R4)
+
+message_id UNI;task_id MUL;role enum(user,assistant,tool);content(Markdown,@filename);file_refs json([{file_id,filename,container_path,injected}]);tool_calls json([{name,args,result,duration_ms}]);tokens_in/out
+
+### task_uploaded_files — 任务上传文件(R4)
+
+file_id UNI;task_id;filename/stored_filename(容器内,冲突 -1);size/mime_type/container_path;uploaded_by
+
+## 模块 M5:执行环境(containers / terminal_sessions / runners)
+
+### containers — 容器台账(R8)
+
+| 字段 | 说明 |
+|---|---|
+| container_id UNI | Runner 上 docker id |
+| task_id / runner_id / project_id | 归属 |
+| status enum(creating,running,stopped,failed,destroyed) | 状态机 |
+| image / cpu_limit / mem_limit / disk_limit | 资源限额 |
+| exposed_ports json / runner_host_port_5173 / runner_host_port_8000 | D20 端口直映射宿主机 |
+| destroyed_at | 销毁时间 |
+
+### terminal_sessions — 终端会话(R9,R26)
+
+session_id UNI;task_id(+runner_id 用于 Runner 终端);container_id;shell;closed_at(R26 判 6002:无活跃 shell 会话指 closed_at IS NULL);created_by
+注:R26 使 task_id 可空化(Runner 终端无任务)。
+
+### runners — Runner(R16)
+
+| 字段 | 说明 |
+|---|---|
+| runner_id UNI / name UNI | 对外 UUID / 运维命名 |
+| role enum(worker,deploy) | worker 跑任务 / deploy 跑部署容器 |
+| token_hash | bcrypt,不存明文 |
+| status enum(online,offline,disabled) | 心跳驱动(R8.F2)/R26 置灰依据 |
+| last_heartbeat_at / current_containers / max_containers | 调度(分配并发) |
+| machine_info json | os/arch/cpu/mem/docker_version |
+| public_ip | deploy Runner 必填(部署 URL 指向) |
+
+## 模块 M6:网关与路由(routes)
+
+### routes — 路由注册(R15)
+
+route_id UNI;host UNI({slug}--{taskId}--{port}.preview.{domain});upstream http://{runner_host}:{mapped_port};type enum(preview,deploy);task_id/project_id;port(容器内);status enum(active,inactive);auth_required(R10:预览=成员;部署公开可 False);created/updated
+
+## 模块 M7:知识库(knowledge_entries / knowledge_bases / knowledge_docs)
+
+### knowledge_entries — 知识条目(R14)
+
+entry_id UNI;project_id(null=平台级)/req_id;type enum(code_snippet,pattern,pitfall,doc);title/content(Markdown);tags/source_links json;created_by enum(ai,human);status enum(draft,published);FULLTEXT 索引(content/title,ngram)
+
+### knowledge_bases — 项目知识库空间(R20)
+
+kb_id UNI;project_id;name(同项目唯一);source_type enum(blank,repo_import);source_config json({repo_id,branch,paths});import_status enum(idle,importing,done,failed);import_error;last_synced_at
+
+### knowledge_docs — 知识库文档页(R20)
+
+doc_id UNI;kb_id;title;path(树形路径,同库唯一);content;sort_order;source_file_path(导入来源,blank 为 NULL);updated_by
+
+## 模块 M8:通知(notifications / user_notification_settings)
+
+### notifications — 站内信(R18)
+
+notification_id UNI;recipient_id;type enum(deploy_failed,runner_offline,task_failed,push_failed,review_approved,review_rejected,invited_to_project,task_done,deployed);level enum(critical,normal,info);title/content/link;project_id/task_id;read_at
+
+### user_notification_settings — 用户通知设置(R18)
+
+user_id UNI;dingtalk_webhook;dingtalk_enabled;realtime_toast_enabled;dingtalk_fail_count(连续失败 3 次标记失效)
+
+## 模块 M9:权限与审计(audit_logs / invitations)
+
+### audit_logs — 审计日志(R19,R25)
+
+log_id UNI;user_id;operator_role(操作时角色快照);action_type(R25 44 挂点);project_id;target_type/target_id;detail json(禁敏感明文,R25);ip(登录失败也记);created_at(GMT+8 墙钟)
+
+### invitations — 邀请注册(R19)
+
+invitation_id UNI;token_hash(bcrypt,明文仅返回一次);invited_phone;status enum(pending,used,revoked);expires_at(7 天);used_by;created_by
+
+## 模块 M10:工作台与聚合视图
+
+无独立表(读 requirements/tasks/projects/audit_logs 聚合)。
+
+## 迁移清单(backend/alembic/versions)
+
+2c13321fa03e users;b7e2a1c3d4f5 登录锁定字段;b2e8f4a6c9d1 R28 头像;d6e3f9a1c8b5 r19 审计邀请;c2e8b4d7a910 r12 成员;a7d21c9e5f40 r2 项目表;d9b4f8e2a6c1 r3 需求;e1f6b3a8d5c2 r4 任务;f2a7c9e4b8d1 r6 状态枚举;d4f9a1e2b6c8 r13 模型;a9c1e5f7b2d4 r16 runners;f6b9d2e4a1c3 r8 containers;c4b1d7e9f2a6 r18 通知;b5d9e1f4a7c3 r20 知识库;a3c8e7f2b9d4 r14 知识条目;e5a8c3f1d2b7 r17 skills;b3d7f9a1c5e2 r9 终端;c8e2a6d9f1b4 r10 routes;a7b2c8d9e1f3 r9f1 claude_session_id
+
+## 边界与维护
+
+- 主 agent 禁直接跑大查询;核对用只读 MySQL MCP,写知识库前对实际库确认
+- 变更入口:每次 rd-ship 对账 + 对实际库信息_schema 复核

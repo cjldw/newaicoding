@@ -1,0 +1,89 @@
+# FRONTEND.md — 前端底账
+
+> 项目:旗程 · AI Web 研发流程协作平台(frontend/)
+> 更新:2026-09-24(合并 FRONTEND 素材 agent 一手扫描)
+> 技术栈:Vite6 + React18 + TS5.6 + Tailwind3 + zustand5 + react-query5 + react-hook-form/zod + shadcn 风格自研组件(手写,无 Radix)
+> 范围:37 页面文件(路由挂载 34 + 死代码 1 + Tab 子页)+ 24 组件(业务 9 + layout 3 + ui 12)
+
+## 路由与布局
+
+| 项 | 路径 | 说明 |
+|---|---|---|
+| 路由表 | `frontend/src/router.tsx` | react-router-dom v6 `createBrowserRouter`;登录四页独立;`/settings`(SettingsLayout 嵌套 3);`/` 下 MainLayout 嵌套全部业务页 + 5 个 `/admin/*` 均包 `<RequireRole requiredRole="superadmin">`;`*` → 重定向 `/` |
+| 主外壳 | `components/layout/MainLayout.tsx` (358) | `.shell` 220px 侧栏(logo/分组导航/平台管理仅超管)+ `.main`(topbar:面包屑+铃铛未读数+用户下拉)+ `<Outlet>` |
+| 设置布局 | `components/layout/SettingsLayout.tsx` (52) | 左 NavLink 3 项(个人资料/GitLab Token/通知设置)+ 右 Outlet |
+| 角色守卫 | `components/RequireRole.tsx` (43) | 等 hydrate 完成校验 `user.role===requiredRole`,否则 `<Navigate to="/">` |
+| 面包屑 | `components/layout/Breadcrumb.tsx` (219) | 路由→层级映射,`BreadcrumbOverrideProvider` 上下文覆盖 |
+| 入口 | `main.tsx`/`App.tsx`/`stores/authStore.ts` | QueryClientProvider + RouterProvider + hydrate;token/refresh_token localStorage 持久化;有 token 无 user 时调 getMe |
+| 样式 | `styles/globals.css` (37KB) | 唯一样式文件,`.btn/.card/.tbl/.dcard/.toast` 等全在此,组件不另建 CSS |
+
+## 样板页清单
+
+### 列表页
+
+| 文件 | 用途 | 关键组件 |
+|---|---|---|
+| `requirements/RequirementList.tsx` (309) | 需求列表:标题+新建+表格+分页+空态+创建对话框 | Table/Badge/Input/Textarea/Select/Button/useToast |
+| `projects/ProjectList.tsx` (313) | 项目卡片网格+新建/删除/归档 | Card/Dialog/react-query |
+| `admin/UserManagementPage.tsx` (411) | 用户管理:状态筛选+搜索防抖+表格+分页+邀请/禁用对话框 | Table/Badge/Dialog/Select |
+| `manage/DimensionPage.tsx` (557)+`ManagePages.tsx` (94) | 四维管理通用表格页,导出 4 个路由组件共用 | Table/Select/page-head/card/fbar/scrollx 范式 |
+| 同类(筛表+分页+对话框):`admin/RunnerManagement.tsx`(284)、`admin/SkillsMarket.tsx`(269)、`admin/AuditLogsPage.tsx`(341)、`knowledge/KnowledgeBase.tsx`(320)、`knowledge/KnowledgeBaseList.tsx`(257)、`notifications/NotificationCenter.tsx`(261) | | |
+
+### 表单页(以对话框为载体,无独立表单路由页)
+
+| 文件 | 用途 |
+|---|---|
+| `tasks/TaskCreateDialog.tsx` (254) | 创建任务对话框(dev/test/release 三态标题),由 RequirementDetail 引用 |
+| `projects/ProjectCreate.tsx` (203) | 新建项目:zod 校验+slug 自动 kebab+auto/manual Radio 联动 URL |
+| `admin/PlatformSettings.tsx` (879) | 平台设置:左 4 组导航+右单卡片,各组独立保存/测试连接(最大表单页) |
+| 表单型子页:`settings/ProfileSettings.tsx`(345 头像上传)、`GitLabTokenSettings.tsx`(222)、`NotificationSettings.tsx`(169)、`projects/ModelConfigManagement.tsx`(451 Tab 内 CRUD)、`MemberManagement.tsx`(402)、`McpConfigManagement.tsx`(259 JSON 编辑器)、`RepoManagement.tsx`(267)、`SkillsManagement.tsx`(300)、`auth/Login.tsx`(178)、`auth/Register.tsx`(212) | |
+
+### 详情页
+
+| 文件 | 用途 |
+|---|---|
+| `tasks/TaskDetail.tsx` (658) | **任务工作台**:`.wb` 三栏 grid(236px 文件树\|中栏\|384px 对话)+ useDragSash,按 dev/test/release 装配不同面板(R4.F4 照抄 vp #/t/T-301 全出血)| FileTree/TaskChat/TerminalPanel/PreviewPanel/DiffViewer/Editor/ActivityStream/DeployStatus/TestCasesReview/TestReport/BreadcrumbOverrideProvider |
+| `requirements/RequirementDetail.tsx` (428) | 需求详情:页头状态徽章+卡片+关联任务列表+触发 TaskCreateDialog |
+| `knowledge/KnowledgeBaseView.tsx` (372) | 知识库阅读/编辑:左树 260px+右内容 860px,Markdown 渲染/编辑,未保存离开提示 |
+| 同类详情/子页:`requirements/ArchivePage.tsx`(178 归档时间线)、`tasks/TestCasesReview.tsx`(218)、`tasks/TestReport.tsx`(234)、`tasks/DeployStatus.tsx`(164)、`projects/ProjectDetail.tsx`(205 Tab 容器:Repo/Member/ModelConfig/McpConfig/Skills 5 Tab)、`dashboard/Dashboard.tsx`(124 四卡片统计) | |
+
+⚠️ `frontend/src/pages/Dashboard.tsx`(根级,24 行)**死代码无引用**;实际生效 `pages/dashboard/Dashboard.tsx`。
+
+## 通用组件清单
+
+### 业务组件(`components/` 根,9 个)
+
+| 组件 | 路径 | 用途 |
+|---|---|---|
+| FileTree | `components/FileTree.tsx` (360) | 双视图文件树:全部文件树形 / 变更文件带 M/A/D/R 徽标,>500 行虚拟滚动 |
+| TaskChat | `components/TaskChat.tsx` (368) | 任务对话:气泡+@文件自动补全+附件拖拽上传/下载,可全屏 |
+| TerminalPanel | `components/TerminalPanel.tsx` (184) | 多 Tab 终端面板,每 Tab 调 createSession 取 ws_url,全屏/下载 |
+| Terminal | `components/Terminal.tsx` (149) | xterm.js + WS pty,resize/input/output/ai_output 协议,断线 3s 重连 |
+| ActivityStream | `components/ActivityStream.tsx` (173) | 任务实时事件流(WS events),渲染 tool_call/status_changed,上限 200 条 |
+| DiffViewer | `components/DiffViewer.tsx` (100) | react-diff-viewer-continued 封装,深色+接受/拒绝 |
+| Editor | `components/Editor.tsx` (110) | Monaco(vs-dark,500ms 防抖保存,Ctrl+S,>2MB 只读;本地打包不走 CDN) |
+| PreviewPanel | `components/PreviewPanel.tsx` (121) | 预览区:空态/iframe 嵌入+8s 超时重试 |
+| RequireRole | `components/RequireRole.tsx` (43) | 角色守卫(见路由) |
+
+### ui/ 基础组件(12,shadcn 风格,自研无 Radix)
+
+Button(variant→`.btn` 系列)/ Badge(6 variant)/ Input/Textarea/Select(原生+ChevronDown)/ RadioGroup(自绘)/ Dialog(createPortal+X 关闭,195)/ Card/ Table+*.TableHead&Row 等(69,`.scrollx` 包裹)/ Alert(58)/ Avatar(45,配合 utils/avatar.ts 取色首字)/ Label。
+⚠️ **无 Checkbox/Switch/Tabs/Tooltip/DropdownMenu**——Tabs 页面自绘、下拉 MainLayout 自绘。
+
+## hooks 与 utils
+
+| 名称 | 路径 | 用途 |
+|---|---|---|
+| useDragSash | `hooks/useDragSash.ts` (52) | 分隔条拖拽(horizontal/invert/min/max),仅 TaskDetail 用 |
+| useToast | `hooks/useToast.tsx` (43) | `[toast,showToast,ToastEl]`,依赖 `.toast-wrap/.toast` |
+| react-query hooks | `api/*.ts` 内 | useProjectDetail(projects)、useTaskMessages/useSendTaskMessage(tasks)、useArchive( knowledge)、useKnowledgeBases/useDocs(knowledgeBases)、useUnreadCount(notifications) |
+| api client | `api/client.ts` (83) | fetch 封装 `{code,data,message}`+Bearer(FormData 例外)+401→logout 跳 /login+ApiError |
+| avatar | `utils/avatar.ts` (40) | getAvColor(hash 取色)/getInitial(首字母回退) |
+| authStore | `stores/authStore.ts` (56) | zustand token localStorage+hydrate() |
+
+## ⚠️ 待办素材(前端卫生)
+
+1. `formatGmt8` 不是公共 util——仅 `pages/admin/AuditLogsPage.tsx:47` 文件内私有(`Intl.DateTimeFormat('Asia/Shanghai')`,BUG-039);10+ 页面各自文件内重复 `formatTime/formatDate`,口径不统一 → **抽公共 util 是明确待办**
+2. `useResolvableModelConfig`/`useTheme` 不存在(全库 grep 无匹配)——R23 的 hooks 是 `useToast` 等现名
+3. `pages/Dashboard.tsx` 根级死代码可删
+4. vite dev 需重启加载 `/ws` 代理(R4.F2)

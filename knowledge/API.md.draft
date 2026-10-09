@@ -1,0 +1,251 @@
+# API.md — 接口底账
+
+> 项目:旗程 · AI Web 研发流程协作平台
+> 更新:2026-09-24(draft 草稿,待底账 subagent 返回后合并校准)
+> 约定:所有接口前缀 `/api`;统一响应 `{code:number, message, data}`;鉴权 = JWT Bearer(authStore);错误码 4 位数字,出错 data 带 message 文案由前端 ApiError 展示
+> 分组:按 API 模块文件;admin/* 为超管需 require_superadmin
+
+## M1 用户与项目
+
+### auth.py — 认证(/api/auth,service:auth_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | /api/auth/register | 用户注册(首个用户=superadmin bootstrap) |
+| POST | /api/auth/login | 登录(锁定/失败计数;审计登录事件) |
+| POST | /api/auth/refresh | 刷新 token(token_version 校验) |
+| POST | /api/auth/forgot-password | 忘记密码(V2 短信预留) |
+| POST | /api/auth/reset-password | 重置密码(V2 短信预留) |
+| POST | /api/auth/send-sms-code | 发短信验证码(V2 预留) |
+
+### users.py — 用户(/api/users,service:avatar/auth)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/users/me | 当前用户信息(含 avatar_url,R28) |
+| PATCH | /api/users/me | 修改(昵称清空等,R28) |
+| POST | /api/users/me/avatar | 上传头像(本地,返回 avatar_url,R28) |
+| GET | /api/users/me/gitlab-token | 查询 GitLab token 打码(F1) |
+| PUT | /api/users/me/gitlab-token | 绑定 GitLab PAT(PRIVATE-TOKEN 头) |
+| GET | /api/users/search?phone= | 手机号精确搜索(≥11 位,R12) |
+
+### projects.py — 项目(/api/projects,service:project_service/project_member_service/model_config_service/kb_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/projects | 项目列表 |
+| POST | /api/projects | 创建(manual 绑定修复 R27;auto 建仓) |
+| GET | /api/projects/{project_id} | 项目详情 |
+| PATCH | /api/projects/{project_id} | 修改 |
+| DELETE | /api/projects/{project_id} | 删除(软删 archive 同支) |
+| POST | /api/projects/{project_id}/archive | 归档(软删) |
+| POST | /api/projects/{project_id}/repos | 追加绑定仓库(add_repo,R27) |
+| DELETE | /api/projects/{project_id}/repos/{repo_id} | 解绑仓库 |
+| GET | /api/projects/{project_id}/members | 成员列表(R12) |
+| POST | /api/projects/{project_id}/members | 邀请/加成员(R12) |
+| DELETE | /api/projects/{project_id}/members/{member_user_id} | 移除成员(R12) |
+| PATCH | /api/projects/{project_id}/members/{member_user_id} | 改角色(R12) |
+| POST | /api/projects/{project_id}/transfer-ownership | 转让 owner(R12) |
+| GET | /api/projects/{project_id}/model-configs | 模型配置列表(R13) |
+| GET | /api/projects/{project_id}/model-configs/resolvable | 解析配置(R23:project/platform/none) |
+| POST | /api/projects/{project_id}/model-configs | 新增配置(R13) |
+| POST | /api/projects/{project_id}/model-configs/test | 连通测试(R13:13001) |
+| PATCH | /api/projects/{project_id}/model-configs/{config_id} | 更新(R13) |
+| DELETE | /api/projects/{project_id}/model-configs/{config_id} | 删除(R13) |
+| GET | /api/projects/{project_id}/mcp-config | 项目 MCP JSON(R17) |
+| PUT | /api/projects/{project_id}/mcp-config | 保存 MCP(R17) |
+| GET | /api/projects/{project_id}/mcp-config/templates | MCP 模板(R17) |
+| GET | /api/projects/{project_id}/skills | 项目安装的 Skills(R17) |
+| POST | /api/projects/{project_id}/skills | 安装(R17) |
+| POST | /api/projects/{project_id}/skills/upload | 上传自定义 Skill(R17) |
+| DELETE | /api/projects/{project_id}/skills/{skill_id} | 卸载(R17) |
+
+### 平台设置(admin/platform_settings.py,/api/admin/platform-settings,service:platform_settings_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/admin/platform-settings | 读取(打码;R2.F9 逐键容错) |
+| PUT | /api/admin/platform-settings | 保存(白名单/敏感加密;R24 readOnly+更换) |
+| POST | /api/admin/platform-settings/test-connection | GitLab 连通测试(PRIVATE-TOKEN 头,取 DB 已存凭证) |
+
+### skills.py — 平台 Skills(/api/skills,service:skill_service/mcp_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/skills | 平台+项目 Skills 列表(R17) |
+| GET | /api/skills/{skill_id} | Skill 详情(R17) |
+
+### admin/skills.py — 平台 Skills 管理(/api/admin/skills)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/admin/skills | 平台 Skills 管理列表(超管) |
+| POST | /api/admin/skills | 新建平台 Skill |
+| DELETE | /api/admin/skills/{skill_id} | 删除 |
+| PUT | /api/admin/skills/{skill_id} | 更新 |
+
+## M5 执行环境
+
+### runner_ws.py — Runner 长连接(/ws/runner)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| WS | /ws/runner | Runner 注册/心跳/任务 on/off(自协议 D13) |
+
+### admin/runners.py — Runner 管理(/api/admin/runners,service:runner_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/admin/runners | Runner 列表(R16) |
+| POST | /api/admin/runners | 创建 Runner token(R16) |
+| POST | /api/admin/runners/{runner_id}/reset-token | 重置 token(R16) |
+| POST | /api/admin/runners/{runner_id}/disable | 禁用(R16) |
+| DELETE | /api/admin/runners/{runner_id} | 删除(R16) |
+| POST | /api/admin/runners/{runner_id}/shell-sessions | Runner 终端(R26:6001-6003;runner.terminal_open 审计) |
+
+### terminal.py — 终端(/api + /ws,service:terminal_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | /api/tasks/{task_id}/terminal-sessions | 建终端会话(container_id/shell;R9) |
+| DELETE | /api/terminal-sessions/{session_id} | 关闭会话(R26 销毁) |
+| WS | /ws/terminal/{session_id} | 终端数据流(pty,免密;R9) |
+
+### previews.py — 预览(/api/tasks,service:preview_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | /api/tasks/{task_id}/previews | 检测端口并注册路由(R10) |
+
+### files.py — 文件(/api + /ws,service:file_service/file_upload_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/projects/{project_id}/files | 项目库文件树(R11 只读模式) |
+| GET | /api/projects/{project_id}/files/content | 读文件 |
+| GET | /api/tasks/{task_id}/files | 任务容器文件树(R11 读写) |
+| GET | /api/tasks/{task_id}/files/content | 读容器文件 |
+| PUT | /api/tasks/{task_id}/files/content | 写容器文件 |
+| POST | /api/tasks/{task_id}/files/operations | 容器文件操作(rename/delete) |
+| POST | /api/tasks/{task_id}/files/diff | 生成 Diff(R11) |
+| GET | /api/tasks/{task_id}/files/changes | 变更清单(R11) |
+| GET | /api/files/avatars/{filename} | 头像公开访问(R28,无需登录) |
+| WS | /ws/tasks/{task_id}/files | 文件树/变更实时推送(inotify watcher) |
+
+## M6 网关
+
+网关为独立服务(gateway/main.py→app.core.gateway),DB 读 routes 表按 Host 精确匹配置顶 / WS 透传,无 REST 业务接口。
+
+## M4 流程引擎
+
+### requirements.py — 需求(/api,service:requirement_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/projects/{project_id}/requirements | 需求列表 |
+| POST | /api/projects/{project_id}/requirements | 创建需求(R3;auto 建分支) |
+| GET | /api/requirements/{req_id} | 详情 |
+| PATCH | /api/requirements/{req_id} | 修改 |
+| POST | /api/requirements/{req_id}/polish | 启动 AI 打磨(R3.F1 修复:先落 Task(pending)) |
+| POST | /api/requirements/{req_id}/submit-review | 提交评审 |
+| POST | /api/requirements/{req_id}/review | 评审(通过/驳回,驳回回开发携带上下文 R5) |
+| POST | /api/requirements/{req_id}/cancel | 取消 |
+
+### tasks.py — 任务(/api + /ws,service:task_service/claude_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/requirements/{req_id}/tasks | 需求下任务列表 |
+| POST | /api/requirements/{req_id}/tasks | 创建任务(四类型:R5 dev/R6 test/R7 release/R3 polish,R3.F1 先落 pending) |
+| POST | /api/tasks/{task_id}/run-release | 触发发布部署(R7:R8.F3 采集 api) |
+| POST | /api/tasks/{task_id}/offline | 下线部署(port 释放) |
+| GET | /api/tasks/check-port | 端口占用检查(N+1 防御,R22.F2) |
+| GET | /api/tasks/{task_id} | 任务详情(含 project_id/req_id,R4.F4) |
+| POST | /api/tasks/{task_id}/stop | 停止(强杀容器) |
+| POST | /api/tasks/{task_id}/retry | 重试 |
+| POST | /api/tasks/{task_id}/finish | 手动完成(R6 测试报告流) |
+| POST | /api/tasks/{test_task_id}/reject-to-dev | 测试驳回回开发(R6/R5) |
+| POST | /api/tasks/{task_id}/confirm-cases | 用例评审通过(R6) |
+| POST | /api/tasks/{task_id}/accept-failure | 接受失败(R6) |
+| GET | /api/tasks/{task_id}/messages | 对话历史(R4) |
+| POST | /api/tasks/{task_id}/messages | 发消息(校验前移 R5.F1;claude_session_id 透传 R9.F1) |
+| POST | /api/tasks/{task_id}/files/upload | 上传附件(@文件引用) |
+| GET | /api/tasks/{task_id}/files/uploads | 附件列表 |
+| GET | /api/tasks/{task_id}/files/uploads/{file_id} | 附件详情/下载 |
+| DELETE | /api/tasks/{task_id}/files/uploads/{file_id} | 删除附件 |
+| WS | /ws/tasks/{task_id}/events | 任务事件(状态/对话/AI 输出回显) |
+
+## M7 知识库
+
+### knowledge.py — 知识条目(/api,service:knowledge_service/archive_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | /api/requirements/{req_id}/archive | 发布链自动归档(R14) |
+| GET | /api/projects/{project_id}/knowledge | 项目知识条目列表 |
+| GET | /api/knowledge | 全平台知识条目(检索,FULLTEXT) |
+| GET | /api/knowledge/{entry_id} | 详情 |
+| PATCH | /api/projects/{project_id}/knowledge | 编辑(R14) |
+| POST | /api/knowledge/{entry_id}/publish | 发布(R14) |
+| POST | /api/knowledge/{entry_id}/promote | 转平台级(R14) |
+
+### knowledge_bases.py — 知识库空间(/api,service:kb_service/kb_import_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/projects/{project_id}/knowledge-bases | 空间列表(R20) |
+| POST | /api/projects/{project_id}/knowledge-bases | 创建(blank/repo_import) |
+| PATCH | /api/projects/{project_id}/knowledge-bases/{kb_id} | 修改 |
+| DELETE | /api/projects/{project_id}/knowledge-bases/{kb_id} | 删除 |
+| POST | /api/projects/{project_id}/knowledge-bases/{kb_id}/import | 仓库导入(R20) |
+| POST | /api/projects/{project_id}/knowledge-bases/{kb_id}/sync | 快照同步(R20) |
+| GET | /api/knowledge-bases/{kb_id}/docs | 文档树 |
+| POST | /api/knowledge-bases/{kb_id}/docs | 新建文档 |
+| PATCH | /api/knowledge-bases/{kb_id}/docs/{doc_id} | 更新 |
+| DELETE | /api/knowledge-bases/{kb_id}/docs/{doc_id} | 删除 |
+| GET | /api/knowledge-bases/{kb_id}/search | 空间内检索(FULLTEXT) |
+
+## M8 通知
+
+### notifications.py — 通知(/api,service:notification_service)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/notifications | 通知列表(过滤/分页，R18) |
+| GET | /api/notifications/unread-count | 未读数 |
+| POST | /api/notifications/{notification_id}/read | 已读单条 |
+| POST | /api/notifications/read-all | 全部已读 |
+| DELETE | /api/notifications/{notification_id} | 删除 |
+| GET/PUT | /api/users/me/notification-settings | 个人通知设置(钉钉/toast) |
+| POST | /api/users/me/notification-settings/test-dingtalk | 钉钉测试(R18) |
+| PUT | /api/projects/{project_id}/dingtalk-settings | 项目钉钉设置(R18) |
+
+## M9 平台管理与权限
+
+### admin/users_admin.py — 用户管理(/api/admin,service:*)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/admin/users | 用户管理列表(R19) |
+| PATCH | /api/admin/users/{user_id}/status | 启用/禁用(R19 D17 token_version+1) |
+| GET | /api/admin/invitations | 邀请列表 |
+| POST | /api/admin/invitations | 创建邀请(手机号) |
+| POST | /api/admin/invitations/{invitation_id}/revoke | 撤销 |
+| GET | /api/admin/audit-logs | 审计日志查询(时间/用户/类型过滤,R19.R25;GMT+8) |
+
+## M10 工作台
+
+### dashboard.py — 汇总(/api/dashboard)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/dashboard/summary | 四卡片统计+最近 5 条(created_by=me,R21) |
+
+### dashboard_views.py — 聚合列表(/api/dashboard)
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | /api/dashboard/requirements | 需求聚合列表(key 字段,R22.F1/BUG-014) |
+| GET | /api/dashboard/tasks/{task_type} | 任务聚合列表(key 字段;R22.F2 扩 project_id/q 参数) |
+
+## 附加:files/previews/terminal 均被 task 工作台消费;ws/tasks/{id}/events 为核心实时通道。
