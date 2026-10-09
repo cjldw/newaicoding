@@ -95,6 +95,8 @@ async def preflight() -> None:
         )
 
     # 依赖探测:一次性子进程 import(runner 的依赖,平台进程本身不装也无妨)
+    # R31.F4(BUG-077):冷启动/磁盘忙时子进程 import 可能偶发超 5s——超时 ≠ 未安装,
+    # 先重试一次再判;且超时与真缺包文案区分(超时引导重试,缺包才引导 pip install)。
     try:
         proc = await asyncio.to_thread(
             subprocess.run,
@@ -102,12 +104,23 @@ async def preflight() -> None:
             capture_output=True, timeout=_PROBE_TIMEOUT,
             cwd=str(RUNNER_DIR),
         )
-        if proc.returncode != 0:
+    except subprocess.TimeoutExpired:
+        # 重试一次(冷启动偶发超时;两次仍超时才判失败,文案不再误导安装)
+        try:
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-c", "import docker, websockets"],
+                capture_output=True, timeout=_PROBE_TIMEOUT,
+                cwd=str(RUNNER_DIR),
+            )
+        except subprocess.TimeoutExpired:
             raise _err(
                 ErrCode.RUNNER_LOCAL_ENV,
-                "Runner 依赖未安装,请在平台运行环境执行 pip install -r runner/requirements.txt",
+                "Runner 依赖探测超时(冷启动/磁盘忙时偶发),请重试;若持续失败请检查运行环境",
             )
-    except subprocess.TimeoutExpired:
+
+    if proc.returncode != 0:
+        # 真缺包:子进程 import 失败,引导安装
         raise _err(
             ErrCode.RUNNER_LOCAL_ENV,
             "Runner 依赖未安装,请在平台运行环境执行 pip install -r runner/requirements.txt",

@@ -246,8 +246,29 @@ async def handle_container_started(
     )
     container = result.scalar_one_or_none()
     if container is None:
-        logger.warning("container_started 无匹配记录 task=%s", task_id)
-        return
+        # R8.F7(BUG-081)复活:回报迟到/重发时,行可能已被对账误置 destroyed——
+        # 按 task 找最近一条 pending 占位行,且该 task 尚无 running 行时复活承接回报
+        dead = (await db.execute(
+            select(Container).where(
+                Container.task_id == task_id,
+                Container.container_id.like("pending-%"),
+            ).order_by(Container.id.desc()).limit(1)
+        )).scalar_one_or_none()
+        running_row = (await db.execute(
+            select(Container.id).where(
+                Container.task_id == task_id, Container.status == "running"
+            ).limit(1)
+        )).scalar_one_or_none()
+        if dead is None or running_row is not None:
+            logger.warning("container_started 无匹配记录 task=%s", task_id)
+            return
+        dead.status = "creating"
+        dead.destroyed_at = None
+        await db.flush()
+        container = dead
+        logger.info(
+            "container_started 复活占位行 task=%s row=%s(回报迟到自愈)", task_id, dead.id
+        )
 
     # pending 占位 id 替换为真实 docker id(UNIQUE 冲突时追加随机后缀)
     from app.models.container import Container as _C

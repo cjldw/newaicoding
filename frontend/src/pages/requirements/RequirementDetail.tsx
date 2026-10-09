@@ -246,14 +246,16 @@ export function RequirementDetail() {
             </Button>
           )}
           {/* R35.F1:打磨任务已终态(cancelled/failed/timeout/done)→ 允许重新打磨(active 时不显示;
-              终态集与后端 start_polish 放宽口径一致,done 可达:finish_task 不碰 requirement,提交评审前停留 polishing) */}
+              终态集与后端 start_polish 放宽口径一致,done 可达:finish_task 不碰 requirement,提交评审前停留 polishing)
+              R37.F7(BUG-080):reviewing/approved 也允许再次打磨——打磨完成后提交评审/评审通过仍可返工重磨,
+              后端 start_polish 状态门同步放宽,重启后需求状态回 polishing */}
           {requirement.status === 'polishing' && (
             <Button variant="primary" onClick={handleSubmitReview} disabled={submitReview.isPending}>
               <Send className="w-4 h-4 mr-2" />
               提交评审
             </Button>
           )}
-          {requirement.status === 'polishing'
+          {['polishing', 'reviewing', 'approved'].includes(requirement.status)
             && !!requirement.polish_task_id
             && ['cancelled', 'failed', 'timeout', 'done'].includes(requirement.polish_task_status ?? '') && (
             <Button variant="primary" onClick={handlePolish} disabled={polishRequirement.isPending}>

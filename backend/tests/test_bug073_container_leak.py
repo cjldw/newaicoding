@@ -654,6 +654,17 @@ class TestFinishTaskAllContainers:
 
         monkeypatch.setattr(runner_service, "request_runner", fake_request_runner)
 
+        # R37.F8(BUG-082)新契约:finish 需提交凭据(Runner 在线 + token 可用),
+        # 皆无 → 显式报错。本用例关注容器收容,补齐凭据桩(Runner 假在线 + bot token)
+        monkeypatch.setattr(runner_registry, "get", lambda rid: object())
+
+        async def fake_bot_config(db):
+            return ("http://gitlab.example.com", "bot-token-test", None)
+
+        monkeypatch.setattr(
+            "app.services.platform_settings_service.get_gitlab_bot_config", fake_bot_config
+        )
+
         # mock operator
         operator = User(
             user_id=registered_user["user_id"],

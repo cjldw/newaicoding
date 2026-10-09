@@ -58,7 +58,8 @@ interface TaskChatProps {
   projectId?: string
   /** R3.F4(BUG-074):任务类型,仅 'requirement'(打磨任务) 触发自动首消息 */
   taskType?: string
-  /** R3.F4(BUG-074):PRD 文件路径(需求详情 req.prd_file_path),自动首消息 /rd-prd 参数 */
+  /** R3.F4(BUG-074):PRD 文件路径(需求详情 req.prd_file_path),自动首消息 /rd-prd 参数;
+   *  路径后置改造后打磨启动时为空 → 发无参数 /rd-prd,完成后平台以实际路径回写 */
   prdFilePath?: string
 }
 
@@ -233,21 +234,22 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
     }
   }, [messages])
 
-  // R3.F4(BUG-074) + R3.F5(BUG-076):需求打磨新会话自动发 `/rd-prd <PRD路径>` 首消息
+  // R3.F4(BUG-074) + R3.F5(BUG-076):需求打磨新会话自动发 `/rd-prd` 首消息
   // 触发条件:
   //   1. taskType === 'requirement'(仅打磨任务)
-  //   2. prdFilePath 非空(老数据无路径不触发)
-  //   3. messages 已加载(msgData !== undefined)
-  //   4. sendMut 未在 pending(避免与手动发送并发)
-  //   5. R3.F5:container_generation 变化 → 容器重启 → 强制重发(绕过 isNewSession)
-  //   6. 原 isNewSession 逻辑保留:无有效 assistant 回复 → 新会话 → 发送
+  //   2. messages 已加载(msgData !== undefined)
+  //   3. sendMut 未在 pending(避免与手动发送并发)
+  //   4. R3.F5:container_generation 变化 → 容器重启 → 强制重发(绕过 isNewSession)
+  //   5. 原 isNewSession 逻辑保留:无有效 assistant 回复 → 新会话 → 发送
+  // prdFilePath 可选:非空(存量数据)拼 `/rd-prd <path>`;为空(路径后置改造,
+  // prd_file_path 打磨完成后才回写)发无参数 `/rd-prd`,路径由技能自定、完成后平台回写
   // 严禁在 render 期直接 mutate —— 只在 useEffect 内触发
   useEffect(() => {
     if (taskType !== 'requirement') return
-    if (!prdFilePath) return
     if (msgData === undefined) return // messages 尚未加载
     if (sendMut.isPending) return
 
+    const rdPrdFirstMessage = prdFilePath ? '/rd-prd ' + prdFilePath : '/rd-prd'
     const currentGen = msgData.container_generation ?? 0
 
     // R3.F5(BUG-076):container_generation 变化 → 容器重启 → 强制重发 /rd-prd
@@ -259,7 +261,7 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
     } else if (sentGenerationRef.current !== currentGen) {
       // generation 变化 → 容器重启 → 强制重发
       sentGenerationRef.current = currentGen
-      sendMut.mutate({ content: '/rd-prd ' + prdFilePath })
+      sendMut.mutate({ content: rdPrdFirstMessage })
       return
     }
 
@@ -276,7 +278,7 @@ export function TaskChat({ taskId, fullscreen = false, onToggleFullscreen, proje
     if (hasValidAiReply) return
     // 条件齐备 → 发送 /rd-prd 首消息
     sentRef.current = true
-    sendMut.mutate({ content: '/rd-prd ' + prdFilePath })
+    sendMut.mutate({ content: rdPrdFirstMessage })
   }, [messages, prdFilePath, taskType, msgData, sendMut])
 
   // R34.F2:当前选中的模型配置(选中项失效时回退默认项/首个,兜底 undefined 不渲染名称)

@@ -1083,7 +1083,16 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
     if containers:
         # 取第一个容器做 git commit/push(只需一次)
         container = containers[0]
+        # R37.F8(BUG-082):Runner 离线 → 显式报错(原:静默跳过 commit,任务照常
+        # done,用户以为已提交;「完成=提交」语义下必须诚实失败)。
+        # 仅约束 status="done"(打磨完成);取消收尾(status=cancelled)保持宽容——
+        # 取消绝不能被提交凭据卡死(R35.F2 契约:取消容忍 finish 失败)
         runner_conn = runner_registry.get(container.runner_id)
+        if runner_conn is None and status == "done":
+            raise BizError(
+                ErrCode.TERMINAL_UNAVAILABLE,
+                "Runner 离线,无法提交仓库;请稍后重试打磨完成,或联系管理员",
+            )
         creator = (await db.execute(
             select(User).where(User.user_id == task.created_by)
         )).scalars().first()
@@ -1093,7 +1102,32 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
 
             creator_token = decrypt_token(creator.gitlab_token_encrypted)
 
-        if runner_conn is not None and creator_token:
+        # R37.F8(BUG-082):提交凭据链 = 创建者 token → 平台 bot token 回退 → 皆无显式报错
+        # (原:creator_token 空即整段静默跳过;需求分支本由 bot 创建,回退天然有推送权)。
+        # 显式报错仅 status="done";取消收尾走宽容分支(尽力提交,凭据缺失静默跳过)
+        commit_token = creator_token
+        if not commit_token:
+            from app.services.platform_settings_service import get_gitlab_bot_config
+
+            bot_token = ""
+            try:
+                _, bot_token, _ = await get_gitlab_bot_config(db)
+            except BizError:
+                bot_token = ""
+            if not bot_token and status == "done":
+                raise BizError(
+                    ErrCode.BOT_TOKEN_NOT_CONFIGURED,
+                    "创建者未绑定 GitLab Token 且平台未配置 Bot Token,无法提交仓库;"
+                    "请先在个人设置绑定 GitLab Token 后重新执行打磨完成",
+                )
+            commit_token = bot_token
+            if bot_token:
+                logger.info(
+                    "finish 提交回退平台 bot token task=%s(创建者未绑定个人 token)",
+                    task.task_id,
+                )
+
+        if runner_conn is not None and commit_token:
             from app.models.project import ProjectRepo
 
             repos = (await db.execute(
@@ -1109,10 +1143,17 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
                         "add_path": ".",
                         "message": f"[ai:{task.type}] {task.title}",
                         "branch": task.work_branch,
-                        "token": creator_token,
+                        "token": commit_token,
                     }, timeout=60.0)
                 except Exception as e:
                     logger.warning("仓库 commit/push 失败 task=%s repo=%s: %s", task.task_id, mount, e)
+
+        # 路径后置:PRD 终态回传钩子——此刻 push 已完成(GitLab 有实际文件)、容器仍在线
+        # (发现器可用),发现实际 PRD 路径 → 回写 prd_file_path + 回填 prd_content。
+        # 覆盖全部收尾入口(完成任务/手动停止/取消需求收尾);内部自捕获异常,失败不阻塞收尾
+        if task.type == "requirement":
+            from app.services.requirement_service import sync_prd_from_container
+            await sync_prd_from_container(db, task.task_id)
 
         # 销毁容器(停止指令;Runner 销毁前强制 push 未 push commit)
         await container_service.request_stop(db, container)

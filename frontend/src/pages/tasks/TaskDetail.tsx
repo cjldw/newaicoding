@@ -390,15 +390,18 @@ export default function TaskDetail() {
   }, [finishRequested, task])
 
   // 20260929_任务容器未启动置灰引导:容器门卫状态机
-  // 触发条件:task 数据就绪 + display_status ∉ {running, starting} + 本会话未跳过该 taskId
+  // 触发条件:task 数据就绪 + display_status ∉ {running, starting, done} + 本会话未跳过该 taskId
+  //   R37.F9(BUG-083):done 排除——终态容器系正常销毁,弹「任务容器未启动」且
+  //   「启动」必败(retryTask 对终态 4001)→ 死弹框;failed/cancelled/timeout 保留
+  //   (重试合法,门卫「启动」正是 retry 通道)
   // 撤除条件:轮询到 running/starting(容器已起)→ 自动撤遮罩 + 关弹框
   // 与停止遮罩(stopRequested)互斥:停止只在 running,门卫只在非 running,状态天然不相交;
   // 若极端场景交叉(如轮询间隙),以停止遮罩优先(停止遮罩渲染在门卫遮罩之后,z-index 更高)
   useEffect(() => {
     if (!task) return
     const st = task.display_status ?? task.status
-    // running/starting → 容器已起或正在起 → 门卫不生效,撤所有门卫态
-    if (st === 'running' || st === 'starting') {
+    // running/starting → 容器已起或正在起;done → 终态无需容器 → 门卫不生效,撤所有门卫态
+    if (st === 'running' || st === 'starting' || st === 'done') {
       if (containerGateOpen) setContainerGateOpen(false)
       if (containerGateStarting) setContainerGateStarting(false)
       return
@@ -603,13 +606,17 @@ export default function TaskDetail() {
     })
   }
   // 20260929_打磨完成按钮:点击「打磨完成」→ 置 finishRequested 拉起遮罩;
-  //   onSuccess 提示提交成功(PRD 已推送);onError 撤遮罩 + toast(文案回退「提交失败」);
-  //   遮罩期间按钮 disabled 防重复点击
+  //   onSuccess 提示提交成功(PRD 已推送)+ 跳回需求详情页(R37.F9 BUG-083:
+  //   原地停留会因任务转 done 显示终态工作台,用户期望回详情看 PRD);
+  //   onError 撤遮罩 + toast(文案回退「提交失败」);遮罩期间按钮 disabled 防重复点击
   const handleFinishClick = () => {
     setFinishRequested(true)
     finishTask.mutate(undefined, {
       onSuccess: () => {
         showToast('success', '打磨成果已提交(PRD 已推送至需求分支)')
+        if (task?.req_id) {
+          nav(`/requirements/${task.req_id}`)
+        }
       },
       onError: (err: unknown) => {
         setFinishRequested(false)

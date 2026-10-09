@@ -639,3 +639,75 @@ async def test_stop_403_normal_user(client, db_session):
         headers=headers,
     )
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# R31.F4(BUG-077):preflight 依赖探测——超时重试一次 + 超时/缺包文案区分
+# 根因:依赖实际齐全(后端同款解释器 import 实测 1.1s),冷启动时子进程超
+# 5s 被误报成「依赖未安装」,误导用户装依赖;超时与真缺包共用文案所致
+# ---------------------------------------------------------------------------
+def _probe_deps_cmd(args, **kwargs):
+    """识别依赖探测子进程调用(区别于 Docker ping 探测)
+
+    subprocess.run 的首个位置参数是命令 list([python, -c, cmd]),
+    依赖探测的 cmd 含 "websockets",Docker ping 的 cmd 是 docker.from_env().ping()。
+    """
+    cmd_list = args[0] if args else []
+    return isinstance(cmd_list, list) and len(cmd_list) > 2 and "websockets" in str(cmd_list[2])
+
+
+@pytest.mark.asyncio
+async def test_preflight_deps_probe_timeout_then_retry_pass():
+    """依赖探测首次超时 → 重试第二次成功 → preflight 整体通过"""
+    import subprocess
+
+    from app.services import local_runner_service
+
+    deps_calls = {"n": 0}
+
+    def fake_run(*args, **kwargs):
+        if _probe_deps_cmd(args):
+            deps_calls["n"] += 1
+            if deps_calls["n"] == 1:
+                raise subprocess.TimeoutExpired(cmd="probe", timeout=5.0)
+        # Docker ping 探测(非本次修复面)直接成功
+        return MagicMock(returncode=0)
+
+    with patch("app.services.local_runner_service.subprocess.run", side_effect=fake_run):
+        await local_runner_service.preflight()
+    assert deps_calls["n"] == 2, "依赖探测超时后应重试一次(共 2 次)"
+
+
+@pytest.mark.asyncio
+async def test_preflight_deps_probe_timeout_message():
+    """两次均超时 → 16002 且文案为「超时」口径,不再误报「未安装」"""
+    import subprocess
+
+    from app.core.response import BizError
+    from app.services import local_runner_service
+
+    with patch(
+        "app.services.local_runner_service.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd="probe", timeout=5.0),
+    ):
+        with pytest.raises(BizError) as ei:
+            await local_runner_service.preflight()
+    assert ei.value.code == 16002
+    assert "超时" in ei.value.message
+    assert "未安装" not in ei.value.message
+
+
+@pytest.mark.asyncio
+async def test_preflight_deps_missing_message_regression():
+    """真缺包(子进程 returncode!=0)→ 保留「未安装,请执行 pip install」口径"""
+    from app.core.response import BizError
+    from app.services import local_runner_service
+
+    with patch(
+        "app.services.local_runner_service.subprocess.run",
+        MagicMock(returncode=1),
+    ):
+        with pytest.raises(BizError) as ei:
+            await local_runner_service.preflight()
+    assert "未安装" in ei.value.message
+    assert "pip install" in ei.value.message

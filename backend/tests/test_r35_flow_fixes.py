@@ -401,3 +401,88 @@ async def test_task_timeout_sweep_loop_invokes_sweep_timeouts(monkeypatch):
     monkeypatch.setattr(task_service, "sweep_timeouts", fake_sweep)
     await asyncio.wait_for(app_main._task_timeout_sweep(), timeout=5)
     assert calls["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# F7(BUG-080):打磨完成后再次打磨(reviewing/approved 解锁)
+# ---------------------------------------------------------------------------
+async def _seed_repolish(db_session, registered_user, status, task_status):
+    """构造 指定状态需求 + 指定状态打磨任务,返回 (project, req, operator)"""
+    project = await _mk_project(db_session, registered_user["user_id"])
+    old_task_id = str(uuid.uuid4())
+    req = _mk_req(project, registered_user["user_id"], status=status, polish_task_id=old_task_id)
+    db_session.add(req)
+    old_task = _mk_task(req, registered_user["user_id"], status=task_status)
+    old_task.task_id = old_task_id
+    db_session.add(old_task)
+    await db_session.flush()
+    operator = await _get_user(db_session, registered_user["user_id"])
+    return project, req, operator
+
+
+@pytest.mark.asyncio
+async def test_start_polish_allows_repolish_from_reviewing_when_task_terminal(
+    db_session, registered_user, monkeypatch
+):
+    """BUG-080 Red→Green:reviewing + 打磨任务 done → 再打磨放行,status 回 polishing(现状 3001)"""
+    project, req, operator = await _seed_repolish(
+        db_session, registered_user, status="reviewing", task_status="done"
+    )
+    captured = {}
+
+    async def fake_create_polish(db, project_, requirement, operator_):
+        captured["called"] = True
+        return str(uuid.uuid4())
+
+    monkeypatch.setattr(task_service, "create_polish_task", fake_create_polish)
+    new_id = await requirement_service.start_polish(db_session, project, operator, req)
+    assert captured.get("called") is True
+    assert req.polish_task_id == new_id
+    assert req.status == "polishing"
+
+
+@pytest.mark.asyncio
+async def test_start_polish_allows_repolish_from_approved_when_task_terminal(
+    db_session, registered_user, monkeypatch
+):
+    """BUG-080:approved + 打磨任务 cancelled → 同样放行(评审通过后仍可返工重磨)"""
+    project, req, operator = await _seed_repolish(
+        db_session, registered_user, status="approved", task_status="cancelled"
+    )
+
+    async def fake_create_polish(db, project_, requirement, operator_):
+        return str(uuid.uuid4())
+
+    monkeypatch.setattr(task_service, "create_polish_task", fake_create_polish)
+    new_id = await requirement_service.start_polish(db_session, project, operator, req)
+    assert req.polish_task_id == new_id
+    assert req.status == "polishing"
+
+
+@pytest.mark.asyncio
+async def test_start_polish_rejects_when_task_active_from_reviewing(db_session, registered_user):
+    """守卫:reviewing + 打磨任务 running → 仍 3001(放宽不越「任务须终态」界)"""
+    from app.core.response import BizError
+
+    project, req, operator = await _seed_repolish(
+        db_session, registered_user, status="reviewing", task_status="running"
+    )
+    with pytest.raises(BizError) as ei:
+        await requirement_service.start_polish(db_session, project, operator, req)
+    assert ei.value.code == 3001
+
+
+@pytest.mark.asyncio
+async def test_start_polish_still_rejects_terminal_lifecycle_states(db_session, registered_user):
+    """守卫:in_progress/done(开发态/完结态)→ 仍 3001,不因放宽而误开"""
+    from app.core.response import BizError
+
+    project = await _mk_project(db_session, registered_user["user_id"])
+    operator = await _get_user(db_session, registered_user["user_id"])
+    for status in ("in_progress", "done"):
+        req = _mk_req(project, registered_user["user_id"], status=status)
+        db_session.add(req)
+        await db_session.flush()
+        with pytest.raises(BizError) as ei:
+            await requirement_service.start_polish(db_session, project, operator, req)
+        assert ei.value.code == 3001

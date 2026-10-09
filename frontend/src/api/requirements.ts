@@ -156,9 +156,9 @@ export const requirementsApi = {
   // R1.F2:分支名预览(后端拼音策略权威生成;title 必填 1-128,与创建时 default_req_branch 同口径)
   branchPreview: (title: string) =>
     api.get<{ branch: string }>(`/requirements/branch-preview?title=${encodeURIComponent(title)}`),
-  // R3:PRD 副本读取(免容器预览)— 服务端内置完整降级链(db → 容器回填 → none)
+  // R3:PRD 副本读取(免容器预览)— 服务端内置完整降级链(db → 容器回填 → gitlab 兜底 → none)
   getPrdContent: (reqId: string) =>
-    api.get<{ prd_content: string | null; source: 'db' | 'container' | 'none' }>(
+    api.get<{ prd_content: string | null; source: 'db' | 'container' | 'gitlab' | 'none' }>(
       `/requirements/${reqId}/prd-content`,
     ),
 }

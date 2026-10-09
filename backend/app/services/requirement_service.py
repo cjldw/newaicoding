@@ -25,8 +25,70 @@ _PRD_CONTENT_MAX_BYTES = 16 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
-# R2:PRD 回传(容器 → 平台副本)
+# R2:PRD 回传(容器 → 平台副本;路径后置:实际路径发现 + 回写自愈)
 # ---------------------------------------------------------------------------
+def _truncate_prd(content: str, req_id: str = "") -> str:
+    """超 _PRD_CONTENT_MAX_BYTES(16MB,MEDIUMTEXT 物理上限)按字节截断;
+    回退到有效 UTF-8 字符边界(去掉尾部不完整的 multibyte 序列)。容器/GitLab 两路回传共用。"""
+    content_bytes = content.encode("utf-8")
+    if len(content_bytes) <= _PRD_CONTENT_MAX_BYTES:
+        return content
+    logger.warning(
+        "[prd-sync] truncated oversized content req_id=%s truncated_to=%d bytes",
+        req_id, _PRD_CONTENT_MAX_BYTES,
+    )
+    return content_bytes[:_PRD_CONTENT_MAX_BYTES].decode("utf-8", errors="ignore")
+
+
+async def _discover_prd_path_in_container(db: AsyncSession, task_id: str) -> tuple:
+    """
+    容器内实际 PRD 路径发现(路径后置自愈:prd_file_path 为空或固定路径读空时调用)。
+    返回 (repo 相对路径 or None, 已验证非空的 content)。
+    候选优先级:
+      ① docs/ 一层子目录中目录名含任务短 id(task_id[:8])的 <dir>/PRD.md
+        —— Q26 建议路径尾段即 taskShortId,恰好覆盖技能服从 PRD_FILE_PATH env 的情况
+      ② 根候选:PRD.md、docs/PRD.md
+      ③ docs/ 其余子目录的 <dir>/PRD.md(多命中取首个 + warning)
+    逐候选 task_read_file 验证非空即命中;全程异常吞掉返回 (None, "")——发现器是兜底,不阻塞主链。
+    """
+    from app.services import file_service
+
+    try:
+        short_id = (task_id or "")[:8]
+        try:
+            docs_items = await file_service.task_file_list(db, task_id, "/workspace/main/docs")
+        except Exception:
+            docs_items = []  # docs 目录不存在/列取失败 → 只剩根候选
+
+        subdir_names = [it.get("path", "").strip("/") for it in docs_items
+                        if it.get("type") == "dir" and it.get("path")]
+        subdir_names = [n for n in subdir_names if n]
+        preferred = [n for n in subdir_names if short_id and short_id in n]
+        others = [n for n in subdir_names if n not in preferred]
+
+        candidates = [f"docs/{n}/PRD.md" for n in preferred]
+        candidates += ["PRD.md", "docs/PRD.md"]
+        candidates += [f"docs/{n}/PRD.md" for n in others]
+
+        for rel in candidates:
+            try:
+                data = await file_service.task_read_file(db, task_id, "/workspace/main/" + rel)
+            except Exception:
+                continue  # 单候选不存在/读失败 → 试下一个
+            content = data.get("content") or ""
+            if content.strip():
+                if len(others) > 1 and not (short_id and short_id in rel) and rel.startswith("docs/"):
+                    logger.warning(
+                        "[prd-discover] multiple PRD candidates under docs/, picked first "
+                        "task=%s picked=%s all_subdirs=%s", task_id, rel, others,
+                    )
+                return rel, content
+        return None, ""
+    except Exception as e:
+        logger.warning("[prd-discover] failed task_id=%s: %s", task_id, e)
+        return None, ""
+
+
 async def sync_prd_from_container(db: AsyncSession, task_id: str) -> None:
     """
     R2 同步逻辑:从容器回读 prd_file_path 并更新 requirement.prd_content。
@@ -59,16 +121,14 @@ async def sync_prd_from_container(db: AsyncSession, task_id: str) -> None:
             logger.warning("[prd-sync] requirement not found req_id=%s", task.req_id)
             return
 
-        # ③ prd_file_path 为空 → 跳过
+        # ③ 库内固定路径(存量预生成 / 已回写实际路径);为空不再跳过——
+        #   路径后置改造:prd_file_path 由打磨完成后实际路径回写产生,启动时为空属常态
         prd_path = (req.prd_file_path or "").strip()
-        if not prd_path:
-            logger.info("[prd-sync] skip empty prd_file_path req_id=%s", req.req_id)
-            return
 
-        # ④ 容器路径 = /workspace/main/{prd_file_path}(去前导斜杠拼接)
-        container_path = "/workspace/main/" + prd_path.lstrip("/")
+        # ④ 固定路径的容器绝对路径 = /workspace/main/{prd_file_path}(去前导斜杠拼接)
+        container_path = ("/workspace/main/" + prd_path.lstrip("/")) if prd_path else ""
 
-        # ⑤ 查 running 容器 + runner 在线(静默 return,不抛 9001)
+        # ⑤ 查 running 容器 + runner 在线(静默 return,不抛 9001)——发现器同样依赖容器在线
         ctr_result = await db.execute(
             select(Container)
             .where(Container.task_id == task_id, Container.status == "running")
@@ -83,25 +143,31 @@ async def sync_prd_from_container(db: AsyncSession, task_id: str) -> None:
             logger.info("[prd-sync] skip runner offline runner_id=%s", container.runner_id)
             return
 
-        # ⑥ 调 file_service.task_read_file 拿 content
-        file_data = await file_service.task_read_file(db, task_id, container_path)
-        content = file_data.get("content") or ""
+        # ⑥ 固定路径回读(有路径才读)
+        content = ""
+        if container_path:
+            file_data = await file_service.task_read_file(db, task_id, container_path)
+            content = file_data.get("content") or ""
 
-        # ⑦ 空 → 跳过
+        # ⑦ 固定路径读空/启动时无路径 → 容器内发现实际 PRD 路径(路径后置自愈):
+        #   命中即回写 prd_file_path——实际路径自此成为关联键,后续直取命中不再进发现器
+        if not content.strip():
+            discovered_path, discovered_content = await _discover_prd_path_in_container(db, task_id)
+            if discovered_path:
+                req.prd_file_path = discovered_path
+                logger.info(
+                    "[prd-sync] prd path healed req_id=%s stored=%r discovered=%s",
+                    req.req_id, prd_path, discovered_path,
+                )
+                content = discovered_content
+
+        # 空 → 跳过
         if not content:
             logger.info("[prd-sync] skip empty content req_id=%s", req.req_id)
             return
 
         # 超 16MB → 截断 + warning(按字节截断后回退到字符边界,避免 UTF-8 半字符)
-        content_bytes = content.encode("utf-8")
-        if len(content_bytes) > _PRD_CONTENT_MAX_BYTES:
-            truncated_bytes = content_bytes[:_PRD_CONTENT_MAX_BYTES]
-            # 回退到有效 UTF-8 字符边界(去掉尾部不完整的 multibyte 序列)
-            content = truncated_bytes.decode("utf-8", errors="ignore")
-            logger.warning(
-                "[prd-sync] truncated oversized content req_id=%s truncated_to=%d bytes",
-                req.req_id, _PRD_CONTENT_MAX_BYTES,
-            )
+        content = _truncate_prd(content, req.req_id)
 
         # ⑧ UPDATE requirement.prd_content(ORM 属性赋值,flush 由调用方负责)
         req.prd_content = content
@@ -116,11 +182,11 @@ async def sync_prd_from_container(db: AsyncSession, task_id: str) -> None:
 
 async def get_prd_content_with_fallback(db: AsyncSession, req: Requirement) -> tuple:
     """
-    R3 PRD 副本读取降级链:
+    R3 PRD 副本读取降级链(路径后置:③ 层含 GitLab 侧路径发现+回写自愈):
     ① req.prd_content truthy → (content, 'db')
-    ② 否则定位打磨任务 → 查 running 容器 + runner 在线 → 调 sync_prd_from_container 回读回填
-       → 成功返回 (content, 'container')
-    ③ 任何一步不满足/失败 → (None, 'none')
+    ② 定位打磨任务 → 容器在线 → sync_prd_from_container 回读回填 → (content, 'container')
+    ③ 容器不可用或回读落空 → _sync_prd_from_gitlab(直取 404 → tree 发现)→ (content, 'gitlab')
+    ④ 都没有 → (None, 'none')
 
     打磨任务定位:requirement.polish_task_id 优先;空则按 req_id 找 type=requirement 最新任务。
     """
@@ -149,7 +215,7 @@ async def get_prd_content_with_fallback(db: AsyncSession, req: Requirement) -> t
         logger.info("[prd-view] no polish task found req_id=%s", req.req_id)
         return (None, "none")
 
-    # 查 running 容器 + runner 在线
+    # ② 查 running 容器 + runner 在线;不可用不早退,继续走 GitLab 兜底
     ctr_result = await db.execute(
         select(Container)
         .where(Container.task_id == task_id, Container.status == "running")
@@ -157,27 +223,29 @@ async def get_prd_content_with_fallback(db: AsyncSession, req: Requirement) -> t
         .limit(1)
     )
     container = ctr_result.scalar_one_or_none()
-    if container is None:
-        logger.info("[prd-view] no running container task_id=%s", task_id)
-        return (None, "none")
-    if runner_registry.get(container.runner_id) is None:
-        logger.info("[prd-view] runner offline runner_id=%s", container.runner_id)
-        return (None, "none")
+    if container is None or runner_registry.get(container.runner_id) is None:
+        logger.info("[prd-view] container unavailable task_id=%s → gitlab fallback", task_id)
+    else:
+        # 调 R2 同步函数回读回填(内部自捕获异常,含路径发现+回写)
+        try:
+            await sync_prd_from_container(db, task_id)
+        except Exception as e:
+            logger.warning("[prd-view] sync_prd_from_container failed task_id=%s: %s", task_id, e)
 
-    # 调 R2 同步函数回读回填(内部自捕获异常)
-    try:
-        await sync_prd_from_container(db, task_id)
-    except Exception as e:
-        logger.warning("[prd-view] sync_prd_from_container failed task_id=%s: %s", task_id, e)
-        return (None, "none")
+        # 重查 req.prd_content 判断回填是否成功
+        await db.refresh(req)
+        if req.prd_content:
+            logger.info("[prd-view] hit container req_id=%s task_id=%s", req.req_id, task_id)
+            return (req.prd_content, "container")
 
-    # 重查 req.prd_content 判断回填是否成功
-    await db.refresh(req)
-    if req.prd_content:
-        logger.info("[prd-view] hit container req_id=%s task_id=%s", req.req_id, task_id)
-        return (req.prd_content, "container")
+    # ③ GitLab 兜底(finish_task 销毁容器前已把 PRD push 到 req_branch,容器销毁后仍可取回;
+    #   含 GitLab 侧实际路径发现 + prd_file_path 回写)
+    gitlab_content = await _sync_prd_from_gitlab(db, req)
+    if gitlab_content:
+        logger.info("[prd-view] hit gitlab req_id=%s task_id=%s", req.req_id, task_id)
+        return (gitlab_content, "gitlab")
 
-    logger.info("[prd-view] container read but empty req_id=%s", req.req_id)
+    logger.info("[prd-view] all sources empty req_id=%s", req.req_id)
     return (None, "none")
 
 
@@ -191,8 +259,96 @@ async def _sync_prd_background(task_id: str) -> None:
     try:
         async with async_session_factory() as session:
             await sync_prd_from_container(session, task_id)
+            # 自开 session 无请求级 commit(请求级由 get_db 收尾 commit),flush 不提交
+            # 即随 close 回滚——补 commit 落库(prd_content 与自愈回写的 prd_file_path 都依赖)
+            await session.commit()
     except Exception:
         logger.warning("[prd-sync] background task unexpected error task_id=%s", task_id, exc_info=True)
+
+
+async def _sync_prd_from_gitlab(db: AsyncSession, req: Requirement) -> str:
+    """
+    读侧第③层 GitLab 兜底(路径后置自愈的容器外入口):
+    finish_task 销毁容器前已把全部变更 push 到 work_branch(打磨任务即 req_branch),
+    容器销毁后按 (主仓库, req_branch, prd_file_path) 仍可取回 PRD。
+    直取 404 或路径为空 → GitLab tree 发现(docs/ 一层子目录,任务短 id 优先,同容器内发现器口径),
+    命中即回写 req.prd_file_path + 截断 + 回填 prd_content 并返回内容;任何失败返回 ""(兜底不外抛)。
+    """
+    from app.services import file_service, gitlab_service
+
+    try:
+        if not (req.req_branch or "").strip():
+            return ""
+
+        project = (await db.execute(
+            select(Project).where(Project.project_id == req.project_id)
+        )).scalar_one_or_none()
+        if project is None:
+            return ""
+        gitlab_url, bot_token, main_repo = await file_service._gitlab_ctx(db, project)
+
+        async def _fetch(rel: str) -> str:
+            """单路径取文件内容(base64 → utf-8);404(未提交过)→ 空串,其余异常上抛"""
+            try:
+                data = await gitlab_service.bot_get_file(
+                    bot_token, gitlab_url, main_repo.gitlab_repo_id, req.req_branch, rel
+                )
+            except BizError as e:
+                if getattr(e, "code", None) == 404:
+                    return ""
+                raise
+            import base64
+
+            return base64.b64decode(data.get("content", "")).decode("utf-8")
+
+        stored_path = (req.prd_file_path or "").strip()
+        content = await _fetch(stored_path) if stored_path else ""
+
+        # 直取落空 → GitLab 侧路径发现(与容器内发现器同优先级口径)
+        if not content.strip():
+            short_id = (req.polish_task_id or "")[:8]
+            try:
+                tree_items = await gitlab_service.bot_get_tree(
+                    bot_token, gitlab_url, main_repo.gitlab_repo_id, req.req_branch, "docs"
+                )
+            except Exception:
+                tree_items = []  # docs 不存在/列取失败 → 只剩根候选
+            subdir_names = [it.get("path", "")[len("docs/"):] for it in tree_items
+                            if it.get("type") == "tree" and it.get("path", "").startswith("docs/")]
+            preferred = [n for n in subdir_names if short_id and short_id in n]
+            others = [n for n in subdir_names if n not in preferred]
+
+            candidates = [f"docs/{n}/PRD.md" for n in preferred]
+            candidates += ["PRD.md", "docs/PRD.md"]
+            candidates += [f"docs/{n}/PRD.md" for n in others]
+
+            for rel in candidates:
+                hit = await _fetch(rel)
+                if hit.strip():
+                    if len(others) > 1 and not (short_id and short_id in rel) and rel.startswith("docs/"):
+                        logger.warning(
+                            "[prd-gitlab] multiple PRD candidates under docs/, picked first "
+                            "req=%s picked=%s all_subdirs=%s", req.req_id, rel, others,
+                        )
+                    stored_path, content = rel, hit
+                    break
+
+        if not content.strip():
+            return ""
+
+        # 自愈回写:实际路径成为关联键(下次直取命中)+ 回填平台副本
+        if stored_path and stored_path != (req.prd_file_path or "").strip():
+            req.prd_file_path = stored_path
+            logger.info(
+                "[prd-gitlab] prd path healed req_id=%s discovered=%s", req.req_id, stored_path,
+            )
+        req.prd_content = _truncate_prd(content, req.req_id)
+        await db.flush()
+        return req.prd_content
+
+    except Exception as e:
+        logger.warning("[prd-gitlab] failed req_id=%s: %s", req.req_id, e, exc_info=True)
+        return ""
 
 
 async def _creator_brief(db: AsyncSession, user_id: str) -> dict:
@@ -437,26 +593,35 @@ async def start_polish(db: AsyncSession, project: Project, operator: User, req: 
     开始打磨(draft → polishing):
     1. 重复校验(3001)
     2. 经 task_service 创建并启动打磨任务(type=requirement;R13 配置校验 + R8 容器)
-    3. 生成 prd_file_path(Q26);status=polishing,polish_task_id
+    3. status=polishing + polish_task_id;
+       prd_file_path 不再预生成——rd-prd 实际写出路径不受平台控制,
+       字段改由打磨完成后以实际路径回写(sync_prd_from_container / _sync_prd_from_gitlab 自愈),
+       语义:「最近一次打磨的实际 repo 路径,空=尚无打磨成果」
 
     R35.F1 打磨可重启:status=="polishing" 且 polish_task_id 指向的 task 已终态
     (cancelled/failed/timeout/done)→ 清空 polish_task_id 后走原创建链路(重新打磨);
     关联 task 仍 active(running/pending/cases_review)→ 维持 3001。
+    R37.F7(BUG-080):状态门放宽到 reviewing/approved——打磨完成后提交评审/评审通过
+    仍可再次打磨(任务须终态),放行后状态回 polishing、polish_task_id 换新任务。
     """
     if req.status == "draft":
         if req.polish_task_id:
             raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
-    elif req.status == "polishing" and req.polish_task_id:
-        from app.models.task import Task
+    elif req.status in ("polishing", "reviewing", "approved"):
+        # R37.F7(BUG-080):打磨完成后不再锁死在 polishing,reviewing/approved 也可返工重磨;
+        # in_progress/done/archived/rejected 落 else 仍 3001(开发态/完结态/归档/已取消不重磨)
+        if req.polish_task_id:
+            from app.models.task import Task
 
-        old = (await db.execute(
-            select(Task.status).where(Task.task_id == req.polish_task_id).limit(1)
-        )).scalar_one_or_none()
-        if old in ("cancelled", "failed", "timeout", "done") or old is None:
-            logger.info("打磨任务已终态(%s),允许重新打磨 req=%s", old, req.req_id)
-            req.polish_task_id = None
-        else:
-            raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
+            old = (await db.execute(
+                select(Task.status).where(Task.task_id == req.polish_task_id).limit(1)
+            )).scalar_one_or_none()
+            if old in ("cancelled", "failed", "timeout", "done") or old is None:
+                logger.info("打磨任务已终态(%s),允许再次打磨 req=%s", old, req.req_id)
+                req.polish_task_id = None
+            else:
+                raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
+        # polish_task_id 为空(从未打磨或孤儿态)→ 直接走创建链路
     else:
         raise BizError(ErrCode.POLISH_ALREADY_RUNNING, "已有打磨任务进行中")
 
@@ -466,7 +631,8 @@ async def start_polish(db: AsyncSession, project: Project, operator: User, req: 
 
     req.status = "polishing"
     req.polish_task_id = task_id
-    req.prd_file_path = task_service.build_prd_path(req.title, task_id)
+    # prd_file_path 不预生成(容器内建议路径仅经 create_polish_task 的 PRD_FILE_PATH env 传递,
+    # 不落库);完成后由实际路径回写——见 sync_prd_from_container 自愈链
     await db.flush()
     logger.info("打磨任务已启动 req=%s task=%s", req.req_id, task_id)
     # R25 审计:requirement.start_polish

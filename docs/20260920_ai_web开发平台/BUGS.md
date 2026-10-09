@@ -870,6 +870,21 @@
 - 环境留痕:验证期间发现 8000 端口被 15:05 旧进程滞留(新码未加载),强杀重启后实证;测试库缺 claude_session_id 列(alembic 记账漂移)已补列
 - 验证:E2E draft→polish 200+task_id、二次 3001、tasks 行 type=requirement/status=running、container_id=50f386fa63b4+runner 回填、req polishing+polish_task_id 一致、/requirements/{rid}/tasks 列表可见、UI 创建链(快速创建→详情)全 PASS;pytest 13/13(r8f4)+ dashboard 8/8
 
+### BUG-080 | 页面需求打磨完成后,还支持再次打磨(任务可以再次开启) | fixed(R37.F7;verified 待用户浏览器复验)
+- **状态**:fixed(2026-10-08 rd-fix 闭环;R37 全量 20/20 含 4 新用例 Red→Green,tsc/build 零错)
+- **根因**:R35.F1「重新打磨」只覆盖 polishing+终态;需求提交评审(reviewing)/评审通过(approved)后 start_polish 落 else 3001、前端按钮状态门不再渲染,返工唯一出路是评审驳回(需评审人操作)——流程死锁
+- **修复**:① 后端 start_polish 状态门 polishing → polishing/reviewing/approved(打磨任务须终态或缺失;放行后 status 回 polishing、polish_task_id 换新;顺带修 polishing+polish_task_id=None 孤儿态 3001 死角);② 前端「重新打磨」按钮状态门同步三态(RequirementDetail.tsx);③ in_progress/done/archived/rejected 仍 3001(4 守卫用例锁定)
+- **用户报障(期望行为)**:需求打磨任务完成(终态)后,页面要能**再次发起打磨**——任务可以再次开启,不是一次性流程
+- **验证边界**:手工复验步骤(打磨完成→提交评审→详情页「重新打磨」→点击拉起新任务、状态回「打磨中」)待用户浏览器执行;原始疑似面①②已排除(R35.F1 链路本就通),真缺口是③状态机死角
+
+### BUG-081 | 再次打磨任务容器回报丢失后,对账误杀占位行:任务永卡「启动中」,对话/终端 9001「任务无运行中的容器」 | fixed(R8.F7;verified 待用户复验)
+- **状态**:fixed(2026-10-08 晚 rd-fix 闭环;backend 5 新用例 + runner 2 新用例全绿,runner 全量 114/114,容器路径回归 18/18;runner 镜像已重建+容器已重建,后端已重启,对账实测 db=1 reported=2 零误杀)
+- **现场时间线**(后端 .runner_restart 日志 + runner docker logs 双向闭环):21:08:02 调度下发 → 21:08:03 docker 容器 880ab87c7569 启动成功 → **21:08:26 平台侧 WS 连接断开**(「Runner 连接注销」;runner 21:09:49 keepalive 超时才察觉)→ 21:08:58 runner `container_started` 回报发进死连接丢失 → 21:09:51 runner 重连注册,注册触发的 `handle_sync` 对账把「pending 占位行 ≠ docker id」判死(UPDATE destroyed)→ 任务行 running 但无 running 容器行 → 对话失败/终端 9001
+- **根因(三层)**:① `container_started` 回报走单发、连接死亡即永久丢失,runner 重连后无补发;② `handle_sync`(R16 对账)按 container_id 比对 docker 清单,`pending-` 占位行永不匹配必被误杀——而 runner 侧 R8.F5(BUG-055)早已在 sync 上报里带 `qicheng.task_id` 标签,**平台侧收养逻辑从未实现**(半成品缺陷);③ `handle_container_started` 只认 creating 行,行被对账抢先置 destroyed 后迟到回报直接丢弃,无复活语义
+- **修复方案(R8.F7)**:① handle_sync 护栏:pending 占位行不参与「不在上报→destroyed」判定;② handle_sync 收养:上报条目带 task_id 时按 task 收养占位行(替换真实 id/置 running/端口随报);③ handle_container_started 复活:无 creating 行时按 task 找最近 pending 占位行(destroyed 亦可)复活;④ runner `local_container_states` 补 ports( running_probes 已有,随镜像重建生效)
+- **现场修复**:containers.id=27 已按 docker 实况复活(880ab87c7569/running/端口回填)+ tasks 行回填,任务 4d0e3ce5 即时解堵;代码修复防复发
+- **诊断产物**:`.scratch/fix-analysis.md`(BUG-081 节)
+
 ### BUG-036 | 容器 LLM_URL/LLM_MODEL + 平台自定义变量 | fixed(R8.F4)
 - 后端:`platform_settings_service` 新键 `custom_env_vars`(envmap 型:键名正则/≤50 组/值≤2048/RESERVED_ENV_KEYS 拒写,错误文案不回显值);`task_service` 两处 env 改为自定义铺底+系统键后置覆盖 + `LLM_URL` 别名(=LLM_BASE_URL 同值)
 - 前端:`PlatformSettings.tsx` 第 5 组「自定义变量」KV 行编辑 + 客户端预检(与后端同口径);`api/admin.ts` 类型
@@ -1035,3 +1050,19 @@
 - **回归测试**:test_bug079_bg_agent_stream.py(看门狗区间断言 + 流式命令旗标断言)
 - **备注**:探索期 POST 持续 pending、前端输入锁定属 rd-prd 异步探索设计的固有形态(回复文本已声明「等待探索结果」);若要探索期可继续输入,需会话级并发改造(另立需求)
 
+
+### BUG-082 | 打磨完成 PRD/代码未提交仓库:创建者未绑 token 时 finish 静默跳过 commit | fixed(R37.F8;verified 待用户下次打磨真机复验)
+- **状态**:open(2026-10-09 rd-fix 登记;用户报障「生成的prd没有提交仓库中」)
+- **根因(实锤)**:`task_service.finish_task` 只取创建者个人 token,`if runner_conn is not None and creator_token:` —— 创建者未绑定 GitLab token(实锤:需求创建者 2845fe31 has_token=0)时 `creator_token=""` → **整段 commit/push 静默跳过**,任务照常 done、前端 toast 谎称「PRD 已推送至需求分支」,零提示零日志
+- **期望**:完成=真实提交。创建者无 token → 回退平台 bot token(需求分支本由 bot 经 `get_gitlab_bot_config` 创建,天然有推送权);bot 也未配置 → finish 显式报错,不静默
+- **复现**:创建者无 token → 打磨 → 点「打磨完成」→ 提示成功,但需求分支上无任何 commit
+
+### BUG-083 | done 任务误弹「任务容器未启动」遮罩且启动必败;打磨完成后应回需求详情页 | fixed(R37.F9;verified 待用户浏览器复验)
+- **状态**:open(2026-10-09 rd-fix 登记;用户报障「页面完了后一直任务容器未启动,启动也不行。我需要点完成,页面置灰提交,回到需求详情页」)
+- **根因(实锤)**:`TaskDetail.tsx:397-416` 容器门卫条件 `display_status ∉ {running, starting}` → **done 也生效**(任务已完成、容器已正常销毁仍全页遮罩弹「任务容器未启动,是否启动容器」);点「启动」→ retryTask → 后端 4001(终态不可重试)→ 死弹框。且 finish onSuccess 只 toast 不导航,用户停在死页面
+- **修复**:门卫排除 done(终态无「启动」语义);打磨完成成功 → 导航回需求详情页(任务详情载荷已含 req_id)
+
+### BUG-084 | headless 对话 Write 被静默拒绝:PRD.md 落盘不可靠,finish 时容器里常无文件可提交 | fixed(R8.F8;verified 待用户下次打磨真机复验)
+- **状态**:open(2026-10-09 rd-fix 登记;BUG-082 诊断连带发现)
+- **根因(实锤)**:容器内 headless claude `--allowedTools` 仅白名单 MCP 工具,Write/Edit/Bash 走 headless 默认**静默拒绝**(R5.F3 摘除 permgate 后无审批通道,BUG-072 留档口径「维持静默拒绝」)→ rd-prd 写 PRD.md 全凭 AI 恰好选用 filesystem MCP(10-08 偶然成功一次,prd_file_path 发现器回写即该次;10-09 两次 finish 容器内均无文件,prd_content 回填落空 has_prd=0)
+- **修复**:`--allowedTools` 增加 `Write Edit`(不放 Bash;终端交互链路本就是人工审批面,headless 静默拒绝形同虚设还打断 PRD 主链路)

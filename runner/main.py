@@ -256,6 +256,12 @@ def local_container_states() -> list[dict]:
                 # R8.F5(BUG-055):带 task 标签,平台对账可按 task_id 收养
                 # 「started 回报丢失」的容器,而非误判为未知/孤儿
                 "task_id": (c.labels or {}).get("qicheng.task_id", ""),
+                # R8.F7(BUG-081):带宿主机端口映射(收养时平台回填端口列;
+                # running_probes 未登记的容器缺省空 dict,键转字符串走 JSON)
+                "ports": {
+                    str(cport): hport
+                    for cport, hport in (running_probes.get(c.short_id, {}).get("ports") or {}).items()
+                },
             }
             for c in containers
         ]

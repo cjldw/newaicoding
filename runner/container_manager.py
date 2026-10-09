@@ -604,11 +604,16 @@ class ContainerManager:
         model_flag = f" --model {_shlex.quote(model)}" if model else ""
         # R5.F3(BUG-072 路径①):任务 AI 对话本身即授权环境,放行 MCP 工具面免人工审批。
         # 留痕:mysql_query 类工具具备写库能力(mcp-server-mysql 不限只读),任务容器环境
-        # 由用户自配凭据,接受。Bash/Edit/Write 等危险内置工具**不**放行,保持审批语义。
+        # 由用户自配凭据,接受。
+        # R8.F8(BUG-084):追加 Write/Edit——permgate 桥已摘(R5.F3),headless 下
+        # 未放行工具是「静默拒绝」而非「审批」,rd-prd 写 PRD.md 全凭 AI 偶然选用
+        # filesystem MCP(实证 10-09 两次 finish 容器内均无文件);Bash 仍不放开,
+        # 命令执行保持终端交互链路的人工审批面
         allowed_tools = (
             "mcp__mysql_dev__* mcp__mysql_beta__* mcp__filesystem__* "
             "mcp__brave-search__* mcp__figma__* mcp__github__* "
-            "ListMcpResourcesTool ReadMcpResourceTool ReadMcpResourceDirTool"
+            "ListMcpResourcesTool ReadMcpResourceTool ReadMcpResourceDirTool "
+            "Write Edit"
         )
         allowed_tools_flag = f" --allowedTools '{allowed_tools}'"
 

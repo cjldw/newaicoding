@@ -440,7 +440,12 @@ async def handle_sync(db: AsyncSession, runner: Runner, reported: list[dict]) ->
     """
     Runner 恢复后对账(以 Runner 上报为准):
     - DB 有(creating/running)但上报没有 → destroyed
+      R8.F7(BUG-081)护栏:pending- 占位行除外——占位行的生命周期是 container_started
+      提升,不按 docker id 对账(WS 断连丢回报后,重连对账不得误杀占位行)
     - 状态不一致 → 以上报为准(running/stopped)
+    - R8.F7(BUG-081)收养:上报带 task_id(R8.F5 qicheng.task_id 标签,旧 runner 缺此键
+      自然跳过)且该 task 存在 pending 占位行 → 提升为真实容器——「started 回报丢失」
+      (WS 断连)后的自愈通道,否则占位行永卡 creating、任务永卡启动中
     - 上报有但 DB 没有 → 记日志(理论不应发生)
     """
     result = await db.execute(
@@ -451,9 +456,30 @@ async def handle_sync(db: AsyncSession, runner: Runner, reported: list[dict]) ->
     )
     db_containers = {c.container_id: c for c in result.scalars().all()}
     reported_map = {r.get("container_id"): r.get("status", "running") for r in reported}
+    # R8.F7:上报按 task 归并(sync 条目带 qicheng.task_id 标签)
+    reported_by_task = {r.get("task_id") or "": r for r in reported if r.get("task_id")}
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     for container_id, container in db_containers.items():
+        # R8.F7(BUG-081):pending 占位行不按 docker id 对账(必不匹配,误杀即 BUG-081 现场)
+        if container_id.startswith("pending-"):
+            report = reported_by_task.get(container.task_id or "")
+            if report is not None:
+                real_id = report.get("container_id") or ""
+                if real_id:
+                    dup = (await db.execute(
+                        select(Container.id).where(Container.container_id == real_id).limit(1)
+                    )).scalar_one_or_none()
+                    container.container_id = real_id if dup is None else f"{real_id}-{container.id}"
+                    container.status = report.get("status", "running")
+                    ports = report.get("ports") or {}
+                    container.runner_host_port_5173 = ports.get("5173")
+                    container.runner_host_port_8000 = ports.get("8000")
+                    logger.info(
+                        "对账收养占位容器 task=%s -> %s(started 回报丢失自愈)",
+                        container.task_id, container.container_id,
+                    )
+            continue
         if container_id not in reported_map:
             container.status = "destroyed"
             container.destroyed_at = now
