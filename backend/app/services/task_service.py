@@ -1149,8 +1149,11 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
             )).scalars().all()
             for repo in repos:
                 mount = "/workspace/main" if repo.role == "main" else f"/workspace/{repo.role}"
+                # R37.F11(BUG-086):60s → 300s(大仓库 git add + push 实测超 60s);
+                # runner 侧 ok=False(git 报错)不再静默——「nothing to commit」视为
+                # 无变更成功,其余在 done 语义下显式抛错(完成=提交,失败不许装成功)
                 try:
-                    await runner_service.request_runner(runner_conn, {
+                    result = await runner_service.request_runner(runner_conn, {
                         "type": "git_commit",
                         "container_id": container.container_id,
                         "repo_path": mount,
@@ -1158,8 +1161,27 @@ async def finish_task(db: AsyncSession, task: Task, operator: User, status: str 
                         "message": f"[ai:{task.type}] {task.title}",
                         "branch": task.work_branch,
                         "token": commit_token,
-                    }, timeout=60.0)
+                    }, timeout=300.0)
+                    if not result.get("ok"):
+                        err = result.get("error") or "unknown"
+                        lowered = err.lower()
+                        if "nothing to commit" in lowered or "no changes added" in lowered:
+                            logger.info("仓库无变更可提交 task=%s repo=%s", task.task_id, mount)
+                            continue
+                        if status == "done":
+                            raise BizError(
+                                ErrCode.TERMINAL_UNAVAILABLE,
+                                f"仓库提交失败:{err}(可重试打磨完成;持续失败请联系管理员)",
+                            )
+                        logger.warning("仓库 commit/push 失败 task=%s repo=%s: %s", task.task_id, mount, err)
+                except BizError:
+                    raise
                 except Exception as e:
+                    if status == "done":
+                        raise BizError(
+                            ErrCode.TERMINAL_UNAVAILABLE,
+                            f"仓库提交失败:{e}(可重试打磨完成;持续失败请联系管理员)",
+                        )
                     logger.warning("仓库 commit/push 失败 task=%s repo=%s: %s", task.task_id, mount, e)
 
         # 路径后置:PRD 终态回传钩子——此刻 push 已完成(GitLab 有实际文件)、容器仍在线

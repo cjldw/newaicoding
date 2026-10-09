@@ -522,7 +522,8 @@ class ContainerManager:
         origin = out.decode(errors="ignore").strip()
         auth_url = ""
         if code == 0 and origin.startswith("http"):
-            auth_url = origin.replace("https://", f"https://oauth2:{token}@", 1)
+            # BUG-086:同 commit_push——:// 后注入凭据,http/https 通吃
+            auth_url = origin.replace("://", f"://oauth2:{token}@", 1)
             self.exec_capture(
                 container_id, f"git remote set-url origin {auth_url}",
                 workdir=repo_path)
@@ -551,8 +552,12 @@ class ContainerManager:
         """
         code, out = self.exec_capture(container_id, "git remote get-url origin", workdir=repo_path)
         origin = out.decode(errors="ignore").strip()
+        auth_url = ""
         if code == 0 and origin.startswith("http"):
-            auth_url = origin.replace("https://", f"https://oauth2:{token}@", 1)
+            # BUG-086:自建 GitLab remote 常为 http://(如 http://47.111.69.64/...),
+            # 原 replace("https://",...) 对 http 串替换不了任何东西 → 裸推 →
+            # git 交互要用户名(无 tty)→ fatal。改为 :// 后注入,http/https 通吃
+            auth_url = origin.replace("://", f"://oauth2:{token}@", 1)
             self.exec_capture(container_id, f"git remote set-url origin {auth_url}", workdir=repo_path)
 
         code, out = self.exec_capture(

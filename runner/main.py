@@ -457,14 +457,19 @@ async def handle_message(ws: Any, msg: dict) -> None:
                 await send_result(ws, req_id, False, error=str(e))
         else:
             # R3 旧通道:commit + push 焊死(保留兼容)
+            # BUG-086:异常必须回包(原仅记日志不回包 → 平台 future 干等到
+            # request_runner 超时,finish_task 侧只见「Runner 响应超时」,
+            # 真实 git 报错被吞)
             try:
                 manager.commit_push(
                     msg.get("container_id", ""), msg.get("repo_path", "/workspace/main"),
                     msg.get("add_path", ""), msg.get("message", ""),
                     msg.get("branch", ""), msg.get("token", ""),
                 )
+                await send_result(ws, req_id, True, data=None)
             except Exception as e:
                 logger.warning("PRD commit/push 失败: %s", e)
+                await send_result(ws, req_id, False, error=str(e))
 
     elif mtype == "git_push":
         # R39:独立 push(临时注入 oauth2 remote → push → 恢复原 remote)

@@ -1073,3 +1073,10 @@
 - **修复(双兜底)**:① sweep_timeouts 对 requirement 型任务**销毁前 await 内联回传**(_sync_prd_background 自开 session+commit,先同步后销毁);② send_message_stream 收尾钩子——打磨任务每轮 AI 回复后 fire-and-forget 回传入库(异常安全,不阻塞对话主链路),prd_content 实时留底,容器任何时候没了稿都在库里
 - **测试**:test_r37f10_prd_sync_guarantee.py 2 用例(回传先于销毁顺序实锤 + dev 任务不触发);chat/leak 触碰面 17/17
 - **补充(同日,用户指令「同步到需求详情页保证可预览」)**:useRequirementPrdContent 打磨中(status=polishing)10s 轮询刷新——PRD 预览实时跟随后台回传,不必等完成/手动刷新;tsc/build 零错
+
+### BUG-086 | PRD 永远回不来/推不上:失效路径弄瞎发现器 + http remote 凭据注入失效 + git 失败全链吞掉 | fixed(R37.F11 + R8.F9;真机已抢救回填+手推成功,verified 待下次打磨复验)
+- **状态**:fixed(2026-10-09 晚 rd-fix;用户报障「还是没有啊,对应的PRD.md 在那里可以看」)
+- **三连环根因**(任务 89e587e8 现场实证):① sync 固定路径回读抛「读取失败」**直接中止整个同步**——上一轮自愈的失效路径(docs/20261008_..._228e6d07)把发现器弄瞎,AI 实际写在 docs/20261009_后台图形验证码登录/ 的 PRD 永远回不来;② runner `commit_push` 凭据注入 `replace("https://",...)` 对 **http:// remote**(http://47.111.69.64/monorepo/whgzxs.git)替换不了任何东西 → 裸推 → git 交互要用户名(无 tty)→ fatal;R39 git_push 同款隐患;③ git_commit 旧通道异常**不回包** → 平台 60s「Runner 响应超时」→ finish 吞掉 → 任务照常 done
+- **修复**:① sync ⑥ 读取失败降级进发现器(路径自愈恢复工作);② commit_push/git_push 改 `://` 后注入凭据(http/https 通吃,push 后恢复原 remote);③ runner 旧通道异常回包 ok=False;④ finish git_commit 60→300s + ok 感知(nothing to commit 视为无变更;done 语义下真实失败显式抛错不静默)
+- **测试**:runner 117/117(http 注入 2 新用例)+ backend test_r37f11 2 用例(失效路径自愈 + git 失败显式抛错)
+- **抢救(手工,脚本留痕)**:任务 89e587e8 的 PRD 已从存活容器回填 requirements.prd_content(12668B)+ prd_file_path 自愈 + bot token(解密后)手推 GitLab 成功(`7443c287..56c45da4`);详情页预览即时可见(source=db)

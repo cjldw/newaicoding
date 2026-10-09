@@ -143,11 +143,20 @@ async def sync_prd_from_container(db: AsyncSession, task_id: str) -> None:
             logger.info("[prd-sync] skip runner offline runner_id=%s", container.runner_id)
             return
 
-        # ⑥ 固定路径回读(有路径才读)
+        # ⑥ 固定路径回读(有路径才读);R37.F11(BUG-086)读取失败(路径失效/
+        #    文件不存在)不再中止——降级为空内容走 ⑦ 发现器自愈。原:异常直接
+        #    中止整个同步,失效的 prd_file_path 把发现器弄瞎(实证:任务 89e587e8
+        #    的每轮回传全程空转,PRD 实际写在 AI 自选目录里却永远回不来)
         content = ""
         if container_path:
-            file_data = await file_service.task_read_file(db, task_id, container_path)
-            content = file_data.get("content") or ""
+            try:
+                file_data = await file_service.task_read_file(db, task_id, container_path)
+                content = file_data.get("content") or ""
+            except Exception as e:
+                logger.info(
+                    "[prd-sync] stored path read failed, fallback to discovery req_id=%s path=%s err=%s",
+                    req.req_id, prd_path, e,
+                )
 
         # ⑦ 固定路径读空/启动时无路径 → 容器内发现实际 PRD 路径(路径后置自愈):
         #   命中即回写 prd_file_path——实际路径自此成为关联键,后续直取命中不再进发现器
