@@ -84,6 +84,9 @@ export function RequirementDetail() {
   const [rejectDialog, setRejectDialog] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
   const [releaseDialog, setReleaseDialog] = useState(false)
+  // R22.F4(BUG-088):创建开发/测试任务——本页弹窗(复用 tasks/TaskCreateDialog,
+  // 与 release 同款;原 navigate('/tasks/create?type=x') 指向不存在的路由)
+  const [createTaskType, setCreateTaskType] = useState<null | 'dev' | 'test'>(null)
   const [cancelDialog, setCancelDialog] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [error, setError] = useState('')
@@ -277,14 +280,14 @@ export function RequirementDetail() {
             </>
           )}
           {requirement.status === 'approved' && (
-            <Button variant="primary" onClick={() => navigate('/tasks/create?type=dev')}>
+            <Button variant="primary" onClick={() => setCreateTaskType('dev')}>
               <FileText className="w-4 h-4 mr-2" />
               创建开发任务
             </Button>
           )}
           {/* R35.F4:in_progress 永不出现(后端无赋值点)→ 按任务态挂 approved(后端 _TYPE_REQ_STATUS 本就允许 approved 建 test/release) */}
           {requirement.status === 'approved' && hasDevTaskDone && (
-            <Button variant="primary" onClick={() => navigate('/tasks/create?type=test')}>
+            <Button variant="primary" onClick={() => setCreateTaskType('test')}>
               <FileText className="w-4 h-4 mr-2" />
               创建测试任务
             </Button>
@@ -599,6 +602,16 @@ export function RequirementDetail() {
           open={releaseDialog}
           onClose={() => setReleaseDialog(false)}
           onSuccess={(taskId) => { setReleaseDialog(false); navigate(`/tasks/${taskId}/deploy`) }}
+        />
+      )}
+      {/* R22.F4(BUG-088):创建开发/测试任务弹窗(与 release 同款组件) */}
+      {createTaskType && (
+        <TaskCreateDialog
+          reqId={reqId ?? ''}
+          type={createTaskType}
+          open
+          onClose={() => setCreateTaskType(null)}
+          onSuccess={(taskId) => { setCreateTaskType(null); navigate(`/tasks/${taskId}`) }}
         />
       )}
     </div>

@@ -1086,3 +1086,9 @@
 - **根因**:后端 `PUT /me/gitlab-token`(users.py:121),前端 `bindGitLabToken` 用 `api.post` → 每次提交 405 Method Not Allowed。token 本身有效(实测 gitlab.zhanqirsj.com / 47.111.69.64 均 200 返回 luowen 档案);GET 查状态/DELETE 解绑均配对,唯绑定错位
 - **修复**:① bindGitLabToken `api.post` → `api.put`(单行);② 补 GET /me/gitlab-token 状态路由(原只有 PUT/DELETE,设置页状态查询恒 405,页面永远显示未绑定态;返回 {bound, gitlab_username, scopes} 与前端契约对齐)。tsc/build 零错
 - **真机**:PUT 绑定 code=0;GET 状态 {bound:true, gitlab_username:luowen, scopes:[unknown](BUG-016 已知口径)};users.gitlab_token_encrypted 已落库
+
+### BUG-088 | 需求详情页「创建开发/测试任务」按钮指向不存在的路由 /tasks/create | fixed(R22.F4;verified 待用户浏览器复验)
+- **状态**:fixed(2026-10-09 晚 rd-fix;用户报障「创建开发任务接口失败,接口 404」附抓包 GET /api/tasks/create)
+- **根因**:RequirementDetail approved 态的「创建开发任务/创建测试任务」按钮 `navigate('/tasks/create?type=x')`——该路由无页面无注册(项目里只有对话框组件 `pages/tasks/TaskCreateDialog`,且同文件已 import、release 按钮已在用),落进坏路由后前端还打出 GET /api/tasks/create → 404
+- **修复**:两按钮改本页弹窗(与 release 完全同款):`setCreateTaskType('dev'|'test')` + 渲染 `<TaskCreateDialog reqId type onSuccess→/tasks/{id}>`;撤销误改的 manage 版弹窗
+- **测试**:tsc/build 零错;创建接口本体(POST /requirements/{req_id}/tasks)为 R4 生产在用链路,无需新验证
