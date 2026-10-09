@@ -163,6 +163,22 @@ async def bind_gitlab_token(
 
 
 # -------------------------------------------------------------------
+# GET /api/users/me/gitlab-token - 绑定状态(BUG-087:原只有 PUT/DELETE,
+# 设置页 getGitLabTokenStatus 恒 405,页面永远显示未绑定态)
+# -------------------------------------------------------------------
+@router.get("/me/gitlab-token")
+async def get_gitlab_token_status(
+    current_user: User = Depends(get_current_user),
+):
+    """绑定状态查询:bound + 用户名 + scopes(与前端 GitLabTokenStatus 契约对齐)"""
+    return success(data={
+        "bound": current_user.gitlab_token_encrypted is not None,
+        "gitlab_username": current_user.gitlab_username,
+        "scopes": current_user.gitlab_token_scopes or [],
+    })
+
+
+# -------------------------------------------------------------------
 # DELETE /api/users/me/gitlab-token - 解绑 GitLab token
 # -------------------------------------------------------------------
 @router.delete("/me/gitlab-token")

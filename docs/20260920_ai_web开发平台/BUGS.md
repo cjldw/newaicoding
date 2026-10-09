@@ -1080,3 +1080,9 @@
 - **修复**:① sync ⑥ 读取失败降级进发现器(路径自愈恢复工作);② commit_push/git_push 改 `://` 后注入凭据(http/https 通吃,push 后恢复原 remote);③ runner 旧通道异常回包 ok=False;④ finish git_commit 60→300s + ok 感知(nothing to commit 视为无变更;done 语义下真实失败显式抛错不静默)
 - **测试**:runner 117/117(http 注入 2 新用例)+ backend test_r37f11 2 用例(失效路径自愈 + git 失败显式抛错)
 - **抢救(手工,脚本留痕)**:任务 89e587e8 的 PRD 已从存活容器回填 requirements.prd_content(12668B)+ prd_file_path 自愈 + bot token(解密后)手推 GitLab 成功(`7443c287..56c45da4`);详情页预览即时可见(source=db)
+
+### BUG-087 | GitLab Token 绑定永远 405:前端 POST vs 后端 PUT 方法错位 | fixed(R28.F3;真机绑定实证)
+- **状态**:fixed(2026-10-09 晚 rd-fix;用户报障「接口绑定失败」附 fetch 抓包)
+- **根因**:后端 `PUT /me/gitlab-token`(users.py:121),前端 `bindGitLabToken` 用 `api.post` → 每次提交 405 Method Not Allowed。token 本身有效(实测 gitlab.zhanqirsj.com / 47.111.69.64 均 200 返回 luowen 档案);GET 查状态/DELETE 解绑均配对,唯绑定错位
+- **修复**:① bindGitLabToken `api.post` → `api.put`(单行);② 补 GET /me/gitlab-token 状态路由(原只有 PUT/DELETE,设置页状态查询恒 405,页面永远显示未绑定态;返回 {bound, gitlab_username, scopes} 与前端契约对齐)。tsc/build 零错
+- **真机**:PUT 绑定 code=0;GET 状态 {bound:true, gitlab_username:luowen, scopes:[unknown](BUG-016 已知口径)};users.gitlab_token_encrypted 已落库

@@ -37,8 +37,9 @@ export const usersApi = {
   getGitLabTokenStatus: () =>
     api.get<GitLabTokenStatus>('/users/me/gitlab-token'),
 
+  // BUG-087:后端是 PUT /me/gitlab-token(users.py:121),原 api.post 永远 405
   bindGitLabToken: (data: BindGitLabTokenRequest) =>
-    api.post<{ message: string }>('/users/me/gitlab-token', data),
+    api.put<{ message: string }>('/users/me/gitlab-token', data),
 
   unbindGitLabToken: () =>
     api.delete<{ message: string }>('/users/me/gitlab-token'),
