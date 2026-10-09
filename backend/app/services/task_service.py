@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 MAX_CONCURRENT_RUNNING = 3        # 单项目并发 running 任务 ≤ 3
 TASK_TIMEOUT_MINUTES = 60         # 单任务最长 60 分钟(超时兜底)
 COMMIT_AUTHOR_FALLBACK = ("ai", "ai@qicheng.local")
+_BG_PRD_SYNCS: set = set()        # R37.F10(BUG-085):在途后台 PRD 回传引用(仅防 GC)
 
 # 允许的任务类型 → 需求状态前置
 _TYPE_REQ_STATUS = {
@@ -802,6 +803,19 @@ async def send_message_stream(db: AsyncSession, task: Task, operator: User, cont
             await cleanup_task_confirms(task.task_id)
         except Exception:
             logger.exception("对话收尾清理挂起确认失败 task=%s", task.task_id)
+        # R37.F10(BUG-085):打磨任务每轮 AI 回复后后台回传 PRD 入库(prd_content
+        # 副本),容器超时/异常销毁也不再丢稿。自开 session(fire-and-forget),
+        # 持引用防 GC;同步幂等,finish 时 finish_task 会再走一次。
+        # 整段异常安全:收尾钩子绝不打断对话主链路
+        if task.type == "requirement":
+            try:
+                from app.services import requirement_service as _req_service
+
+                _bg = asyncio.create_task(_req_service._sync_prd_background(task.task_id))
+                _BG_PRD_SYNCS.add(_bg)
+                _bg.add_done_callback(_BG_PRD_SYNCS.discard)
+            except Exception:
+                logger.warning("PRD 后台回传调度失败(不阻塞对话收尾) task=%s", task.task_id)
 
     duration_ms = int((time.monotonic() - started) * 1000)
 
@@ -1252,6 +1266,16 @@ async def sweep_timeouts(db: AsyncSession) -> int:
             )
         )
         containers = containers_result.scalars().all()
+        # R37.F10(BUG-085):打磨任务销毁容器前兜底回传 PRD——容器一停,未走
+        # 「打磨完成」链路的 PRD.md 就没了(纯容器内存货);自开 session 同步
+        # (sweep 会话是否 commit 不可依赖),await 内联保证先回传后销毁
+        if task.type == "requirement" and containers:
+            from app.services import requirement_service as _req_service
+
+            try:
+                await _req_service._sync_prd_background(task.task_id)
+            except Exception:
+                logger.warning("超时清扫 PRD 兜底回传失败(不阻塞销毁) task=%s", task.task_id)
         for container in containers:
             await container_service.request_stop(db, container)
         count += 1

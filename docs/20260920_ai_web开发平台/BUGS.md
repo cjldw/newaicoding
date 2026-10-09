@@ -1066,3 +1066,9 @@
 - **状态**:open(2026-10-09 rd-fix 登记;BUG-082 诊断连带发现)
 - **根因(实锤)**:容器内 headless claude `--allowedTools` 仅白名单 MCP 工具,Write/Edit/Bash 走 headless 默认**静默拒绝**(R5.F3 摘除 permgate 后无审批通道,BUG-072 留档口径「维持静默拒绝」)→ rd-prd 写 PRD.md 全凭 AI 恰好选用 filesystem MCP(10-08 偶然成功一次,prd_file_path 发现器回写即该次;10-09 两次 finish 容器内均无文件,prd_content 回填落空 has_prd=0)
 - **修复**:`--allowedTools` 增加 `Write Edit`(不放 Bash;终端交互链路本就是人工审批面,headless 静默拒绝形同虚设还打断 PRD 主链路)
+
+### BUG-085 | PRD 防丢:打磨中容器超时/异常销毁(未走「打磨完成」)时 PRD 只存容器内,随容器一起丢 | fixed(R37.F10;verified 待真机复验)
+- **状态**:fixed(2026-10-09 rd-fix 登记;用户追问「AI 对话完成的 PRD.md 没有推远程,有其它办法保证不丢么」)
+- **根因**:PRD 副本链(容器文件 → finish 回传入库 → bot 推分支)只在「打磨完成」时触发;超时清扫 sweep_timeouts 销毁容器前**无回传**,未完成的打磨稿随容器一起丢
+- **修复(双兜底)**:① sweep_timeouts 对 requirement 型任务**销毁前 await 内联回传**(_sync_prd_background 自开 session+commit,先同步后销毁);② send_message_stream 收尾钩子——打磨任务每轮 AI 回复后 fire-and-forget 回传入库(异常安全,不阻塞对话主链路),prd_content 实时留底,容器任何时候没了稿都在库里
+- **测试**:test_r37f10_prd_sync_guarantee.py 2 用例(回传先于销毁顺序实锤 + dev 任务不触发);chat/leak 触碰面 17/17
