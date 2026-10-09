@@ -210,11 +210,14 @@ export function useRequirementDetail(reqId: string) {
 }
 
 // R3:PRD 副本读取 hook(免容器预览)— 同构 useTaskFileContent 三段式(queryKey/queryFn/enabled)
-export function useRequirementPrdContent(reqId: string | null | undefined) {
+// R37.F10(BUG-085):打磨中(status==='polishing')轮询刷新——后台每轮 AI 回复
+// 会自动回传 prd_content 入库,预览实时跟随,不必等打磨完成/手动刷新
+export function useRequirementPrdContent(reqId: string | null | undefined, status?: string) {
   return useQuery({
     queryKey: ['requirement-prd-content', reqId],
     queryFn: () => requirementsApi.getPrdContent(reqId as string).then(r => r.data),
     enabled: !!reqId,
+    refetchInterval: status === 'polishing' ? 10_000 : false,
   })
 }
 

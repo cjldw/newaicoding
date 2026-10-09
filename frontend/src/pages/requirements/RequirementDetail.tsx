@@ -78,7 +78,8 @@ export function RequirementDetail() {
 
   // R3:PRD 副本读取(免容器预览)— 数据源切换至平台副本接口
   // 原 polishTask/prdTaskId/prdAbsPath 派生逻辑与 useTaskFileContent 调用已移除
-  const { data: prdContentData } = useRequirementPrdContent(requirement?.req_id)
+  // R37.F10(BUG-085):透传状态——打磨中轮询刷新,PRD 预览实时跟随后台回传
+  const { data: prdContentData } = useRequirementPrdContent(requirement?.req_id, requirement?.status)
 
   const [rejectDialog, setRejectDialog] = useState(false)
   const [rejectReason, setRejectReason] = useState('')

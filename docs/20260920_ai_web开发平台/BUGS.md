@@ -1072,3 +1072,4 @@
 - **根因**:PRD 副本链(容器文件 → finish 回传入库 → bot 推分支)只在「打磨完成」时触发;超时清扫 sweep_timeouts 销毁容器前**无回传**,未完成的打磨稿随容器一起丢
 - **修复(双兜底)**:① sweep_timeouts 对 requirement 型任务**销毁前 await 内联回传**(_sync_prd_background 自开 session+commit,先同步后销毁);② send_message_stream 收尾钩子——打磨任务每轮 AI 回复后 fire-and-forget 回传入库(异常安全,不阻塞对话主链路),prd_content 实时留底,容器任何时候没了稿都在库里
 - **测试**:test_r37f10_prd_sync_guarantee.py 2 用例(回传先于销毁顺序实锤 + dev 任务不触发);chat/leak 触碰面 17/17
+- **补充(同日,用户指令「同步到需求详情页保证可预览」)**:useRequirementPrdContent 打磨中(status=polishing)10s 轮询刷新——PRD 预览实时跟随后台回传,不必等完成/手动刷新;tsc/build 零错
